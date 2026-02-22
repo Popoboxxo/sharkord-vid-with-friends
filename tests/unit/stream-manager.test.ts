@@ -76,7 +76,6 @@ describe("StreamManager", () => {
     streamManager.setActive(channelId, {
       ...resources,
       ...producers,
-      hlsProcess: null,
       videoProcess: null,
       audioProcess: null,
       streamHandle: null,
@@ -106,7 +105,6 @@ describe("StreamManager", () => {
       streamManager.setActive(chId, {
         ...resources,
         ...producers,
-        hlsProcess: null,
         videoProcess: null,
         audioProcess: null,
         streamHandle: null,

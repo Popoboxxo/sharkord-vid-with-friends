@@ -15,7 +15,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // ---- Types ----
 
 export type VideoStreamOptions = {
-  inputPath: string;
+  sourceUrl: string;
   rtpHost: string;
   rtpPort: number;
   payloadType: number;
@@ -24,20 +24,13 @@ export type VideoStreamOptions = {
 };
 
 export type AudioStreamOptions = {
-  inputPath: string;
+  sourceUrl: string;
   rtpHost: string;
   rtpPort: number;
   payloadType: number;
   ssrc: number;
   bitrate: string;
   volume: number;
-};
-
-export type HlsOptions = {
-  sourceUrl: string;
-  outputDir: string;
-  segmentDuration: number;
-  listSize: number;
 };
 
 export type FfmpegLoggers = {
@@ -82,12 +75,12 @@ export const normalizeBitrate = (bitrate?: string): string => {
 };
 
 /**
- * Build ffmpeg args for creating HLS intermediate segments from a source URL. (REQ-002)
- * This is the first step: download + transcode → HLS segments on disk.
+ * Build ffmpeg args for streaming video via RTP directly from a source URL. (REQ-002)
+ * Reads the source URL and outputs H264 RTP to Mediasoup.
  */
-export const buildHlsArgs = (options: HlsOptions): string[] => {
-  const { sourceUrl, outputDir, segmentDuration, listSize } = options;
-  const outputPath = path.join(outputDir, "stream.m3u8");
+export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
+  const { sourceUrl, rtpHost, rtpPort, payloadType, ssrc, bitrate } = options;
+  const bitrateNorm = normalizeBitrate(bitrate);
 
   return [
     "-hide_banner",
@@ -96,36 +89,8 @@ export const buildHlsArgs = (options: HlsOptions): string[] => {
     "-reconnect", "1",
     "-reconnect_streamed", "1",
     "-reconnect_delay_max", "5",
-    "-i", sourceUrl,
-    "-c:v", "libx264",
-    "-preset", "ultrafast",
-    "-tune", "zerolatency",
-    "-c:a", "aac",
-    "-ar", "48000",
-    "-f", "hls",
-    "-hls_time", String(segmentDuration),
-    "-hls_list_size", String(listSize),
-    "-hls_flags", "delete_segments+append_list",
-    "-hls_segment_filename", path.join(outputDir, "segment_%03d.ts"),
-    outputPath,
-  ];
-};
-
-/**
- * Build ffmpeg args for streaming video via RTP from HLS segments. (REQ-002)
- * Reads from the HLS playlist and outputs H264 RTP.
- */
-export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
-  const { inputPath, rtpHost, rtpPort, payloadType, ssrc, bitrate } = options;
-  const bitrateNorm = normalizeBitrate(bitrate);
-
-  return [
-    "-hide_banner",
-    "-nostats",
-    "-loglevel", "warning",
     "-re",
-    "-live_start_index", "-1",
-    "-i", inputPath,
+    "-i", sourceUrl,
     "-an",
     "-c:v", "libx264",
     "-preset", "ultrafast",
@@ -142,23 +107,24 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
 };
 
 /**
- * Build ffmpeg args for streaming audio via RTP from HLS segments. (REQ-002, REQ-012)
- * Reads from the HLS playlist and outputs Opus RTP.
+ * Build ffmpeg args for streaming audio via RTP directly from a source URL. (REQ-002, REQ-012)
+ * Reads the source URL and outputs Opus RTP to Mediasoup.
  */
 export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
-  const { inputPath, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume } = options;
+  const { sourceUrl, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume } = options;
   const bitrateNorm = normalizeBitrate(bitrate);
-  const volumeNorm = normalizeVolume(volume * 100); // volume is already 0-1 float
 
-  const volumeFilter = volumeNorm !== 1 ? ["-af", `volume=${volume}`] : [];
+  const volumeFilter = volume !== 1 ? ["-af", `volume=${volume}`] : [];
 
   return [
     "-hide_banner",
     "-nostats",
     "-loglevel", "warning",
+    "-reconnect", "1",
+    "-reconnect_streamed", "1",
+    "-reconnect_delay_max", "5",
     "-re",
-    "-live_start_index", "-1",
-    "-i", inputPath,
+    "-i", sourceUrl,
     "-vn",
     ...volumeFilter,
     "-c:a", "libopus",

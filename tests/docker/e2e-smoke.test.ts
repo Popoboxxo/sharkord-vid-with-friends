@@ -21,8 +21,8 @@ describe("E2E Smoke", () => {
 
   it("[REQ-002] should have ffmpeg available", async () => {
     if (!isDocker) {
-      const { buildHlsArgs } = await import("../../src/stream/ffmpeg");
-      const args = buildHlsArgs({ sourceUrl: "test", outputDir: "/tmp", segmentDuration: 2, listSize: 10 });
+      const { buildVideoStreamArgs } = await import("../../src/stream/ffmpeg");
+      const args = buildVideoStreamArgs({ sourceUrl: "test", rtpHost: "127.0.0.1", rtpPort: 40000, payloadType: 96, ssrc: 1, bitrate: "2000k" });
       expect(args.length).toBeGreaterThan(0);
       return;
     }
@@ -60,19 +60,10 @@ describe("E2E Smoke", () => {
   });
 
   it("[REQ-002] should build ffmpeg args without errors", async () => {
-    const { buildHlsArgs, buildVideoStreamArgs, buildAudioStreamArgs } = await import("../../src/stream/ffmpeg");
-
-    const hlsArgs = buildHlsArgs({
-      sourceUrl: "https://example.com/stream.mp4",
-      outputDir: "/tmp/test-hls",
-      segmentDuration: 2,
-      listSize: 10,
-    });
-    expect(hlsArgs.length).toBeGreaterThan(0);
-    expect(hlsArgs).toContain("-f");
+    const { buildVideoStreamArgs, buildAudioStreamArgs } = await import("../../src/stream/ffmpeg");
 
     const videoArgs = buildVideoStreamArgs({
-      inputPath: "/tmp/test-hls/stream.m3u8",
+      sourceUrl: "https://example.com/stream.mp4",
       rtpHost: "127.0.0.1",
       rtpPort: 40000,
       payloadType: 96,
@@ -83,7 +74,7 @@ describe("E2E Smoke", () => {
     expect(videoArgs).toContain("rtp");
 
     const audioArgs = buildAudioStreamArgs({
-      inputPath: "/tmp/test-hls/stream.m3u8",
+      sourceUrl: "https://example.com/stream.mp4",
       rtpHost: "127.0.0.1",
       rtpPort: 40001,
       payloadType: 111,

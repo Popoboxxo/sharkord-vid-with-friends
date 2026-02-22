@@ -54,7 +54,6 @@ export type ChannelStreamResources = {
   videoTransport: TransportLike;
   audioProducer: ProducerLike;
   videoProducer: ProducerLike;
-  hlsProcess: SpawnedProcess | null;
   videoProcess: SpawnedProcess | null;
   audioProcess: SpawnedProcess | null;
   streamHandle: StreamHandleLike | null;
@@ -186,7 +185,6 @@ export class StreamManager {
     if (!resources) return;
 
     // Kill ffmpeg processes
-    resources.hlsProcess?.kill();
     resources.videoProcess?.kill();
     resources.audioProcess?.kill();
 

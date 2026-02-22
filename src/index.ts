@@ -13,7 +13,7 @@ import type { ChannelStreamResources, StreamHandleLike } from "./stream/stream-m
 import { SyncController } from "./sync/sync-controller";
 import type { QueueItem } from "./queue/types";
 
-import { buildHlsArgs, buildVideoStreamArgs, buildAudioStreamArgs, spawnFfmpeg, killProcess } from "./stream/ffmpeg";
+import { buildVideoStreamArgs, buildAudioStreamArgs, spawnFfmpeg, killProcess } from "./stream/ffmpeg";
 import type { FfmpegLoggers, SpawnedProcess } from "./stream/ffmpeg";
 
 import {
@@ -35,7 +35,6 @@ import { registerPauseCommand } from "./commands/pause";
 import { registerVolumeCommand } from "./commands/volume";
 
 import path from "path";
-import os from "os";
 
 // ---- Plugin-level singletons (initialized in onLoad) ----
 
@@ -133,30 +132,12 @@ const startStream = async (
     },
   });
 
-  // 5. Determine HLS output directory
-  const hlsDir = path.join(os.tmpdir(), `vwf-hls-${channelId}`);
-
-  // 6. Get volume setting
+  // 5. Get volume setting
   const volume = syncController.getVolume(channelId) / 100;
 
-  // 7. Spawn HLS buffer process
-  const hlsArgs = buildHlsArgs({
-    sourceUrl: item.streamUrl,
-    outputDir: hlsDir,
-    segmentDuration: DEFAULT_SETTINGS.HLS_SEGMENT_DURATION,
-    listSize: DEFAULT_SETTINGS.HLS_LIST_SIZE,
-  });
-
-  const hlsProcess = spawnFfmpeg(hlsArgs, loggers);
-
-  // 8. Wait briefly for HLS to produce initial segments
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-
-  // 9. Spawn video RTP streamer
-  const hlsPlaylistPath = path.join(hlsDir, "stream.m3u8");
-
+  // 6. Spawn video RTP streamer (reads directly from stream URL)
   const videoArgs = buildVideoStreamArgs({
-    inputPath: hlsPlaylistPath,
+    sourceUrl: item.streamUrl,
     rtpHost: ip,
     rtpPort: transports.videoTransport.tuple.localPort,
     payloadType: VIDEO_CODEC.payloadType,
@@ -166,9 +147,9 @@ const startStream = async (
 
   const videoProcess = spawnFfmpeg(videoArgs, loggers);
 
-  // 10. Spawn audio RTP streamer
+  // 7. Spawn audio RTP streamer (reads directly from stream URL)
   const audioArgs = buildAudioStreamArgs({
-    inputPath: hlsPlaylistPath,
+    sourceUrl: item.streamUrl,
     rtpHost: ip,
     rtpPort: transports.audioTransport.tuple.localPort,
     payloadType: AUDIO_CODEC.payloadType,
@@ -179,13 +160,12 @@ const startStream = async (
 
   const audioProcess = spawnFfmpeg(audioArgs, loggers);
 
-  // 11. Store all resources for lifecycle tracking
+  // 8. Store all resources for lifecycle tracking
   const resources: ChannelStreamResources = {
     audioTransport: transports.audioTransport,
     videoTransport: transports.videoTransport,
     audioProducer: producers.audioProducer,
     videoProducer: producers.videoProducer,
-    hlsProcess,
     videoProcess,
     audioProcess,
     streamHandle,
@@ -196,7 +176,7 @@ const startStream = async (
 
   ctx.log(`[stream:${channelId}] Streaming: ${item.title}`);
 
-  // 12. Monitor video process exit for auto-advance (REQ-009)
+  // 9. Monitor video process exit for auto-advance (REQ-009)
   monitorProcess(ctx, channelId, videoProcess);
 };
 

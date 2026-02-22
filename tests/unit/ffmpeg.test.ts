@@ -10,7 +10,6 @@ import { describe, it, expect } from "bun:test";
 import {
   buildVideoStreamArgs,
   buildAudioStreamArgs,
-  buildHlsArgs,
   normalizeVolume,
   normalizeBitrate,
   getFfmpegBinaryName,
@@ -22,7 +21,7 @@ describe("ffmpeg", () => {
   describe("buildVideoStreamArgs", () => {
     it("[REQ-002] should produce H264 RTP output args", () => {
       const args = buildVideoStreamArgs({
-        inputPath: "/tmp/hls/stream.m3u8",
+        sourceUrl: "https://stream.example.com/video",
         rtpHost: "127.0.0.1",
         rtpPort: 40001,
         payloadType: 96,
@@ -42,7 +41,7 @@ describe("ffmpeg", () => {
 
     it("[REQ-002] should include video-only flag (no audio)", () => {
       const args = buildVideoStreamArgs({
-        inputPath: "/tmp/hls/stream.m3u8",
+        sourceUrl: "https://stream.example.com/video",
         rtpHost: "127.0.0.1",
         rtpPort: 40001,
         payloadType: 96,
@@ -52,6 +51,20 @@ describe("ffmpeg", () => {
 
       expect(args).toContain("-an"); // no audio
     });
+
+    it("[REQ-002] should include reconnect args for network sources", () => {
+      const args = buildVideoStreamArgs({
+        sourceUrl: "https://stream.example.com/video",
+        rtpHost: "127.0.0.1",
+        rtpPort: 40001,
+        payloadType: 96,
+        ssrc: 123456,
+        bitrate: "2000k",
+      });
+
+      expect(args).toContain("-reconnect");
+      expect(args).toContain("1");
+    });
   });
 
   // --- REQ-002: Audio RTP stream args ---
@@ -59,7 +72,7 @@ describe("ffmpeg", () => {
   describe("buildAudioStreamArgs", () => {
     it("[REQ-002] should produce Opus RTP output args", () => {
       const args = buildAudioStreamArgs({
-        inputPath: "/tmp/hls/stream.m3u8",
+        sourceUrl: "https://stream.example.com/video",
         rtpHost: "127.0.0.1",
         rtpPort: 40002,
         payloadType: 111,
@@ -78,7 +91,7 @@ describe("ffmpeg", () => {
 
     it("[REQ-012] should include volume filter when volume is not 1.0", () => {
       const args = buildAudioStreamArgs({
-        inputPath: "/tmp/hls/stream.m3u8",
+        sourceUrl: "https://stream.example.com/video",
         rtpHost: "127.0.0.1",
         rtpPort: 40002,
         payloadType: 111,
@@ -90,36 +103,16 @@ describe("ffmpeg", () => {
       expect(args).toContain("-af");
       expect(args.some((a) => a.includes("volume=0.5"))).toBe(true);
     });
-  });
-
-  // --- REQ-002: HLS intermediate buffer args ---
-
-  describe("buildHlsArgs", () => {
-    it("[REQ-002] should produce HLS segmented output", () => {
-      const args = buildHlsArgs({
-        sourceUrl: "https://stream.example.com/video",
-        outputDir: "/tmp/hls",
-        segmentDuration: 2,
-        listSize: 15,
-      });
-
-      expect(args).toContain("-f");
-      expect(args).toContain("hls");
-      // Use platform-agnostic path check (Windows uses \, Unix uses /)
-      const hlsDir = process.platform === "win32" ? "\\tmp\\hls" : "/tmp/hls";
-      expect(args.some((a) => a.includes(hlsDir))).toBe(true);
-      expect(args).toContain("-hls_time");
-      expect(args).toContain("2");
-      expect(args).toContain("-hls_list_size");
-      expect(args).toContain("15");
-    });
 
     it("[REQ-002] should include reconnect args for network sources", () => {
-      const args = buildHlsArgs({
+      const args = buildAudioStreamArgs({
         sourceUrl: "https://stream.example.com/video",
-        outputDir: "/tmp/hls",
-        segmentDuration: 2,
-        listSize: 15,
+        rtpHost: "127.0.0.1",
+        rtpPort: 40002,
+        payloadType: 111,
+        ssrc: 789012,
+        bitrate: "128k",
+        volume: 1,
       });
 
       expect(args).toContain("-reconnect");

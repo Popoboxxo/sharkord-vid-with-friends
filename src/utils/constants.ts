@@ -12,8 +12,6 @@ export const DEFAULT_SETTINGS = {
   BITRATE_VIDEO: "2000k",
   BITRATE_AUDIO: "128k",
   DEFAULT_VOLUME: 50,
-  HLS_SEGMENT_DURATION: 2,
-  HLS_LIST_SIZE: 15,
   SYNC_MODE: "server" as const, // "server" | "client"
 } as const;
 
