@@ -123,19 +123,22 @@ const handle = ctx.actions.voice.createStream({ channelId, key, title, producers
 
 Format: `<type>(REQ-xxx): <beschreibung>`
 
-| Type | Verwendung |
-|------|-----------|
-| `feat` | Neues Feature |
-| `fix` | Bugfix |
-| `test` | Tests hinzufügen/ändern |
-| `refactor` | Refactoring ohne Verhaltensänderung |
-| `chore` | Build, Dependencies, Config |
-| `docs` | Dokumentation |
+| Type | Verwendung | REQ-ID Pflicht? |
+|------|----------|----------------|
+| `feat` | Neues Feature | Ja |
+| `fix` | Bugfix | Ja |
+| `test` | Tests hinzufügen/ändern | Ja |
+| `refactor` | Refactoring ohne Verhaltensänderung | Ja |
+| `chore` | Build, Dependencies, Config | Ja |
+| `docs` | Dokumentation | **Nein** |
+
+**Ausnahme:** `docs`-Commits benötigen KEINE REQ-ID.
 
 Beispiele:
 - `feat(REQ-004): implement queue add/remove operations`
 - `test(REQ-009): add auto-advance tests for sync controller`
 - `fix(REQ-003): fix audio sync drift in ffmpeg args`
+- `docs: update README with new commands`
 
 ## Wichtige Plugin-SDK Referenz
 

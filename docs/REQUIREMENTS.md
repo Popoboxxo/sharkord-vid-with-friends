@@ -51,8 +51,22 @@ Anforderungs-ID verweisen.
 | REQ-017 | Plugin bietet UI-Komponente zur Anzeige des aktuellen Videos und der Queue | Should |
 | REQ-018 | Plugin-Settings: Bitrate (Video/Audio), Standard-Lautstärke, Sync-Modus konfigurierbar | Should |
 
+### Nichtfunktionale Anforderungen
+
+| ID | Anforderung | Priorität |
+|----|-------------|----------|
+| REQ-019 | Code-Qualität: Kein `any`, kein `var`, keine Default-Exports, strikte TypeScript-Config | Must |
+| REQ-020 | Testabdeckung: Jede funktionale Anforderung hat mindestens einen zugehörigen Test | Must |
+| REQ-021 | Performance: Plugin-Load darf die Sharkord-Startzeit nicht merklich beeinträchtigen | Should |
+| REQ-022 | Sicherheit: Keine Secrets/API-Keys im Code, keine unsanitisierten User-Inputs | Must |
+| REQ-023 | Wartbarkeit: Modularer Aufbau mit klarer Trennung (Queue, Stream, Sync, Commands) | Must |
+| REQ-024 | Portabilität: Plugin läuft auf Linux, macOS und Windows ohne Code-Anpassungen | Should |
+| REQ-025 | Dokumentation: README (Englisch), REQUIREMENTS und ARCHITECTURE sind aktuell | Should |
+
 ## Traceability
 
 Jeder Test MUSS mit dem Format `[REQ-xxx]` auf eine oder mehrere Anforderungen
 verweisen. Jeder Commit MUSS im Format `feat(REQ-xxx): ...` oder `test(REQ-xxx): ...`
 eine Anforderung referenzieren.
+
+**Ausnahme:** Commits vom Typ `docs` benötigen keine REQ-ID (z. B. `docs: update README`).
