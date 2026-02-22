@@ -1,0 +1,31 @@
+{
+  "name": "sharkord-vid-with-friends",
+  "version": "0.0.1",
+  "module": "src/index.ts",
+  "sharkord": {
+    "entry": "index.js",
+    "author": "Watch Party Team",
+    "homepage": "https://github.com/your-org/sharkord-vid-with-friends",
+    "description": "A plugin that allows users to watch YouTube videos together in sync within Sharkord voice channels",
+    "logo": "https://i.imgur.com/placeholder.png"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist/sharkord-vid-with-friends --target bun --minify --format esm && cp package.json dist/sharkord-vid-with-friends/ && mkdir -p dist/sharkord-vid-with-friends/bin",
+    "build:dev": "bun run build",
+    "test": "bun test",
+    "test:unit": "bun test tests/unit/",
+    "test:integration": "bun test tests/integration/",
+    "test:docker": "docker compose -f tests/docker/docker-compose.yml up --build --abort-on-container-exit",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

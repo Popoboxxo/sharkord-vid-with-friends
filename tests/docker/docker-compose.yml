@@ -1,0 +1,31 @@
+# Docker Compose for sharkord-vid-with-friends test environment
+#
+# Usage:
+#   docker compose -f tests/docker/docker-compose.yml up --build
+#   docker compose -f tests/docker/docker-compose.yml run --rm test-runner bun test:unit
+#
+# Referenced by: REQ-015
+
+services:
+  test-runner:
+    build:
+      context: ../..
+      dockerfile: tests/docker/Dockerfile.test
+    volumes:
+      # Mount source for live updates during development
+      - ../../src:/app/src:ro
+      - ../../tests:/app/tests:ro
+    environment:
+      - NODE_ENV=test
+      - BUN_ENV=test
+    command: ["bun", "test"]
+
+  # Smoke test variant — runs E2E smoke tests only
+  smoke-test:
+    build:
+      context: ../..
+      dockerfile: tests/docker/Dockerfile.test
+    environment:
+      - NODE_ENV=test
+      - BUN_ENV=test
+    command: ["bun", "test", "tests/docker/e2e-smoke.test.ts"]

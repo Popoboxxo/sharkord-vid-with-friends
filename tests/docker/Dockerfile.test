@@ -1,0 +1,31 @@
+# Docker test environment for sharkord-vid-with-friends
+#
+# Provides a containerized environment with Bun for reproducible test runs.
+# Also includes ffmpeg and yt-dlp for E2E smoke tests.
+#
+# Referenced by: REQ-015
+
+FROM oven/bun:1.3 AS base
+
+WORKDIR /app
+
+# Install ffmpeg for stream testing
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg curl python3 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install yt-dlp
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
+    chmod a+rx /usr/local/bin/yt-dlp
+
+# Copy package files first for dependency caching
+COPY package.json bun.lock* ./
+
+# Install dependencies
+RUN bun install --frozen-lockfile || bun install
+
+# Copy source and test files
+COPY . .
+
+# Run tests by default
+CMD ["bun", "test"]

@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Binaries (user must provide their own)
+bin/ffmpeg
+bin/ffmpeg.exe
+bin/yt-dlp
+bin/yt-dlp.exe
+bin/cookies.txt
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# Bun
+bun.lock
