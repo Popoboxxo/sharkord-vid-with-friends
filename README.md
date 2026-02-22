@@ -1,100 +1,100 @@
 # sharkord-vid-with-friends
 
-Ein Sharkord-Plugin für gemeinsames YouTube-Schauen in Voice-Channels.  
-Server-seitiges Streaming über **yt-dlp → ffmpeg → Mediasoup RTP** garantiert frame-genaue Synchronisation für alle Teilnehmer.
+A Sharkord plugin for watching YouTube videos together in voice channels.  
+Server-side streaming via **yt-dlp → ffmpeg → Mediasoup RTP** guarantees frame-accurate synchronization for all participants.
 
 ## Features
 
-- **Synchronized Playback** — Alle Nutzer im Voice-Channel sehen dasselbe Video, frame-synchron
-- **Video Queue** — Warteschlange pro Voice-Channel mit Add, Remove, Skip, View
-- **Auto-Advance** — Nach Ende eines Videos startet automatisch das nächste
-- **Volume Control** — Lautstärke pro Channel anpassbar (0–100)
-- **Pause/Resume** — Stream pausieren und fortsetzen
-- **Hybrid-Sync** — Server-Side RTP (primär) + optionaler Client-Side YouTube Player
+- **Synchronized Playback** — All users in a voice channel see the same video, frame-synced
+- **Video Queue** — Per voice-channel queue with add, remove, skip, and view
+- **Auto-Advance** — Automatically plays the next video when the current one ends
+- **Volume Control** — Adjustable volume per channel (0–100)
+- **Pause/Resume** — Pause and resume the stream
+- **Hybrid-Sync** — Server-side RTP (primary) + optional client-side YouTube player
 
 ## Commands
 
-| Command | Beschreibung |
+| Command | Description |
 |---------|-------------|
-| `/watch <url\|query>` | YouTube-Video abspielen oder zur Queue hinzufügen |
-| `/queue` | Aktuelle Warteschlange anzeigen |
-| `/skip` | Aktuelles Video überspringen |
-| `/remove <position>` | Video an Position aus Queue entfernen |
-| `/watch_stop` | Wiedergabe stoppen und Queue leeren |
-| `/nowplaying` | Aktuell spielendes Video anzeigen |
-| `/pause` | Pause/Fortsetzen umschalten |
-| `/volume <0-100>` | Lautstärke einstellen |
+| `/watch <url\|query>` | Play a YouTube video or add it to the queue |
+| `/queue` | Display the current video queue |
+| `/skip` | Skip the current video |
+| `/remove <position>` | Remove a video from the queue by position |
+| `/watch_stop` | Stop playback and clear the queue |
+| `/nowplaying` | Show the currently playing video |
+| `/pause` | Toggle pause/resume |
+| `/volume <0-100>` | Set the playback volume |
 
-## Tech-Stack
+## Tech Stack
 
 - **Runtime:** [Bun](https://bun.sh)
 - **Streaming:** [Mediasoup](https://mediasoup.org/) (WebRTC SFU)
-- **Video:** yt-dlp + ffmpeg (H264 Video + Opus Audio über RTP)
+- **Video:** yt-dlp + ffmpeg (H264 video + Opus audio via RTP)
 - **Validation:** [Zod](https://zod.dev)
 - **UI:** React + Sharkord Plugin Slots
 - **Testing:** bun:test + Docker
 
-## Architektur
+## Architecture
 
 ```
 src/
-├── index.ts              # Plugin-Entry: onLoad, onUnload, components
+├── index.ts              # Plugin entry: onLoad, onUnload, components
 ├── queue/
-│   ├── queue-manager.ts  # Warteschlangen-Logik (rein funktional)
+│   ├── queue-manager.ts  # Queue logic (pure functional, no Sharkord deps)
 │   └── types.ts          # QueueItem, QueueState
 ├── stream/
-│   ├── stream-manager.ts # Mediasoup Transport+Producer Lifecycle
-│   ├── ffmpeg.ts         # ffmpeg HLS-Buffer + RTP Streaming
-│   └── yt-dlp.ts         # YouTube URL-Auflösung
+│   ├── stream-manager.ts # Mediasoup transport + producer lifecycle
+│   ├── ffmpeg.ts         # ffmpeg HLS buffer + RTP streaming
+│   └── yt-dlp.ts         # YouTube URL resolution
 ├── sync/
-│   └── sync-controller.ts # Queue + Stream Orchestrierung
-├── commands/              # Alle 8 Slash-Commands
+│   └── sync-controller.ts # Queue + stream orchestration
+├── commands/              # All 8 slash commands
 ├── ui/
-│   └── components.tsx    # React UI für Plugin-Slots
+│   └── components.tsx    # React UI for plugin slots
 └── utils/
-    └── constants.ts      # Codec-Config, Defaults, Plugin-Konstanten
+    └── constants.ts      # Codec config, defaults, plugin constants
 ```
 
-## Voraussetzungen
+## Prerequisites
 
 - [Bun](https://bun.sh) >= 1.3
 - [Sharkord](https://github.com/nicanderhery/sharkord) >= 0.0.6
-- **ffmpeg** und **yt-dlp** Binaries im `src/stream/bin/` Verzeichnis
+- **ffmpeg** and **yt-dlp** binaries in the `src/stream/bin/` directory
 
 ## Installation
 
 ```bash
-# Repository klonen
+# Clone the repository
 git clone <repo-url> ~/.config/sharkord/plugins/sharkord-vid-with-friends
 cd ~/.config/sharkord/plugins/sharkord-vid-with-friends
 
-# Dependencies installieren
+# Install dependencies
 bun install
 
-# ffmpeg & yt-dlp Binaries platzieren
+# Place ffmpeg & yt-dlp binaries
 # Linux/macOS:
 cp /usr/bin/ffmpeg src/stream/bin/ffmpeg
 cp /usr/local/bin/yt-dlp src/stream/bin/yt-dlp
 # Windows:
-# Lege ffmpeg.exe und yt-dlp.exe in src/stream/bin/
+# Place ffmpeg.exe and yt-dlp.exe in src/stream/bin/
 
-# Plugin bauen
+# Build the plugin
 bun run build
 ```
 
 ## Development
 
 ```bash
-# Alle Tests ausführen
+# Run all tests
 bun test
 
-# Nur Unit-Tests
+# Unit tests only
 bun run test:unit
 
-# Nur Integration-Tests
+# Integration tests only
 bun run test:integration
 
-# Docker-Tests (mit ffmpeg/yt-dlp)
+# Docker tests (with ffmpeg/yt-dlp)
 docker compose -f tests/docker/docker-compose.yml up --build
 
 # Build
@@ -103,15 +103,15 @@ bun run build
 
 ## Test-Driven Development
 
-Jede Änderung folgt dem TDD-Zyklus:
+Every change follows the TDD cycle:
 
-1. Anforderung identifizieren (REQ-xxx aus `docs/REQUIREMENTS.md`)
-2. **Test zuerst schreiben** — muss fehlschlagen
-3. Minimale Implementierung bis Test grün
-4. Refactoring ohne Verhaltensänderung
-5. Commit: `feat(REQ-xxx): beschreibung`
+1. Identify the requirement (REQ-xxx from `docs/REQUIREMENTS.md`)
+2. **Write the test first** — it must fail
+3. Minimal implementation until the test passes
+4. Refactor without changing behavior
+5. Commit: `feat(REQ-xxx): description`
 
-### Test-Benennung
+### Test Naming
 
 ```typescript
 describe("QueueManager", () => {
@@ -119,10 +119,10 @@ describe("QueueManager", () => {
 });
 ```
 
-## Anforderungen
+## Requirements
 
-Siehe [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) für den vollständigen Anforderungskatalog (REQ-001 bis REQ-018).
+See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for the full requirements catalog (REQ-001 through REQ-018).
 
-## Lizenz
+## License
 
-Privat — Sharkord Plugin
+Private — Sharkord Plugin

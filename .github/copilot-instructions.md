@@ -178,3 +178,8 @@ Beispiele:
 - KEIN Code ohne Tests
 - KEINE Secrets / API-Keys im Code
 - KEIN `node:` Prefix wenn ein Bun-Äquivalent existiert
+
+## Sprache / Language
+
+- **README.md** MUSS immer auf **Englisch** geschrieben und gepflegt werden.
+- Änderungen an der README → immer in Englisch formulieren.
