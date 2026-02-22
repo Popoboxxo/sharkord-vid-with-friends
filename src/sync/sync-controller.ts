@@ -71,6 +71,20 @@ export class SyncController {
   // ---- Actions ----
 
   /**
+   * Start playing the current queue item in a channel. (REQ-003)
+   * Sets playing state and invokes the startStream callback.
+   */
+  async play(channelId: number): Promise<void> {
+    const current = this.queueManager.getCurrent(channelId);
+    if (!current) {
+      throw new Error("Queue is empty, nothing to play.");
+    }
+
+    this.setPlaying(channelId, true);
+    await this.startStream(channelId, current);
+  }
+
+  /**
    * Skip the current video and start the next one. (REQ-008)
    * If there's no next video, stops playback.
    */

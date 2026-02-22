@@ -22,6 +22,7 @@ export type YtDlpBuildOptions = {
   sourceUrl: string;
   mode: YtDlpMode;
   cookiesPath?: string;
+  ffmpegLocation?: string;
 };
 
 export type YtDlpLoggers = {
@@ -48,18 +49,19 @@ export const getYtDlpPath = (): string =>
 
 /** Build yt-dlp command arguments for different modes. (REQ-001) */
 export const buildYtDlpArgs = (options: YtDlpBuildOptions): string[] => {
-  const { ytDlpPath, sourceUrl, mode, cookiesPath } = options;
+  const { ytDlpPath, sourceUrl, mode, cookiesPath, ffmpegLocation } = options;
 
   const base = [ytDlpPath, "--js-runtimes", "bun"];
   const cookies = cookiesPath ? ["--cookies", cookiesPath] : [];
+  const ffmpeg = ffmpegLocation ? ["--ffmpeg-location", ffmpegLocation] : [];
 
   switch (mode) {
     case "url":
-      return [...base, ...cookies, "-f", "best[ext=mp4]/best", "-g", sourceUrl];
+      return [...base, ...cookies, ...ffmpeg, "-f", "best[ext=mp4]/best", "-g", sourceUrl];
     case "title":
-      return [...base, ...cookies, "--get-title", sourceUrl];
+      return [...base, ...cookies, ...ffmpeg, "--get-title", sourceUrl];
     case "json":
-      return [...base, ...cookies, "--dump-json", "--no-download", sourceUrl];
+      return [...base, ...cookies, ...ffmpeg, "--dump-json", "--no-download", sourceUrl];
   }
 };
 
@@ -142,8 +144,12 @@ export const resolveVideo = async (
   loggers: YtDlpLoggers
 ): Promise<ResolvedVideo> => {
   const ytDlpPath = getYtDlpPath();
-  const cookiesPath = path.join(__dirname, "bin", "cookies.txt");
+  const binDir = path.join(__dirname, "bin");
+  const cookiesPath = path.join(binDir, "cookies.txt");
   const cookies = (await cookiesExist(cookiesPath)) ? cookiesPath : undefined;
+
+  // Point yt-dlp to the ffmpeg binary in the same bin/ directory
+  const ffmpegLocation = binDir;
 
   // Use JSON mode for full metadata
   const jsonArgs = buildYtDlpArgs({
@@ -151,6 +157,7 @@ export const resolveVideo = async (
     sourceUrl,
     mode: "json",
     cookiesPath: cookies,
+    ffmpegLocation,
   });
 
   const jsonRes = await runYtDlp(jsonArgs, loggers);
@@ -174,6 +181,7 @@ export const resolveVideo = async (
       sourceUrl,
       mode: "url",
       cookiesPath: cookies,
+      ffmpegLocation,
     });
 
     const urlRes = await runYtDlp(urlArgs, loggers);

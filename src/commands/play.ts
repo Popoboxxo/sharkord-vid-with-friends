@@ -60,11 +60,23 @@ export const registerPlayCommand = (
       ctx.log(`[watch] Resolving: ${sourceUrl}`);
 
       // Resolve video info via yt-dlp
-      const resolved = await resolveVideo(sourceUrl, {
-        log: (...m) => ctx.log(...m),
-        debug: (...m) => ctx.debug(...m),
-        error: (...m) => ctx.error(...m),
-      });
+      let resolved;
+      try {
+        resolved = await resolveVideo(sourceUrl, {
+          log: (...m) => ctx.log(...m),
+          debug: (...m) => ctx.debug(...m),
+          error: (...m) => ctx.error(...m),
+        });
+        ctx.log(`[watch] Resolved: "${resolved.title}" (${resolved.duration}s)`);
+      } catch (err) {
+        ctx.error(`[watch] Failed to resolve video:`, err);
+        throw new Error(`Failed to resolve video. Check server logs for details.`);
+      }
+
+      if (!resolved.streamUrl) {
+        ctx.error(`[watch] No stream URL found for: ${sourceUrl}`);
+        throw new Error("Could not find a playable stream URL for this video.");
+      }
 
       const item = {
         id: crypto.randomUUID(),
@@ -86,7 +98,13 @@ export const registerPlayCommand = (
       }
 
       // Otherwise start playing immediately
-      syncController.setPlaying(channelId, true);
+      try {
+        await syncController.play(channelId);
+      } catch (err) {
+        ctx.error(`[watch] Failed to start stream:`, err);
+        queueManager.remove(channelId, 1);
+        throw new Error(`Failed to start stream. Check server logs for details.`);
+      }
       return `Now playing: ${resolved.title}`;
     },
   });

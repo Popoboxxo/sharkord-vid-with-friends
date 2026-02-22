@@ -56,6 +56,23 @@ describe("SyncController", () => {
     expect(syncController.isPlaying(channelId)).toBe(false);
   });
 
+  // --- REQ-003: play() starts stream for current item ---
+
+  it("[REQ-003] should start stream for current queue item via play()", async () => {
+    const item = makeItem({ title: "Play Me" });
+    queueManager.add(channelId, item);
+
+    await syncController.play(channelId);
+
+    expect(syncController.isPlaying(channelId)).toBe(true);
+    expect(mockStartStream.calls).toHaveLength(1);
+    expect(mockStartStream.calls[0]?.item.title).toBe("Play Me");
+  });
+
+  it("[REQ-003] should throw when play() called on empty queue", async () => {
+    expect(syncController.play(channelId)).rejects.toThrow("Queue is empty");
+  });
+
   // --- REQ-008: Skip triggers next video ---
 
   it("[REQ-008] should skip to next video and start stream", async () => {

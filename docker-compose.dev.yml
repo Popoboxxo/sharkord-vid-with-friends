@@ -1,0 +1,72 @@
+# Docker Compose — Sharkord Dev Environment with Plugin
+#
+# Usage:
+#   1. Build the plugin first:  bun run build
+#   2. Start:                   docker compose -f docker-compose.dev.yml up
+#   3. Open:                    http://localhost:3000
+#   4. Stop:                    docker compose -f docker-compose.dev.yml down
+#
+# The plugin is mounted into the Sharkord plugin directory.
+# Access token is printed on first start — save it!
+#
+# To rebuild plugin and reload:
+#   bun run build
+#   docker compose -f docker-compose.dev.yml restart sharkord
+
+services:
+  # One-time init: downloads ffmpeg + yt-dlp Linux binaries into a shared volume
+  init-binaries:
+    image: alpine:latest
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        BIN_DIR=/binaries
+        if [ -f "$$BIN_DIR/ffmpeg" ] && [ -f "$$BIN_DIR/yt-dlp" ]; then
+          echo "Binaries already exist, skipping download."
+          exit 0
+        fi
+        apk add --no-cache wget xz
+        echo "Downloading yt-dlp (standalone binary)..."
+        wget -q -O "$$BIN_DIR/yt-dlp" https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux
+        chmod +x "$$BIN_DIR/yt-dlp"
+        echo "Downloading ffmpeg static build..."
+        wget -q -O /tmp/ffmpeg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+        mkdir -p /tmp/ffmpeg-extract
+        tar -xf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg-extract --strip-components=1
+        cp /tmp/ffmpeg-extract/ffmpeg "$$BIN_DIR/ffmpeg"
+        chmod +x "$$BIN_DIR/ffmpeg"
+        rm -rf /tmp/ffmpeg.tar.xz /tmp/ffmpeg-extract
+        echo "Done! Binaries ready."
+        ls -la "$$BIN_DIR"
+    volumes:
+      - plugin-binaries:/binaries
+
+  sharkord:
+    image: sharkord/sharkord:v0.0.6
+    container_name: sharkord-dev
+    depends_on:
+      init-binaries:
+        condition: service_completed_successfully
+    ports:
+      # Web UI + API
+      - "3000:3000"
+      # WebRTC (UDP range for Mediasoup RTP)
+      - "40000-40100:40000-40100/udp"
+    environment:
+      - SHARKORD_PORT=3000
+      - SHARKORD_DEBUG=true
+      # Announced address for WebRTC (use your LAN IP if clients connect from other machines)
+      - SHARKORD_WEBRTC_ANNOUNCED_ADDRESS=127.0.0.1
+    volumes:
+      # Persist Sharkord data (DB, settings) between restarts
+      - sharkord-data:/root/.config/sharkord
+      # Mount plugin build output into the Sharkord plugins directory
+      - ./dist/sharkord-vid-with-friends:/root/.config/sharkord/plugins/sharkord-vid-with-friends:ro
+      # Mount ffmpeg + yt-dlp binaries (downloaded by init-binaries service)
+      - plugin-binaries:/root/.config/sharkord/plugins/sharkord-vid-with-friends/bin:ro
+    restart: unless-stopped
+
+volumes:
+  sharkord-data:
+  plugin-binaries:

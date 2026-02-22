@@ -87,6 +87,28 @@ describe("yt-dlp", () => {
       expect(args).toContain("/path/cookies.txt");
     });
 
+    it("[REQ-001] should include --ffmpeg-location when provided", () => {
+      const args = buildYtDlpArgs({
+        ytDlpPath: "/bin/yt-dlp",
+        sourceUrl: "https://youtube.com/watch?v=test",
+        mode: "json",
+        ffmpegLocation: "/plugin/bin",
+      });
+
+      expect(args).toContain("--ffmpeg-location");
+      expect(args).toContain("/plugin/bin");
+    });
+
+    it("[REQ-001] should not include --ffmpeg-location when not provided", () => {
+      const args = buildYtDlpArgs({
+        ytDlpPath: "/bin/yt-dlp",
+        sourceUrl: "https://youtube.com/watch?v=test",
+        mode: "url",
+      });
+
+      expect(args).not.toContain("--ffmpeg-location");
+    });
+
     it("[REQ-001] should request best video+audio for video mode", () => {
       const args = buildYtDlpArgs({
         ytDlpPath: "/bin/yt-dlp",
