@@ -51,6 +51,10 @@ let syncController: SyncController;
  */
 const debugLog = (ctx: PluginContext, prefix: string, ...messages: unknown[]): void => {
   try {
+    // Safe access - settings might not be available in all contexts
+    if (!ctx.settings?.get) {
+      return;
+    }
     const debugMode = ctx.settings.get<boolean>("debugMode") ?? false;
     if (debugMode) {
       ctx.log(`[DEBUG] ${prefix}`, ...messages);
@@ -117,7 +121,8 @@ const startStream = async (
   item: QueueItem
 ): Promise<void> => {
   try {
-    const debugMode = ctx.settings.get<boolean>("debugMode") ?? false;
+    // Safe settings access - might not be available in callback context
+    const debugMode = ctx.settings?.get ? (ctx.settings.get<boolean>("debugMode") ?? false) : false;
     const loggers: FfmpegLoggers = {
       log: (...m) => ctx.log(`[stream:${channelId}]`, ...m),
       error: (...m) => ctx.error(`[stream:${channelId}]`, ...m),
