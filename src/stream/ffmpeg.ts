@@ -85,11 +85,11 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
   return [
     "-hide_banner",
     "-nostats",
-    "-loglevel", "verbose",    // ← VERBOSE für besseres debugging
+    "-loglevel", "verbose",
     "-reconnect", "1",
     "-reconnect_streamed", "1",
     "-reconnect_delay_max", "5",
-    "-re",
+    // "-re",  // DISABLED: Causes segfault (exit 139) with some streams
     "-i", sourceUrl,
     "-an",
     "-c:v", "libx264",
@@ -119,11 +119,11 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
   return [
     "-hide_banner",
     "-nostats",
-    "-loglevel", "verbose",    // ← VERBOSE für besseres debugging
+    "-loglevel", "verbose",
     "-reconnect", "1",
     "-reconnect_streamed", "1",
     "-reconnect_delay_max", "5",
-    "-re",
+    // "-re",  // DISABLED: Causes segfault (exit 139) with some streams
     "-i", sourceUrl,
     "-vn",
     ...volumeFilter,
