@@ -1,7 +1,7 @@
 # Anforderungskatalog — sharkord-vid-with-friends
 
 Jede Anforderung hat eine eindeutige ID. Tests und Commits MÜSSEN auf ihre zugehörige
-Anforderungs-ID verweisen.
+Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werden!
 
 ## Legende
 
@@ -62,6 +62,7 @@ Anforderungs-ID verweisen.
 | REQ-023 | Wartbarkeit: Modularer Aufbau mit klarer Trennung (Queue, Stream, Sync, Commands) | Must |
 | REQ-024 | Portabilität: Plugin läuft auf Linux, macOS und Windows ohne Code-Anpassungen | Should |
 | REQ-025 | Dokumentation: README (Englisch), REQUIREMENTS und ARCHITECTURE sind aktuell | Should |
+| REQ-026 | Plugin-Setting "Debug Output" (Boolean) aktiviert/deaktiviert detailliertes Logging für Stream-Prozesse, ffmpeg stderr, yt-dlp Aufrufe, und Fehler-Diagnose | Must |
 
 ## Traceability
 
