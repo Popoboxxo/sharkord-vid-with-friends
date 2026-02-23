@@ -9,7 +9,6 @@
 import type { QueueManager } from "../queue/queue-manager";
 import type { SyncController } from "../sync/sync-controller";
 import { isYouTubeUrl, resolveVideo } from "../stream/yt-dlp";
-import { debugLog } from "../index";
 
 type PluginContextLike = {
   commands: {
@@ -51,14 +50,11 @@ export const registerPlayCommand = (
         throw new Error("Please provide a YouTube URL or search query.");
       }
 
-      debugLog("[/watch]", `User ${invoker.userId} requested: ${args.query} in channel ${channelId}`);
-
       let sourceUrl = args.query.trim();
 
       // Convert plain search terms to yt-search format
       if (!isYouTubeUrl(sourceUrl) && !/^https?:\/\//.test(sourceUrl)) {
         sourceUrl = `ytsearch:${sourceUrl}`;
-        debugLog("[/watch]", `Converted to search query: ${sourceUrl}`);
       }
 
       ctx.log(`[watch] Resolving: ${sourceUrl}`);
@@ -94,17 +90,14 @@ export const registerPlayCommand = (
       };
 
       queueManager.add(channelId, item);
-      debugLog("[/watch]", `Added to queue: ${item.title} (${item.id})`);
 
       // If already playing, just add to queue
       if (syncController.isPlaying(channelId)) {
         const state = queueManager.getState(channelId);
-        debugLog("[/watch]", `Already playing, queue position: ${state.size}`);
         return `Added to queue (#${state.size}): ${resolved.title}`;
       }
 
       // Otherwise start playing immediately
-      debugLog("[/watch]", `Starting playback immediately for channel ${channelId}`);
       try {
         await syncController.play(channelId);
       } catch (err) {

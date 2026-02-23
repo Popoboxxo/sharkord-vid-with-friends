@@ -41,19 +41,22 @@ import path from "path";
 let queueManager: QueueManager;
 let streamManager: StreamManager;
 let syncController: SyncController;
-let pluginContext: PluginContext | null = null;
 
 // ---- Debug Mode Helper (REQ-026) ----
 
 /**
  * Log debug messages only if debug mode is enabled.
- * In production, these are silent unless debugMode setting is true.
+ * Requires a PluginContext with settings access.
+ * Used only in startStream where we have direct ctx access.
  */
-export const debugLog = (prefix: string, ...messages: unknown[]): void => {
-  if (!pluginContext) return;
-  const debugMode = pluginContext.settings.get<boolean>("debugMode") ?? false;
-  if (debugMode) {
-    pluginContext.log(`[DEBUG] ${prefix}`, ...messages);
+const debugLog = (ctx: PluginContext, prefix: string, ...messages: unknown[]): void => {
+  try {
+    const debugMode = ctx.settings.get<boolean>("debugMode") ?? false;
+    if (debugMode) {
+      ctx.log(`[DEBUG] ${prefix}`, ...messages);
+    }
+  } catch {
+    // Silently fail if settings not available
   }
 };
 
@@ -126,14 +129,16 @@ const startStream = async (
     },
   };
 
-  debugLog(`[startStream]`, `Starting stream for channel ${channelId}, video: ${item.title}`);
+  debugLog(ctx, `[startStream]`, `Starting stream for channel ${channelId}, video: ${item.title}`);
 
   // 1. Clean up any existing stream in this channel
   streamManager.cleanup(channelId);
+  debugLog(ctx, `[startStream]`, `Cleaned up old stream resources`);
 
   // 2. Get Mediasoup router and listen info
   const router = ctx.actions.voice.getRouter(channelId);
   const { ip, announcedAddress } = await ctx.actions.voice.getListenInfo();
+  debugLog(ctx, `[startStream]`, `Mediasoup listen: ${ip} (announced: ${announcedAddress || 'none'})`);
 
   // 3. Create transports + producers
   const transports = await streamManager.createTransports(
@@ -141,8 +146,10 @@ const startStream = async (
     ip,
     announcedAddress
   );
+  debugLog(ctx, `[startStream]`, `Created transports - Video port: ${transports.videoTransport.tuple.localPort}, Audio port: ${transports.audioTransport.tuple.localPort}`);
 
   const producers = await streamManager.createProducers(transports);
+  debugLog(ctx, `[startStream]`, `Created producers with SSRCs - Video: ${transports.videoSsrc}, Audio: ${transports.audioSsrc}`);
 
   // 4. Register stream with Sharkord
   const streamHandle = ctx.actions.voice.createStream({
@@ -268,9 +275,6 @@ const handleVoiceRuntimeClosed = (ctx: PluginContext) => {
  */
 export const onLoad = async (ctx: PluginContext): Promise<void> => {
   ctx.log(`[${PLUGIN_NAME}] Loading...`);
-
-  // Store context for debugLog helper
-  pluginContext = ctx;
 
   // 1. Initialize core managers
   queueManager = new QueueManager();
