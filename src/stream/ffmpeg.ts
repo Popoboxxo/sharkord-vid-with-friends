@@ -194,7 +194,7 @@ export const spawnFfmpeg = (
     }
   })();
 
-  proc.exited.then(async () => {
+  proc.exited.then(async (exitCode) => {
     // Wait for stderr to be fully drained before considering process complete
     // (Race condition fix: if ffmpeg exits fast, we want to see the errors)
     let waitCount = 0;
@@ -202,6 +202,14 @@ export const spawnFfmpeg = (
       await new Promise<void>((r) => setTimeout(r, 10));
       waitCount++;
     }
+    
+    // [REQ-026] Log exit status for debugging
+    if (exitCode !== 0) {
+      loggers.error("[FFmpeg Process Exit Code]", exitCode);
+    } else {
+      loggers.debug("[FFmpeg Process Exit Code]", exitCode);
+    }
+    
     onEnd?.();
   });
 
