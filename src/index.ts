@@ -116,101 +116,114 @@ const startStream = async (
   channelId: number,
   item: QueueItem
 ): Promise<void> => {
-  const debugMode = ctx.settings.get<boolean>("debugMode") ?? false;
-  const loggers: FfmpegLoggers = {
-    log: (...m) => ctx.log(`[stream:${channelId}]`, ...m),
-    error: (...m) => ctx.error(`[stream:${channelId}]`, ...m),
-    debug: (...m) => {
-      if (debugMode) {
-        ctx.log(`[DEBUG:stream:${channelId}]`, ...m);
-      } else {
-        ctx.debug(`[stream:${channelId}]`, ...m);
-      }
-    },
-  };
+  try {
+    const debugMode = ctx.settings.get<boolean>("debugMode") ?? false;
+    const loggers: FfmpegLoggers = {
+      log: (...m) => ctx.log(`[stream:${channelId}]`, ...m),
+      error: (...m) => ctx.error(`[stream:${channelId}]`, ...m),
+      debug: (...m) => {
+        if (debugMode) {
+          ctx.log(`[DEBUG:stream:${channelId}]`, ...m);
+        } else {
+          ctx.debug(`[stream:${channelId}]`, ...m);
+        }
+      },
+    };
 
-  debugLog(ctx, `[startStream]`, `Starting stream for channel ${channelId}, video: ${item.title}`);
+    debugLog(ctx, `[startStream]`, `Starting stream for channel ${channelId}, video: ${item.title}`);
 
-  // 1. Clean up any existing stream in this channel
-  streamManager.cleanup(channelId);
-  debugLog(ctx, `[startStream]`, `Cleaned up old stream resources`);
+    // 1. Clean up any existing stream in this channel
+    streamManager.cleanup(channelId);
+    debugLog(ctx, `[startStream]`, `Cleaned up old stream resources`);
 
-  // 2. Get Mediasoup router and listen info
-  const router = ctx.actions.voice.getRouter(channelId);
-  const { ip, announcedAddress } = await ctx.actions.voice.getListenInfo();
-  debugLog(ctx, `[startStream]`, `Mediasoup listen: ${ip} (announced: ${announcedAddress || 'none'})`);
+    // 2. Get Mediasoup router and listen info
+    const router = ctx.actions.voice.getRouter(channelId);
+    const { ip, announcedAddress } = await ctx.actions.voice.getListenInfo();
+    debugLog(ctx, `[startStream]`, `Mediasoup listen: ${ip} (announced: ${announcedAddress || 'none'})`);
 
-  // 3. Create transports + producers
-  const transports = await streamManager.createTransports(
-    router as never,
-    ip,
-    announcedAddress
-  );
-  debugLog(ctx, `[startStream]`, `Created transports - Video port: ${transports.videoTransport.tuple.localPort}, Audio port: ${transports.audioTransport.tuple.localPort}`);
+    // 3. Create transports + producers
+    const transports = await streamManager.createTransports(
+      router as never,
+      ip,
+      announcedAddress
+    );
+    debugLog(ctx, `[startStream]`, `Created transports - Video port: ${transports.videoTransport.tuple.localPort}, Audio port: ${transports.audioTransport.tuple.localPort}`);
 
-  const producers = await streamManager.createProducers(transports);
-  debugLog(ctx, `[startStream]`, `Created producers with SSRCs - Video: ${transports.videoSsrc}, Audio: ${transports.audioSsrc}`);
+    const producers = await streamManager.createProducers(transports);
+    debugLog(ctx, `[startStream]`, `Created producers with SSRCs - Video: ${transports.videoSsrc}, Audio: ${transports.audioSsrc}`);
 
-  // 4. Register stream with Sharkord
-  const streamHandle = ctx.actions.voice.createStream({
-    channelId,
-    key: STREAM_KEY,
-    title: item.title,
-    avatarUrl: PLUGIN_AVATAR_URL,
-    producers: {
-      audio: producers.audioProducer,
-      video: producers.videoProducer,
-    },
-  });
+    // 4. Register stream with Sharkord
+    const streamHandle = ctx.actions.voice.createStream({
+      channelId,
+      key: STREAM_KEY,
+      title: item.title,
+      avatarUrl: PLUGIN_AVATAR_URL,
+      producers: {
+        audio: producers.audioProducer,
+        video: producers.videoProducer,
+      },
+    });
 
-  // 5. Get volume setting
-  const volume = syncController.getVolume(channelId) / 100;
+    // 5. Get volume setting
+    const volume = syncController.getVolume(channelId) / 100;
 
-  // 6. Spawn video RTP streamer (reads directly from stream URL)
-  const videoArgs = buildVideoStreamArgs({
-    sourceUrl: item.streamUrl,
-    rtpHost: ip,
-    rtpPort: transports.videoTransport.tuple.localPort,
-    payloadType: VIDEO_CODEC.payloadType,
-    ssrc: transports.videoSsrc,
-    bitrate: DEFAULT_SETTINGS.BITRATE_VIDEO,
-  });
+    // 6. Spawn video RTP streamer (reads directly from stream URL)
+    const videoArgs = buildVideoStreamArgs({
+      sourceUrl: item.streamUrl,
+      rtpHost: ip,
+      rtpPort: transports.videoTransport.tuple.localPort,
+      payloadType: VIDEO_CODEC.payloadType,
+      ssrc: transports.videoSsrc,
+      bitrate: DEFAULT_SETTINGS.BITRATE_VIDEO,
+    });
 
-  loggers.debug(`[RTP Setup] Video: rtp://${ip}:${transports.videoTransport.tuple.localPort}`);
-  const videoProcess = spawnFfmpeg(videoArgs, loggers);
+    loggers.debug(`[RTP Setup] Video: rtp://${ip}:${transports.videoTransport.tuple.localPort}`);
+    const videoProcess = spawnFfmpeg(videoArgs, loggers);
 
-  // 7. Spawn audio RTP streamer (reads directly from stream URL)
-  const audioArgs = buildAudioStreamArgs({
-    sourceUrl: item.streamUrl,
-    rtpHost: ip,
-    rtpPort: transports.audioTransport.tuple.localPort,
-    payloadType: AUDIO_CODEC.payloadType,
-    ssrc: transports.audioSsrc,
-    bitrate: DEFAULT_SETTINGS.BITRATE_AUDIO,
-    volume,
-  });
+    // 7. Spawn audio RTP streamer (reads directly from stream URL)
+    const audioArgs = buildAudioStreamArgs({
+      sourceUrl: item.streamUrl,
+      rtpHost: ip,
+      rtpPort: transports.audioTransport.tuple.localPort,
+      payloadType: AUDIO_CODEC.payloadType,
+      ssrc: transports.audioSsrc,
+      bitrate: DEFAULT_SETTINGS.BITRATE_AUDIO,
+      volume,
+    });
 
-  loggers.debug(`[RTP Setup] Audio: rtp://${ip}:${transports.audioTransport.tuple.localPort}`);
-  const audioProcess = spawnFfmpeg(audioArgs, loggers);
+    loggers.debug(`[RTP Setup] Audio: rtp://${ip}:${transports.audioTransport.tuple.localPort}`);
+    const audioProcess = spawnFfmpeg(audioArgs, loggers);
 
-  // 8. Store all resources for lifecycle tracking
-  const resources: ChannelStreamResources = {
-    audioTransport: transports.audioTransport,
-    videoTransport: transports.videoTransport,
-    audioProducer: producers.audioProducer,
-    videoProducer: producers.videoProducer,
-    videoProcess,
-    audioProcess,
-    streamHandle,
-    router: router as never,
-  };
+    // 8. Store all resources for lifecycle tracking
+    const resources: ChannelStreamResources = {
+      audioTransport: transports.audioTransport,
+      videoTransport: transports.videoTransport,
+      audioProducer: producers.audioProducer,
+      videoProducer: producers.videoProducer,
+      videoProcess,
+      audioProcess,
+      streamHandle,
+      router: router as never,
+    };
 
-  streamManager.setActive(channelId, resources);
+    streamManager.setActive(channelId, resources);
 
-  ctx.log(`[stream:${channelId}] Streaming: ${item.title}`);
+    ctx.log(`[stream:${channelId}] Streaming: ${item.title}`);
 
-  // 9. Monitor video process exit for auto-advance (REQ-009)
-  monitorProcess(ctx, channelId, videoProcess);
+    // 9. Monitor video process exit for auto-advance (REQ-009)
+    monitorProcess(ctx, channelId, videoProcess);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    ctx.error(`[startStream] FATAL ERROR for channel ${channelId}:`, errorMsg);
+    if (errorStack) ctx.error(`[startStream] Stack:`, errorStack);
+    
+    // Cleanup on error
+    streamManager.cleanup(channelId);
+    syncController.stop(channelId);
+    
+    throw new Error(`Stream startup failed: ${errorMsg}`);
+  }
 };
 
 /**

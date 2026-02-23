@@ -101,9 +101,12 @@ export const registerPlayCommand = (
       try {
         await syncController.play(channelId);
       } catch (err) {
-        ctx.error(`[watch] Failed to start stream:`, err);
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        const errorStack = err instanceof Error ? err.stack : undefined;
+        ctx.error(`[watch] Failed to start stream:`, errorMsg);
+        if (errorStack) ctx.error(`[watch] Stack:`, errorStack);
         queueManager.remove(channelId, 1);
-        throw new Error(`Failed to start stream. Check server logs for details.`);
+        throw new Error(`Failed to start stream: ${errorMsg}`);
       }
       return `Now playing: ${resolved.title}`;
     },
