@@ -204,10 +204,13 @@ export const spawnFfmpeg = (
     }
     
     // [REQ-026] Log exit status for debugging
-    if (exitCode !== 0) {
-      loggers.error("[FFmpeg Process Exit Code]", exitCode);
+    if (exitCode === 0) {
+      loggers.debug("[FFmpeg Process]", "Exited normally (code 0)");
+    } else if (exitCode === null) {
+      loggers.error("[FFmpeg Process]", "Killed by signal or crashed (no exit code)");
     } else {
-      loggers.debug("[FFmpeg Process Exit Code]", exitCode);
+      loggers.error("[FFmpeg Process]", `Exited with error code ${exitCode}`);
+      loggers.error("[FFmpeg Diagnostic]", "Possible causes: invalid URL, network error, RTP binding failed, missing codec, authentication issue");
     }
     
     onEnd?.();

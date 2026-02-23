@@ -145,6 +145,7 @@ const startStream = async (
     bitrate: DEFAULT_SETTINGS.BITRATE_VIDEO,
   });
 
+  loggers.debug(`[RTP Setup] Video: rtp://${ip}:${transports.videoTransport.tuple.localPort}`);
   const videoProcess = spawnFfmpeg(videoArgs, loggers);
 
   // 7. Spawn audio RTP streamer (reads directly from stream URL)
@@ -158,6 +159,7 @@ const startStream = async (
     volume,
   });
 
+  loggers.debug(`[RTP Setup] Audio: rtp://${ip}:${transports.audioTransport.tuple.localPort}`);
   const audioProcess = spawnFfmpeg(audioArgs, loggers);
 
   // 8. Store all resources for lifecycle tracking
