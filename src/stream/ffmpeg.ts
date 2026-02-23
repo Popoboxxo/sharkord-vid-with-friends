@@ -159,9 +159,14 @@ export const spawnFfmpeg = (
     stdin: "ignore",
   });
 
-  // Forward stderr to plugin logger
+  // Forward stderr to plugin logger — CONCURRENT with process
+  // Also wait for all stderr to drain OR process exit, whichever comes first
+  let stderrDrained = false;
   (async () => {
-    if (!proc.stderr) return;
+    if (!proc.stderr) {
+      stderrDrained = true;
+      return;
+    }
     const reader = proc.stderr.getReader();
     const decoder = new TextDecoder();
     let reads = 0;
@@ -177,6 +182,7 @@ export const spawnFfmpeg = (
     } catch (err) {
       loggers.error("[FFmpeg stderr error]", err);
     } finally {
+      stderrDrained = true;
       try {
         reader.releaseLock();
       } catch {
@@ -185,7 +191,14 @@ export const spawnFfmpeg = (
     }
   })();
 
-  proc.exited.then(() => {
+  proc.exited.then(async () => {
+    // Wait for stderr to be fully drained before considering process complete
+    // (Race condition fix: if ffmpeg exits fast, we want to see the errors)
+    let waitCount = 0;
+    while (!stderrDrained && waitCount < 100) {
+      await new Promise<void>((r) => setTimeout(r, 10));
+      waitCount++;
+    }
     onEnd?.();
   });
 
