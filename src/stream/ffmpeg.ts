@@ -85,7 +85,7 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
   return [
     "-hide_banner",
     "-nostats",
-    "-loglevel", "warning",
+    "-loglevel", "verbose",    // ← VERBOSE für besseres debugging
     "-reconnect", "1",
     "-reconnect_streamed", "1",
     "-reconnect_delay_max", "5",
@@ -119,7 +119,7 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
   return [
     "-hide_banner",
     "-nostats",
-    "-loglevel", "warning",
+    "-loglevel", "verbose",    // ← VERBOSE für besseres debugging
     "-reconnect", "1",
     "-reconnect_streamed", "1",
     "-reconnect_delay_max", "5",
@@ -151,6 +151,9 @@ export const spawnFfmpeg = (
   onEnd?: () => void
 ): SpawnedProcess => {
   const ffmpegPath = getFfmpegPath();
+
+  // Log the full command for debugging
+  loggers.debug("[FFmpeg Command]", ffmpegPath, ...args);
 
   const proc = Bun.spawn({
     cmd: [ffmpegPath, ...args],
