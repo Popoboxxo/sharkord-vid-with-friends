@@ -4,6 +4,7 @@
  * Referenced by: REQ-010
  */
 import type { SyncController } from "../sync/sync-controller";
+import { debugLog } from "../index";
 
 type PluginContextLike = {
   commands: {
@@ -32,8 +33,7 @@ export const registerStopCommand = (
       if (!syncController.isPlaying(channelId)) {
         return "Nothing is currently playing.";
       }
-
-      syncController.stop(channelId);
+      debugLog("[/watch_stop]", `User ${invoker.userId} stopping in channel ${channelId}`);      syncController.stop(channelId);
       return "Playback stopped and queue cleared.";
     },
   });

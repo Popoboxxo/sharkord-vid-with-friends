@@ -4,7 +4,7 @@
  * Referenced by: REQ-013
  */
 import type { SyncController } from "../sync/sync-controller";
-
+import { debugLog } from "../index";
 type PluginContextLike = {
   commands: {
     register: <TArgs = void>(command: {
@@ -36,6 +36,7 @@ export const registerPauseCommand = (
       const currentlyPaused = syncController.isPaused(channelId);
       syncController.setPaused(channelId, !currentlyPaused);
 
+      debugLog("[/pause]", `User ${invoker.userId} toggled pause in channel ${channelId}: ${currentlyPaused ? 'resumed' : 'paused'}`);
       return currentlyPaused ? "Resumed playback." : "Paused playback.";
     },
   });

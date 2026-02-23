@@ -118,7 +118,11 @@ const runYtDlp = async (
   ]);
 
   if (stderr.trim()) {
-    loggers.error("[yt-dlp]", stderr.trim());
+    loggers.error("[yt-dlp stderr]", stderr.trim());
+  }
+  
+  if (exitCode !== 0) {
+    loggers.error("[yt-dlp]", `Process exited with code ${exitCode}`);
   }
 
   return { stdout, stderr, exitCode };

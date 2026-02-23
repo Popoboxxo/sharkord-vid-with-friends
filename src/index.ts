@@ -41,6 +41,21 @@ import path from "path";
 let queueManager: QueueManager;
 let streamManager: StreamManager;
 let syncController: SyncController;
+let pluginContext: PluginContext | null = null;
+
+// ---- Debug Mode Helper (REQ-026) ----
+
+/**
+ * Log debug messages only if debug mode is enabled.
+ * In production, these are silent unless debugMode setting is true.
+ */
+export const debugLog = (prefix: string, ...messages: unknown[]): void => {
+  if (!pluginContext) return;
+  const debugMode = pluginContext.settings.get<boolean>("debugMode") ?? false;
+  if (debugMode) {
+    pluginContext.log(`[DEBUG] ${prefix}`, ...messages);
+  }
+};
 
 // ---- Types ----
 
@@ -98,11 +113,20 @@ const startStream = async (
   channelId: number,
   item: QueueItem
 ): Promise<void> => {
+  const debugMode = ctx.settings.get<boolean>("debugMode") ?? false;
   const loggers: FfmpegLoggers = {
     log: (...m) => ctx.log(`[stream:${channelId}]`, ...m),
     error: (...m) => ctx.error(`[stream:${channelId}]`, ...m),
-    debug: (...m) => ctx.debug(`[stream:${channelId}]`, ...m),
+    debug: (...m) => {
+      if (debugMode) {
+        ctx.log(`[DEBUG:stream:${channelId}]`, ...m);
+      } else {
+        ctx.debug(`[stream:${channelId}]`, ...m);
+      }
+    },
   };
+
+  debugLog(`[startStream]`, `Starting stream for channel ${channelId}, video: ${item.title}`);
 
   // 1. Clean up any existing stream in this channel
   streamManager.cleanup(channelId);
@@ -245,6 +269,9 @@ const handleVoiceRuntimeClosed = (ctx: PluginContext) => {
 export const onLoad = async (ctx: PluginContext): Promise<void> => {
   ctx.log(`[${PLUGIN_NAME}] Loading...`);
 
+  // Store context for debugLog helper
+  pluginContext = ctx;
+
   // 1. Initialize core managers
   queueManager = new QueueManager();
   streamManager = new StreamManager();
@@ -292,6 +319,13 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
       min: 0,
       max: 100,
       description: "Default playback volume (0-100).",
+    },
+    {
+      key: "debugMode",
+      label: "Debug Mode",
+      type: "boolean",
+      default: false,
+      description: "Enable detailed logging for debugging stream lifecycle, ffmpeg, and yt-dlp. (REQ-026)",
     },
   ]);
 

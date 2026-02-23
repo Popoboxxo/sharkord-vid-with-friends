@@ -4,6 +4,7 @@
  * Referenced by: REQ-008
  */
 import type { SyncController } from "../sync/sync-controller";
+import { debugLog } from "../index";
 
 type PluginContextLike = {
   commands: {
@@ -33,6 +34,7 @@ export const registerSkipCommand = (
         return "Nothing is currently playing.";
       }
 
+      debugLog("[/skip]", `User ${invoker.userId} skipping in channel ${channelId}`);
       await syncController.skip(channelId);
       return "Skipped.";
     },
