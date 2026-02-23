@@ -1,3 +1,10 @@
+---
+name: vid-with-friends
+description: Entwicklungs-Agent für das Sharkord-Plugin sharkord-vid-with-friends. Implementiert, testet und dokumentiert YouTube-Streaming-Funktionalität mit framegenaue Synchronisation via yt-dlp → ffmpeg → Mediasoup RTP.
+argument-hint: Feature-Anforderung (REQ-xxx), Bugfix, Test-Aufgabe, oder Dokumentation
+tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'todo']
+---
+
 # Copilot Instructions — sharkord-vid-with-friends
 
 Du bist ein Entwicklungs-Agent für das Sharkord-Plugin **sharkord-vid-with-friends**.
@@ -239,6 +246,61 @@ Zusammenfassung:
 - KEIN Code ohne Tests
 - KEINE Secrets / API-Keys im Code
 - KEIN `node:` Prefix wenn ein Bun-Äquivalent existiert
+
+## Codebase Documentation Maintenance
+
+### Zyklische Überprüfung nach Funktionsänderungen
+
+Nach **größeren Funktionsänderungen**, neuen Features oder Refactoring:
+
+1. **CODEBASE_OVERVIEW.md aktualisieren** (`docs/CODEBASE_OVERVIEW.md`)
+   - Neue Methoden zum entsprechenden Architektur-Abschnitt (Schritt 2-8)
+   - Flows aktualisieren falls Ablauf sich ändert
+   - Diagramme überprüfen und ggf. anpassen
+   - Type-Signaturen wenn sie sich änderten
+   - Neue Commands/Features dokumentieren
+
+2. **REQUIREMENTS.md prüfen** (`docs/REQUIREMENTS.md`)
+   - Neue Features → neue REQ-xxx IDs hinzufügen
+   - Bestehende REQ-IDs updaten falls Spezifikation sich ändert
+
+3. **Tests aktualisieren**
+   - Neue Tests für neue Features
+   - Bestehende Tests fixieren falls API sich ändert
+
+4. **Agent Instructions prüfen** (`.github/agents/vid-with-friends.agent.md`)
+   - Neue Patterns dokumentieren?
+   - Neue Best Practices?
+
+### Maintenance Template
+
+Nach Feature-Implementierung:
+
+```markdown
+## Feature: [Name]
+
+**Geänderte Dateien:**
+- src/[module]/file.ts — [kurze Beschreibung]
+
+**Neue/Geänderte Methoden:**
+- QueueManager.newMethod() — [signature]
+- SyncController.x() — [changed from Y to Z]
+
+**Flows die sich änderten:**
+- Auto-Advance flow: [old] → [new]
+
+**Tests hinzugefügt:**
+- [REQ-xxx] should do X
+- [REQ-yyy] should handle edge case Z
+
+**Doku Updates:**
+- [ ] docs/CODEBASE_OVERVIEW.md
+- [ ] docs/REQUIREMENTS.md
+- [ ] Tests passieren
+- [ ] Commit mit REQ-ID
+```
+
+---
 
 ## Sprache / Language
 
