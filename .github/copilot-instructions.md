@@ -171,6 +171,64 @@ Beispiele:
 }
 ```
 
+## Erkenntnisse speichern
+
+### Workflow: "Erkenntnisse speichern" Kommando
+
+Wenn der Nutzer auffordert, Erkenntnisse des Tages zu speichern (z.B. "Erkenntnisse speichern", "Save findings", etc.):
+
+1. **Tages-Datei erstellen/aktualisieren:**
+   - **Pfad:** `docs/conclusions/conclusions-YYYY-MM-DD.md`
+   - **Format:** Markdown mit eindeutiger Tagesangabe im Titel
+   - Beispiel: `conclusions-2026-02-23.md`
+
+2. **Inhaltsstruktur:**
+   ```markdown
+   # Erkenntnisse — DD. Monat YYYY
+
+   ## Session-Zusammenfassung
+   [Kurze Übersicht der Session-Ziele]
+
+   ---
+
+   ## 1. [Thema]
+
+   ### Untertitel
+   - Punkt 1
+   - Punkt 2
+
+   ### Wichtige Links/Referenzen
+   - [Beschreibung]: `Pfad/Datei`
+
+   ## 2. [Nächstes Thema]
+   ...
+   ```
+
+3. **Inhalte sammeln:**
+   - Architektur-Änderungen
+   - Erkannte Probleme und deren Lösungen
+   - Getestete Tools / Environment-Variablen / Abhängigkeiten
+   - Wichtige Docker-Konfigurationen oder Pfade
+   - Neue Features oder Bugfixes
+   - Dependencies-Updates
+   - Performance-Erkenntnisse
+
+4. **Nach dem Speichern:**
+   - Kurze Zusammenfassung zum Nutzer zurück
+   - Bestätigung des Speicherorts
+   - Ggf. Hinweis auf nächste Schritte
+
+### Beispiel
+
+```
+Nutzer: "Erkenntnisse speichern"
+Agent: ✅ Erkenntnisse in `docs/conclusions/conclusions-2026-02-23.md` gespeichert.
+Zusammenfassung:
+- Session-Start und Ziele dokumentiert
+- 3 Haupterkenntnisse zu Docker-Integration
+- 2 identifizierte Probleme und Lösungen
+```
+
 ## Don'ts
 
 - KEINE Default-Exports
