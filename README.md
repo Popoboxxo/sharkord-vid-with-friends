@@ -25,6 +25,42 @@ Server-side streaming via **yt-dlp → ffmpeg → Mediasoup RTP** guarantees fra
 | `/pause` | Toggle pause/resume |
 | `/volume <0-100>` | Set the playback volume |
 
+## Settings
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| **Sync Mode** | Select | `server` | How videos are synchronized: Server-Side (RTP) or Client-Side (YouTube Player) |
+| **Video Bitrate** | String | `2000k` | Video bitrate for RTP streaming (e.g., 2000k, 4000k) |
+| **Audio Bitrate** | String | `128k` | Audio bitrate for RTP streaming (e.g., 128k, 192k) |
+| **Default Volume** | Number | `50` | Default playback volume (0-100) |
+| **Debug Mode** | Boolean | `false` | Enable detailed logging for debugging stream lifecycle, ffmpeg, and yt-dlp (REQ-026) |
+
+### Debug Mode (REQ-026)
+
+When enabled, the plugin outputs detailed logs for:
+- Video resolution (yt-dlp queries and results)
+- Stream lifecycle (start, stop, auto-advance)
+- FFmpeg commands and exit codes
+- RTP transport setup (ports, SSRCs)
+- Queue operations (add, skip, remove)
+- User actions (play, pause, volume changes)
+
+**Usage:**
+1. Enable in plugin settings: `Debug Mode` → `true`
+2. Restart the voice channel or plugin
+3. Execute commands (e.g., `/watch eggs`)
+4. Check Sharkord logs for `[DEBUG]` prefixed messages
+
+**Example Debug Output:**
+```
+[DEBUG] [/watch] User 42 requested: eggs in channel 3
+[DEBUG] [/watch] Converted to search query: ytsearch:eggs
+[DEBUG] [/watch] Starting playback immediately for channel 3
+[DEBUG:stream:3] [RTP Setup] Video: rtp://127.0.0.1:56802
+[DEBUG:stream:3] [RTP Setup] Audio: rtp://127.0.0.1:49369
+[DEBUG:stream:3] [FFmpeg Command] /path/to/ffmpeg -hide_banner ...
+```
+
 ## Tech Stack
 
 - **Runtime:** [Bun](https://bun.sh)
