@@ -68,6 +68,8 @@ export const registerPlayCommand = (
           error: (...m) => ctx.error(...m),
         });
         ctx.log(`[watch] Resolved: "${resolved.title}" (${resolved.duration}s)`);
+        ctx.debug(`[watch] Video URL: ${resolved.streamUrl.substring(0, 100)}...`);
+        ctx.debug(`[watch] Audio URL: ${resolved.audioUrl.substring(0, 100)}...`);
       } catch (err) {
         ctx.error(`[watch] Failed to resolve video:`, err);
         throw new Error(`Failed to resolve video. Check server logs for details.`);
@@ -82,7 +84,9 @@ export const registerPlayCommand = (
         id: crypto.randomUUID(),
         query: args.query,
         title: resolved.title,
+        youtubeUrl: resolved.youtubeUrl,
         streamUrl: resolved.streamUrl,
+        audioUrl: resolved.audioUrl || resolved.streamUrl,  // Fallback to streamUrl if no separate audio
         duration: resolved.duration,
         thumbnail: resolved.thumbnail,
         addedBy: invoker.userId,

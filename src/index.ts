@@ -172,23 +172,27 @@ const startStream = async (
     // 5. Get volume setting
     const volume = syncController.getVolume(channelId) / 100;
 
+    // REQ-026: If Mediasoup listens on 0.0.0.0, ffmpeg must send to 127.0.0.1
+    const rtpHost = ip === "0.0.0.0" ? "127.0.0.1" : ip;
+    debugLog(ctx, `[startStream]`, `RTP destination: ${rtpHost} (listen IP: ${ip})`);
+
     // 6. Spawn video RTP streamer (reads directly from stream URL)
     const videoArgs = buildVideoStreamArgs({
       sourceUrl: item.streamUrl,
-      rtpHost: ip,
+      rtpHost,
       rtpPort: transports.videoTransport.tuple.localPort,
       payloadType: VIDEO_CODEC.payloadType,
       ssrc: transports.videoSsrc,
       bitrate: DEFAULT_SETTINGS.BITRATE_VIDEO,
     });
 
-    loggers.debug(`[RTP Setup] Video: rtp://${ip}:${transports.videoTransport.tuple.localPort}`);
-    const videoProcess = spawnFfmpeg(videoArgs, loggers);
+    loggers.debug(`[RTP Setup] Video: rtp://${rtpHost}:${transports.videoTransport.tuple.localPort}`);
+    const videoProcess = spawnFfmpeg(videoArgs, loggers, item.streamUrl, item.youtubeUrl, "video");
 
-    // 7. Spawn audio RTP streamer (reads directly from stream URL)
+    // 7. Spawn audio RTP streamer (reads from separate audio URL if available)
     const audioArgs = buildAudioStreamArgs({
-      sourceUrl: item.streamUrl,
-      rtpHost: ip,
+      sourceUrl: item.audioUrl,  // Use separate audio URL resolved by yt-dlp
+      rtpHost,
       rtpPort: transports.audioTransport.tuple.localPort,
       payloadType: AUDIO_CODEC.payloadType,
       ssrc: transports.audioSsrc,
@@ -196,8 +200,8 @@ const startStream = async (
       volume,
     });
 
-    loggers.debug(`[RTP Setup] Audio: rtp://${ip}:${transports.audioTransport.tuple.localPort}`);
-    const audioProcess = spawnFfmpeg(audioArgs, loggers);
+    loggers.debug(`[RTP Setup] Audio: rtp://${rtpHost}:${transports.audioTransport.tuple.localPort}`);
+    const audioProcess = spawnFfmpeg(audioArgs, loggers, item.audioUrl, item.youtubeUrl, "audio");
 
     // 8. Store all resources for lifecycle tracking
     const resources: ChannelStreamResources = {

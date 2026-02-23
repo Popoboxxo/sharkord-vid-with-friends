@@ -85,22 +85,59 @@ export const parseYtDlpOutput = (jsonString: string): ResolvedVideo => {
   }
 
   const title = obj["title"] as string;
-  const streamUrl = (obj["url"] as string) ?? "";
   const duration = typeof obj["duration"] === "number" ? obj["duration"] : 0;
   const thumbnail = typeof obj["thumbnail"] === "string" ? obj["thumbnail"] : "";
+  
+  // Extract original YouTube URL for piping (REQ-026)
+  const youtubeUrl = (obj["webpage_url"] as string) || (obj["original_url"] as string) || "";
 
-  // Try to find separate audio URL from formats
+  // Extract best video and audio URLs from formats (REQ-026)
+  let streamUrl = "";
   let audioUrl = "";
+  
   if (Array.isArray(obj["formats"])) {
-    const audioFormat = (obj["formats"] as Record<string, unknown>[]).find(
-      (f) => f["acodec"] && f["acodec"] !== "none" && (!f["vcodec"] || f["vcodec"] === "none")
-    );
+    const formats = obj["formats"] as Record<string, unknown>[];
+    
+    // Find best video format (with or without audio)
+    const videoFormat = formats
+      .filter((f) => f["vcodec"] && f["vcodec"] !== "none" && f["url"])
+      .sort((a, b) => {
+        const heightA = typeof a["height"] === "number" ? a["height"] : 0;
+        const heightB = typeof b["height"] === "number" ? b["height"] : 0;
+        return heightB - heightA;  // Higher resolution first
+      })[0];
+    
+    if (videoFormat && typeof videoFormat["url"] === "string") {
+      streamUrl = videoFormat["url"];
+    }
+    
+    // Find best audio-only format
+    const audioFormat = formats
+      .filter((f) => f["acodec"] && f["acodec"] !== "none" && (!f["vcodec"] || f["vcodec"] === "none") && f["url"])
+      .sort((a, b) => {
+        const brA = typeof a["abr"] === "number" ? a["abr"] : 0;
+        const brB = typeof b["abr"] === "number" ? b["abr"] : 0;
+        return brB - brA;  // Higher bitrate first
+      })[0];
+    
     if (audioFormat && typeof audioFormat["url"] === "string") {
       audioUrl = audioFormat["url"];
     }
   }
+  
+  // Fallback: use top-level URL if formats parsing failed
+  if (!streamUrl && obj["url"] && typeof obj["url"] === "string") {
+    streamUrl = obj["url"];
+  }
 
-  return { title, streamUrl: streamUrl || audioUrl, audioUrl, duration, thumbnail };
+  return { 
+    title, 
+    youtubeUrl, 
+    streamUrl: streamUrl || audioUrl, 
+    audioUrl: audioUrl || streamUrl, 
+    duration, 
+    thumbnail 
+  };
 };
 
 // ---- Runtime functions (require yt-dlp binary) ----

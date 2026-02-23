@@ -12,8 +12,12 @@ export type QueueItem = {
   query: string;
   /** Resolved video title (from yt-dlp) */
   title: string;
-  /** Resolved direct stream URL (from yt-dlp) */
+  /** Original YouTube URL (for piping to yt-dlp), may differ from query if search was used */
+  youtubeUrl: string;
+  /** Resolved direct stream URL (from yt-dlp) - video or combined */
   streamUrl: string;
+  /** Resolved audio-only stream URL (from yt-dlp) - may be same as streamUrl */
+  audioUrl: string;
   /** Video duration in seconds (0 if unknown) */
   duration: number;
   /** Thumbnail URL */
@@ -33,6 +37,7 @@ export type QueueAddInput = {
 /** Resolved video info from yt-dlp */
 export type ResolvedVideo = {
   title: string;
+  youtubeUrl: string;  // Original YouTube URL for piping to yt-dlp
   streamUrl: string;
   audioUrl: string;
   duration: number;
