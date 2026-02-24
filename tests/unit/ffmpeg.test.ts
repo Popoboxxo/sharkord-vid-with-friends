@@ -21,7 +21,6 @@ describe("ffmpeg", () => {
   describe("buildVideoStreamArgs", () => {
     it("[REQ-002] should produce H264 RTP output args", () => {
       const args = buildVideoStreamArgs({
-        sourceUrl: "https://stream.example.com/video",
         rtpHost: "127.0.0.1",
         rtpPort: 40001,
         payloadType: 96,
@@ -41,7 +40,6 @@ describe("ffmpeg", () => {
 
     it("[REQ-002] should include video-only flag (no audio)", () => {
       const args = buildVideoStreamArgs({
-        sourceUrl: "https://stream.example.com/video",
         rtpHost: "127.0.0.1",
         rtpPort: 40001,
         payloadType: 96,
@@ -52,9 +50,8 @@ describe("ffmpeg", () => {
       expect(args).toContain("-an"); // no audio
     });
 
-    it("[REQ-002] should support HTTP URLs directly (no piping)", () => {
+    it("[REQ-026] should use pipe:0 for URL input (avoid buffer overflow)", () => {
       const args = buildVideoStreamArgs({
-        sourceUrl: "https://stream.example.com/video",
         rtpHost: "127.0.0.1",
         rtpPort: 40001,
         payloadType: 96,
@@ -62,16 +59,10 @@ describe("ffmpeg", () => {
         bitrate: "2000k",
       });
 
-      // Should read directly from HTTP URL (not piped via yt-dlp)
+      // URL is passed via stdin (pipe:0) to avoid command-line buffer overflow
+      // with very long YouTube URLs in statically-compiled ffmpeg
       expect(args).toContain("-i");
-      expect(args).toContain("https://stream.example.com/video");
-      // Protocol whitelist should support HTTP
-      expect(args).toContain("-protocol_whitelist");
-      expect(args.some((a) => a.includes("http"))).toBe(true);
-      // REQ-026: HTTP connection robustness for statically compiled ffmpeg
-      expect(args).toContain("-reconnect");
-      expect(args).toContain("-reconnect_streamed");
-      expect(args).toContain("-user_agent");  // Avoid blocking
+      expect(args).toContain("pipe:0");
     });
   });
 
@@ -80,7 +71,6 @@ describe("ffmpeg", () => {
   describe("buildAudioStreamArgs", () => {
     it("[REQ-002] should produce Opus RTP output args", () => {
       const args = buildAudioStreamArgs({
-        sourceUrl: "https://stream.example.com/video",
         rtpHost: "127.0.0.1",
         rtpPort: 40002,
         payloadType: 111,
@@ -99,7 +89,6 @@ describe("ffmpeg", () => {
 
     it("[REQ-012] should include volume filter when volume is not 1.0", () => {
       const args = buildAudioStreamArgs({
-        sourceUrl: "https://stream.example.com/video",
         rtpHost: "127.0.0.1",
         rtpPort: 40002,
         payloadType: 111,
@@ -112,9 +101,8 @@ describe("ffmpeg", () => {
       expect(args.some((a) => a.includes("volume=0.5"))).toBe(true);
     });
 
-    it("[REQ-002] should support HTTP URLs directly (no piping)", () => {
+    it("[REQ-026] should use pipe:0 for URL input (avoid buffer overflow)", () => {
       const args = buildAudioStreamArgs({
-        sourceUrl: "https://stream.example.com/video",
         rtpHost: "127.0.0.1",
         rtpPort: 40002,
         payloadType: 111,
@@ -123,16 +111,10 @@ describe("ffmpeg", () => {
         volume: 1,
       });
 
-      // Should read directly from HTTP URL (not piped via yt-dlp)
+      // URL is passed via stdin (pipe:0) to avoid command-line buffer overflow
+      // with very long YouTube URLs in statically-compiled ffmpeg
       expect(args).toContain("-i");
-      expect(args).toContain("https://stream.example.com/video");
-      // Protocol whitelist should support HTTP
-      expect(args).toContain("-protocol_whitelist");
-      expect(args.some((a) => a.includes("http"))).toBe(true);
-      // REQ-026: HTTP connection robustness for statically compiled ffmpeg
-      expect(args).toContain("-reconnect");
-      expect(args).toContain("-reconnect_streamed");
-      expect(args).toContain("-user_agent");  // Avoid blocking
+      expect(args).toContain("pipe:0");
     });
   });
 

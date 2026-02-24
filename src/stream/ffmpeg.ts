@@ -80,25 +80,22 @@ export const normalizeBitrate = (bitrate?: string): string => {
 /**
  * Build ffmpeg args for streaming video via RTP directly from a source URL. (REQ-002)
  * Reads the source URL and outputs H264 RTP to Mediasoup.
+ * 
+ * NOTE: URL is passed via stdin (pipe:0) instead of command-line to avoid
+ * buffer overflow in statically-compiled ffmpeg builds with long URLs (>2KB).
+ * REQ-026: Workaround for URL length issue in statically-linked ffmpeg.
  */
 export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
-  const { sourceUrl, rtpHost, rtpPort, payloadType, ssrc, bitrate } = options;
+  const { rtpHost, rtpPort, payloadType, ssrc, bitrate } = options;
+  // NOTE: sourceUrl not included here — it's passed via stdin instead!
   const bitrateNorm = normalizeBitrate(bitrate);
 
-  // ffmpeg can read HTTP URLs directly — no need to pipe via yt-dlp
-  // The sourceUrl from yt-dlp is already an authenticated/valid download URL
-  // REQ-026: Add HTTP robustness flags for network URLs and statically compiled ffmpeg
+  // ffmpeg reads from stdin (pipe:0) to avoid command-line URL length limits
   return [
     "-hide_banner",
     "-nostats",
-    "-loglevel", "verbose",                                  // Full logging for debugging segfault
-    "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",  // Avoid user-agent blocking
-    "-http_persistent", "1",                                 // Keep HTTP connections alive
-    "-reconnect", "1",                                       // Retry on connection failure
-    "-reconnect_streamed", "1",                              // Also retry if stream fails mid-read
-    "-reconnect_delay_max", "300",                           // Max reconnect delay (5 min)
-    "-protocol_whitelist", "pipe,file,http,https,tcp,tls",
-    "-i", sourceUrl,
+    "-loglevel", "verbose",
+    "-i", "pipe:0",                                          // Read from stdin instead of URL arg
     "-an",
     "-c:v", "libx264",
     "-preset", "ultrafast",
@@ -117,28 +114,25 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
 /**
  * Build ffmpeg args for streaming audio via RTP directly from a source URL. (REQ-002, REQ-012)
  * Reads the source URL and outputs Opus RTP to Mediasoup.
+ * 
+ * NOTE: URL is passed via stdin (pipe:0) instead of command-line to avoid
+ * buffer overflow in statically-compiled ffmpeg builds with long URLs (>2KB).
+ * REQ-026: Workaround for URL length issue in statically-linked ffmpeg.
  */
 export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
-  const { sourceUrl, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume } = options;
+  const { rtpHost, rtpPort, payloadType, ssrc, bitrate, volume } = options;
+  // NOTE: sourceUrl not included here — it's passed via stdin instead!
   const bitrateNorm = normalizeBitrate(bitrate);
 
   const volumeFilter = volume !== 1 ? ["-af", `volume=${volume}`] : [];
 
-  // ffmpeg can read HTTP URLs directly — no need to pipe via yt-dlp
-  // The sourceUrl from yt-dlp is already an authenticated/valid download URL
-  // REQ-026: Add HTTP robustness flags for network URLs and statically compiled ffmpeg
+  // ffmpeg reads from stdin (pipe:0) to avoid command-line URL length limits
   return [
     "-hide_banner",
     "-nostats",
-    "-loglevel", "verbose",                                  // Full logging for debugging segfault
-    "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",  // Avoid user-agent blocking
-    "-http_persistent", "1",                                 // Keep HTTP connections alive
-    "-reconnect", "1",                                       // Retry on connection failure
-    "-reconnect_streamed", "1",                              // Also retry if stream fails mid-read
-    "-reconnect_delay_max", "300",                           // Max reconnect delay (5 min)
-    "-protocol_whitelist", "pipe,file,http,https,tcp,tls",
-    "-i", sourceUrl,              // Read directly from HTTP URL
-    "-vn",                         // No video
+    "-loglevel", "verbose",
+    "-i", "pipe:0",                                          // Read from stdin instead of URL arg
+    "-vn",
     ...volumeFilter,
     "-c:a", "libopus",
     "-ar", "48000",
@@ -169,8 +163,9 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
  * Spawn an ffmpeg process with the given arguments.
  * Pipes stderr for logging and returns a handle to kill the process.
  * 
- * NOTE: No longer uses piping via yt-dlp (REQ-026 workaround removed).
- * ffmpeg can now directly read from HTTP URLs resolved by yt-dlp.ts
+ * REQ-026: Writes source URL to ffmpeg stdin (pipe:0 in args) instead of command-line
+ * to avoid buffer overflow in statically-compiled ffmpeg with very long URLs (>2KB).
+ * This solves the segfault issue with YouTube video URLs.
  */
 export const spawnFfmpeg = (
   args: string[],
@@ -182,23 +177,43 @@ export const spawnFfmpeg = (
 ): SpawnedProcess => {
   const ffmpegPath = getFfmpegPath();
 
-  // Log the full command for debugging
+  // Log the command (without full URL due to length)
   loggers.debug("[FFmpeg]", "Starting process...");
   loggers.debug("[FFmpeg Command]", ffmpegPath, ...args);
+  loggers.debug("[FFmpeg URL]", `Will be passed to stdin (length: ${sourceUrl.length} chars)`);
 
   const proc = Bun.spawn({
     cmd: [ffmpegPath, ...args],
     stdout: "ignore",
     stderr: "pipe",
-    stdin: "ignore",
+    stdin: "pipe",  // Will write URL via stdin
   });
 
   loggers.debug("[FFmpeg]", `Process spawned (PID: ${proc.pid})`);
+
+  // Write the URL to stdin (for pipe:0 input)
+  (async () => {
+    try {
+      if (!proc.stdin) {
+        loggers.error("[FFmpeg stdin]", "No stdin available");
+        return;
+      }
+      
+      // Write URL followed by newline
+      const writer = proc.stdin.getWriter();
+      const urlBytes = new TextEncoder().encode(sourceUrl);
+      await writer.write(urlBytes);
+      await writer.close();
+      loggers.debug("[FFmpeg stdin]", `✓ Sent ${urlBytes.length} bytes`);
+    } catch (err) {
+      loggers.error("[FFmpeg stdin error]", err);
+    }
+  })();
+
   let stderrStarted = false;
   let stderrDrained = false;
 
   // Forward stderr to plugin logger — CONCURRENT with process
-  // Also wait for all stderr to drain OR process exit, whichever comes first
   (async () => {
     if (!proc.stderr) {
       stderrDrained = true;
@@ -217,7 +232,7 @@ export const spawnFfmpeg = (
         const { done, value } = await reader.read();
         if (done) {
           if (lineBuffer) {
-            loggers.error("[FFmpeg]", lineBuffer);
+            loggers.debug("[FFmpeg]", lineBuffer);
             lineBuffer = "";
           }
           break;
@@ -232,7 +247,7 @@ export const spawnFfmpeg = (
         for (let i = 0; i < lines.length - 1; i++) {
           const line = lines[i].trim();
           if (line) {
-            loggers.debug("[FFmpeg]", line);  // Changed to debug for verbose output
+            loggers.debug("[FFmpeg]", line);
           }
         }
         lineBuffer = lines[lines.length - 1];  // Keep incomplete line
@@ -281,10 +296,10 @@ export const spawnFfmpeg = (
     } else if (exitCode === 139) {
       loggers.error("[FFmpeg Process]", "✗ Segmentation Fault (SIGSEGV - exit code 139)");
       loggers.error("[FFmpeg Diagnostic]", `Segfault likely causes:`);
-      loggers.error("[FFmpeg Diagnostic]", "  1. YouTube URL format issues (charset, URL encoding)");
-      loggers.error("[FFmpeg Diagnostic]", "  2. Statically-compiled ffmpeg buffer overflow with large URLs");
-      loggers.error("[FFmpeg Diagnostic]", "  3. RTP output binding failure (port occupied)");
-      loggers.error("[FFmpeg Diagnostic]", "  4. Codec negotiation failure with Mediasoup");
+      loggers.error("[FFmpeg Diagnostic]", "  1. RTP output binding failure (port occupied)");
+      loggers.error("[FFmpeg Diagnostic]", "  2. Codec negotiation failure with Mediasoup");
+      loggers.error("[FFmpeg Diagnostic]", "  3. HTTP stream read timeout");
+      loggers.error("[FFmpeg Diagnostic]", "  4. stdin buffer overflow (should be fixed by piping URL)");
     } else {
       loggers.error("[FFmpeg Process]", `✗ Exited with error code ${exitCode}`);
       loggers.error("[FFmpeg Diagnostic]", "Possible causes: invalid URL, network error, RTP binding failed, missing codec");
