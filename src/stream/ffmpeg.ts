@@ -84,13 +84,19 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
 
   // ffmpeg can read HTTP URLs directly — no need to pipe via yt-dlp
   // The sourceUrl from yt-dlp is already an authenticated/valid download URL
+  // REQ-026: Add HTTP robustness flags for network URLs and statically compiled ffmpeg
   return [
     "-hide_banner",
     "-nostats",
-    "-loglevel", "verbose",
+    "-loglevel", "error",                                    // Reduce verbosity to prevent buffer fills
+    "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",  // Avoid user-agent blocking
+    "-http_persistent", "1",                                 // Keep HTTP connections alive
+    "-reconnect", "1",                                       // Retry on connection failure
+    "-reconnect_streamed", "1",                              // Also retry if stream fails mid-read
+    "-reconnect_delay_max", "300",                           // Max reconnect delay (5 min)
     "-protocol_whitelist", "pipe,file,http,https,tcp,tls",
-    "-i", sourceUrl,              // Read directly from HTTP URL
-    "-an",                         // No audio
+    "-i", sourceUrl,
+    "-an",
     "-c:v", "libx264",
     "-preset", "ultrafast",
     "-tune", "zerolatency",
@@ -117,10 +123,16 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
 
   // ffmpeg can read HTTP URLs directly — no need to pipe via yt-dlp
   // The sourceUrl from yt-dlp is already an authenticated/valid download URL
+  // REQ-026: Add HTTP robustness flags for network URLs and statically compiled ffmpeg
   return [
     "-hide_banner",
     "-nostats",
-    "-loglevel", "verbose",
+    "-loglevel", "error",                                    // Reduce verbosity to prevent buffer fills
+    "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",  // Avoid user-agent blocking
+    "-http_persistent", "1",                                 // Keep HTTP connections alive
+    "-reconnect", "1",                                       // Retry on connection failure
+    "-reconnect_streamed", "1",                              // Also retry if stream fails mid-read
+    "-reconnect_delay_max", "300",                           // Max reconnect delay (5 min)
     "-protocol_whitelist", "pipe,file,http,https,tcp,tls",
     "-i", sourceUrl,              // Read directly from HTTP URL
     "-vn",                         // No video

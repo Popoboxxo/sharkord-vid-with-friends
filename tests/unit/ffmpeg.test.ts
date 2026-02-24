@@ -68,6 +68,10 @@ describe("ffmpeg", () => {
       // Protocol whitelist should support HTTP
       expect(args).toContain("-protocol_whitelist");
       expect(args.some((a) => a.includes("http"))).toBe(true);
+      // REQ-026: HTTP connection robustness for statically compiled ffmpeg
+      expect(args).toContain("-reconnect");
+      expect(args).toContain("-reconnect_streamed");
+      expect(args).toContain("-user_agent");  // Avoid blocking
     });
   });
 
@@ -125,6 +129,10 @@ describe("ffmpeg", () => {
       // Protocol whitelist should support HTTP
       expect(args).toContain("-protocol_whitelist");
       expect(args.some((a) => a.includes("http"))).toBe(true);
+      // REQ-026: HTTP connection robustness for statically compiled ffmpeg
+      expect(args).toContain("-reconnect");
+      expect(args).toContain("-reconnect_streamed");
+      expect(args).toContain("-user_agent");  // Avoid blocking
     });
   });
 
