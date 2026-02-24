@@ -163,9 +163,9 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
  * Spawn an ffmpeg process with the given arguments.
  * Pipes stderr for logging and returns a handle to kill the process.
  * 
- * REQ-026: Writes source URL to ffmpeg stdin (pipe:0 in args) instead of command-line
- * to avoid buffer overflow in statically-compiled ffmpeg with very long URLs (>2KB).
- * This solves the segfault issue with YouTube video URLs.
+ * REQ-026: Downloads YouTube stream via yt-dlp and pipes to ffmpeg stdin.
+ * This avoids command-line buffer overflow with long URLs (>2KB) and
+ * ensures ffmpeg receives actual media data, not just a URL string.
  */
 export const spawnFfmpeg = (
   args: string[],
@@ -176,39 +176,33 @@ export const spawnFfmpeg = (
   onEnd?: () => void
 ): SpawnedProcess => {
   const ffmpegPath = getFfmpegPath();
+  const ytDlpPath = path.join(path.dirname(ffmpegPath), "yt-dlp");
 
   // Log the command (without full URL due to length)
-  loggers.debug("[FFmpeg]", "Starting process...");
+  loggers.debug("[FFmpeg]", "Starting process with yt-dlp download pipe...");
   loggers.debug("[FFmpeg Command]", ffmpegPath, ...args);
-  loggers.debug("[FFmpeg URL]", `Will be passed to stdin (length: ${sourceUrl.length} chars)`);
+  loggers.debug("[Download URL]", `${sourceUrl.substring(0, 100)}... (${sourceUrl.length} chars)`);
 
+  // Start yt-dlp to download and stream to stdout
+  // Use the resolved URL directly (already separated video/audio tracks)
+  const ytDlpProc = Bun.spawn({
+    cmd: [ytDlpPath, "-o", "-", sourceUrl],
+    stdout: "pipe",
+    stderr: "inherit",
+    stdin: "ignore",
+  });
+
+  loggers.debug("[Download]", `yt-dlp started, piping to ffmpeg stdin`);
+
+  // Start ffmpeg with yt-dlp's stdout as stdin
   const proc = Bun.spawn({
     cmd: [ffmpegPath, ...args],
     stdout: "ignore",
     stderr: "pipe",
-    stdin: "pipe",  // Will write URL via stdin
+    stdin: ytDlpProc.stdout,  // Pipe media data from yt-dlp
   });
 
   loggers.debug("[FFmpeg]", `Process spawned (PID: ${proc.pid})`);
-
-  // Write the URL to stdin (for pipe:0 input)
-  (async () => {
-    try {
-      if (!proc.stdin) {
-        loggers.error("[FFmpeg stdin]", "No stdin available");
-        return;
-      }
-      
-      // Write URL followed by newline
-      const writer = proc.stdin.getWriter();
-      const urlBytes = new TextEncoder().encode(sourceUrl);
-      await writer.write(urlBytes);
-      await writer.close();
-      loggers.debug("[FFmpeg stdin]", `✓ Sent ${urlBytes.length} bytes`);
-    } catch (err) {
-      loggers.error("[FFmpeg stdin error]", err);
-    }
-  })();
 
   let stderrStarted = false;
   let stderrDrained = false;
@@ -268,14 +262,14 @@ export const spawnFfmpeg = (
     }
   })();
 
-  // Monitor process startup
+  // Monitor process startup (only warn if truly no output by 5s, since yt-dlp download takes time)
   let startupTimeout: BunTimer | null = null;
   startupTimeout = setTimeout(() => {
     if (!stderrStarted) {
-      loggers.error("[FFmpeg Startup Issue]", "No stderr output within 2 seconds. ffmpeg may have crashed or failed to start.");
-      loggers.error("[FFmpeg Diagnostic]", "Check: file permissions, codec availability, platform compatibility");
+      loggers.debug("[FFmpeg]", "Still initializing stream (5s+ without stderr)...");
+      loggers.debug("[FFmpeg Diagnostic]", "This is normal if yt-dlp is downloading or stream is buffering.");
     }
-  }, 2000);
+  }, 5000);
 
   proc.exited.then(async (exitCode) => {
     if (startupTimeout) clearTimeout(startupTimeout);
@@ -298,11 +292,10 @@ export const spawnFfmpeg = (
       loggers.error("[FFmpeg Diagnostic]", `Segfault likely causes:`);
       loggers.error("[FFmpeg Diagnostic]", "  1. RTP output binding failure (port occupied)");
       loggers.error("[FFmpeg Diagnostic]", "  2. Codec negotiation failure with Mediasoup");
-      loggers.error("[FFmpeg Diagnostic]", "  3. HTTP stream read timeout");
-      loggers.error("[FFmpeg Diagnostic]", "  4. stdin buffer overflow (should be fixed by piping URL)");
+      loggers.error("[FFmpeg Diagnostic]", "  3. yt-dlp piping issue (stream interrupted)");
     } else {
       loggers.error("[FFmpeg Process]", `✗ Exited with error code ${exitCode}`);
-      loggers.error("[FFmpeg Diagnostic]", "Possible causes: invalid URL, network error, RTP binding failed, missing codec");
+      loggers.error("[FFmpeg Diagnostic]", "Possible causes: yt-dlp download failed, network error, RTP binding failed, codec issue");
     }
     
     onEnd?.();
@@ -314,7 +307,8 @@ export const spawnFfmpeg = (
       if (startupTimeout) clearTimeout(startupTimeout);
       try {
         proc.kill("SIGTERM");
-        loggers.debug("[FFmpeg]", "Kill signal sent");
+        ytDlpProc.kill("SIGTERM");  // Also kill download process
+        loggers.debug("[FFmpeg]", "Kill signal sent (ffmpeg + yt-dlp)");
       } catch {
         // Process may already be dead
       }
