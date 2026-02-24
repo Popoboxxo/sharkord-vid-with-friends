@@ -51,6 +51,19 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 | REQ-017 | Plugin bietet UI-Komponente zur Anzeige des aktuellen Videos und der Queue | Should |
 | REQ-018 | Plugin-Settings: Bitrate (Video/Audio), Standard-Lautstärke, Sync-Modus konfigurierbar | Should |
 
+### Plugin-Settings UI Spezifikation (Sub-Requirements zu REQ-018)
+
+| ID | Anforderung | Priorität |
+|----|-------------|----------|
+| REQ-018-A | **Video-Bitrate Einstellung:** Numerisches Eingabefeld für Video-Qualität. Bereich: 1000–12000 kbps. Speichert Wert persistent. Standardwert: 3000 kbps. | Should |
+| REQ-018-B | **Audio-Bitrate Einstellung:** Numerisches Eingabefeld für Audio-Qualität. Bereich: 64–320 kbps. Speichert Wert persistent. Standardwert: 128 kbps. | Should |
+| REQ-018-C | **Standard-Lautstärke Einstellung:** Range-Slider (0–100%). Speichert Wert persistent. Standardwert: 75%. Wird auf alle Channel-Teilnehmer beim Start neuer Videos angewendet. | Should |
+| REQ-018-D | **Synchronisierungs-Modus:** Dropdown mit Optionen "Server-Streaming" (Standard) und "Client-Sync (Hybrid)" (REQ-014). Speichert Wert persistent. | Should |
+| REQ-018-E | **Settings-Panel UI:** Admin-Settings-Komponente (`SettingsPanel`) zeigt alle Einstellungen (REQ-018-A bis REQ-018-D) in übersichtlicher Form mit farbcodierten Seiten-Linien und detaillierten Beschreibungen. | Should |
+| REQ-018-F | **Hilfetexte & Validierung:** Jede Einstellung hat Beschreibung, Bereichsangabe und Empfehlungswerte. Client-seitige Validierung vor Speicherung. Felder mit ungiltigen Werten zeigen Fehler. | Should |
+| REQ-018-G | **Persistierung & Backup:** Alle Einstellungen werden in Plugin-Context (oder Sharkord Config) persistent gespeichert. Fallback auf Standardwerte bei fehlender Konfiguration. Keine sensiblen Daten. | Should |
+| REQ-018-H | **Benutzerfreundlichkeit:** SettingsPanel ist responsive, funktioniert auf Desktop und Mobile. Tastaturnavigation möglich (Tab-Reihenfolge). Hover-Effekte auf Buttons. Speichern-Button am Ende sichtbar. | Should |
+
 ### Nichtfunktionale Anforderungen
 
 | ID | Anforderung | Priorität |
@@ -69,5 +82,9 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 Jeder Test MUSS mit dem Format `[REQ-xxx]` auf eine oder mehrere Anforderungen
 verweisen. Jeder Commit MUSS im Format `feat(REQ-xxx): ...` oder `test(REQ-xxx): ...`
 eine Anforderung referenzieren.
+
+**Hierarchische IDs:** Sub-Requirements verwenden das Format `REQ-XXX-A`, `REQ-XXX-B` etc.,
+um ihre Beziehung zur übergeordneten Anforderung zu zeigen. Z.B. `REQ-018-A` ist eine
+Spezifizierung von `REQ-018`.
 
 **Ausnahme:** Commits vom Typ `docs` benötigen keine REQ-ID (z. B. `docs: update README`).

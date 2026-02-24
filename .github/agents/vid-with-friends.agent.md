@@ -49,6 +49,57 @@ describe("QueueManager", () => {
 - Integration-Tests: `tests/integration/<scenario>.test.ts`
 - Docker-Smoke-Tests: `tests/docker/e2e-smoke.test.ts`
 
+## Development Environment & Testing
+
+### "Testsystem starten" — Docker Stack mit Sharkord + Plugin
+
+Wenn der Nutzer auffordert: **"Starte das Testsystem"**, **"Starte Docker"**, **"Starte den Stack"**, etc.
+
+**Bedeutung:** Starte den **kompletten Docker Compose Stack** mit:
+- **Sharkord v0.0.6** Server (Web UI auf `http://localhost:3000`)
+- **Plugin** (`sharkord-vid-with-friends`) gemountet und geladen
+- **ffmpeg + yt-dlp Binaries** heruntergeladen in den Plugin-Ordner
+- **Mediasoup Worker** für WebRTC/RTP Streaming
+- **Volumes** für Persistierung und Binaries
+
+**Kommandos:**
+
+```bash
+# 1. Plugin bauen (ALWAYS do this before starting Docker)
+bun run build
+
+# 2. Docker Stack starten (Sharkord + Plugin + Binaries)
+docker compose -f docker-compose.dev.yml up
+
+# 3. In Browser öffnen
+# http://localhost:3000
+
+# 4. Logs anschauen (andere Konsole)
+docker logs sharkord-dev -f
+
+# 5. Stack herunterfahren
+docker compose -f docker-compose.dev.yml down
+
+# 6. Container neustarten ohne Rebuild
+docker compose -f docker-compose.dev.yml restart sharkord
+
+# 7. Nach Plugin-Änderungen neu bauen + reloaden
+bun run build
+docker compose -f docker-compose.dev.yml restart sharkord
+```
+
+**Docker Compose Datei:** `docker-compose.dev.yml`
+- `init-binaries` Service: Lädt ffmpeg + yt-dlp Linux Binaries herunter (läuft nur einmal)
+- `sharkord` Service: Sharkord v0.0.6 Container mit gemountetes Plugin
+
+**Status prüfen:**
+```bash
+docker compose -f docker-compose.dev.yml ps
+docker logs sharkord-dev --tail 50
+```
+
+**NICHT mit "bun test starten** — Das sind nur Unit/Integration Tests ohne vollständigen Sharkord Server.
+
 ## Code-Konventionen
 
 ### TypeScript

@@ -119,6 +119,64 @@ sk_plugin/
 └──────────────────────────────────────────────────────────┘
 ```
 
+### ⚙️ Settings API (REQ-018)
+
+**Korrekte Settings-Struktur für Sharkord v0.0.6:**
+
+```typescript
+ctx.settings.register([
+  {
+    key: string;           // Eindeutiger Schlüssel (z.B. "videoBitrate")
+    name: string;          // ⚠️ Label für Sidebar (NICHT "label" oder "title"!)
+    type: "string" | "number" | "boolean" | "select";
+    description?: string;  // Beschreibung rechts im Panel
+    defaultValue: any;     // ⚠️ Default-Wert (NICHT "default"!)
+    
+    // Optional für type="number":
+    min?: number;
+    max?: number;
+    
+    // Optional für type="select":
+    options?: Array<{ label: string; value: string }>;
+  }
+]);
+```
+
+**Beispiel:**
+
+```typescript
+ctx.settings.register([
+  {
+    key: "videoBitrate",
+    name: "Video-Bitrate (kbps)",        // ← Wird in Sidebar angezeigt
+    type: "string",
+    description: "Controlls video quality...",
+    defaultValue: "2000k",               // ← NICHT "default"!
+  },
+  {
+    key: "defaultVolume",
+    name: "Standard-Lautstärke (%)",
+    type: "number",
+    description: "Default playback volume...",
+    defaultValue: 50,
+    min: 0,
+    max: 100,
+  },
+]);
+```
+
+**⚠️ Häufige Fehler:**
+- ❌ `label:` statt `name:` → Sidebar zeigt nur "string", "number", etc.
+- ❌ `default:` statt `defaultValue:` → Einstellung hat keinen Default-Wert
+- ❌ `title:` statt `name:` → Funktioniert nicht
+
+**Settings abrufen:**
+
+```typescript
+const videoBitrate = ctx.settings.get<string>("videoBitrate") ?? "2000k";
+const debugMode = ctx.settings.get<boolean>("debugMode") ?? false;
+```
+
 ### 🎬 startStream() Flow
 
 ```
