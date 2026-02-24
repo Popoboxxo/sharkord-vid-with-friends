@@ -12,6 +12,9 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// Bun has global Timer type from timers
+type BunTimer = ReturnType<typeof setTimeout>;
+
 // ---- Types ----
 
 export type VideoStreamOptions = {
@@ -88,7 +91,7 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
   return [
     "-hide_banner",
     "-nostats",
-    "-loglevel", "error",                                    // Reduce verbosity to prevent buffer fills
+    "-loglevel", "verbose",                                  // Full logging for debugging segfault
     "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",  // Avoid user-agent blocking
     "-http_persistent", "1",                                 // Keep HTTP connections alive
     "-reconnect", "1",                                       // Retry on connection failure
@@ -127,7 +130,7 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
   return [
     "-hide_banner",
     "-nostats",
-    "-loglevel", "error",                                    // Reduce verbosity to prevent buffer fills
+    "-loglevel", "verbose",                                  // Full logging for debugging segfault
     "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",  // Avoid user-agent blocking
     "-http_persistent", "1",                                 // Keep HTTP connections alive
     "-reconnect", "1",                                       // Retry on connection failure
@@ -180,6 +183,7 @@ export const spawnFfmpeg = (
   const ffmpegPath = getFfmpegPath();
 
   // Log the full command for debugging
+  loggers.debug("[FFmpeg]", "Starting process...");
   loggers.debug("[FFmpeg Command]", ffmpegPath, ...args);
 
   const proc = Bun.spawn({
@@ -189,25 +193,52 @@ export const spawnFfmpeg = (
     stdin: "ignore",
   });
 
+  loggers.debug("[FFmpeg]", `Process spawned (PID: ${proc.pid})`);
+  let stderrStarted = false;
+  let stderrDrained = false;
+
   // Forward stderr to plugin logger — CONCURRENT with process
   // Also wait for all stderr to drain OR process exit, whichever comes first
-  let stderrDrained = false;
   (async () => {
     if (!proc.stderr) {
       stderrDrained = true;
+      loggers.debug("[FFmpeg]", "No stderr pipe available");
       return;
     }
+    
     const reader = proc.stderr.getReader();
     const decoder = new TextDecoder();
+    let lineBuffer = "";
     let reads = 0;
+
     try {
+      loggers.debug("[FFmpeg]", "Reading stderr...");
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          if (lineBuffer) {
+            loggers.error("[FFmpeg]", lineBuffer);
+            lineBuffer = "";
+          }
+          break;
+        }
+        
         const text = decoder.decode(value, { stream: true });
-        if (text.trim()) loggers.error("[FFmpeg]", text.trim());
+        stderrStarted = true;
+        
+        // Accumulate text and log by line
+        lineBuffer += text;
+        const lines = lineBuffer.split("\n");
+        for (let i = 0; i < lines.length - 1; i++) {
+          const line = lines[i].trim();
+          if (line) {
+            loggers.debug("[FFmpeg]", line);  // Changed to debug for verbose output
+          }
+        }
+        lineBuffer = lines[lines.length - 1];  // Keep incomplete line
+        
         reads++;
-        if (reads % 25 === 0) await new Promise<void>((r) => setTimeout(r, 0));
+        if (reads % 50 === 0) await new Promise<void>((r) => setTimeout(r, 0));
       }
     } catch (err) {
       loggers.error("[FFmpeg stderr error]", err);
@@ -218,12 +249,23 @@ export const spawnFfmpeg = (
       } catch {
         // ignore
       }
+      loggers.debug("[FFmpeg]", "Stderr stream closed");
     }
   })();
 
+  // Monitor process startup
+  let startupTimeout: BunTimer | null = null;
+  startupTimeout = setTimeout(() => {
+    if (!stderrStarted) {
+      loggers.error("[FFmpeg Startup Issue]", "No stderr output within 2 seconds. ffmpeg may have crashed or failed to start.");
+      loggers.error("[FFmpeg Diagnostic]", "Check: file permissions, codec availability, platform compatibility");
+    }
+  }, 2000);
+
   proc.exited.then(async (exitCode) => {
+    if (startupTimeout) clearTimeout(startupTimeout);
+
     // Wait for stderr to be fully drained before considering process complete
-    // (Race condition fix: if ffmpeg exits fast, we want to see the errors)
     let waitCount = 0;
     while (!stderrDrained && waitCount < 100) {
       await new Promise<void>((r) => setTimeout(r, 10));
@@ -232,12 +274,20 @@ export const spawnFfmpeg = (
     
     // Log exit status for debugging
     if (exitCode === 0) {
-      loggers.debug("[FFmpeg Process]", "Exited normally (code 0)");
+      loggers.debug("[FFmpeg Process]", "✓ Exited normally (code 0)");
     } else if (exitCode === null) {
-      loggers.error("[FFmpeg Process]", "Killed by signal or crashed (no exit code)");
+      loggers.error("[FFmpeg Process]", "✗ Killed by signal or crashed (segfault)");
+      loggers.error("[FFmpeg Diagnostic]", "Signal-based exit (typically SIGSEGV or SIGABRT on statically-linked builds)");
+    } else if (exitCode === 139) {
+      loggers.error("[FFmpeg Process]", "✗ Segmentation Fault (SIGSEGV - exit code 139)");
+      loggers.error("[FFmpeg Diagnostic]", `Segfault likely causes:`);
+      loggers.error("[FFmpeg Diagnostic]", "  1. YouTube URL format issues (charset, URL encoding)");
+      loggers.error("[FFmpeg Diagnostic]", "  2. Statically-compiled ffmpeg buffer overflow with large URLs");
+      loggers.error("[FFmpeg Diagnostic]", "  3. RTP output binding failure (port occupied)");
+      loggers.error("[FFmpeg Diagnostic]", "  4. Codec negotiation failure with Mediasoup");
     } else {
-      loggers.error("[FFmpeg Process]", `Exited with error code ${exitCode}`);
-      loggers.error("[FFmpeg Diagnostic]", "Possible causes: invalid URL, network error, RTP binding failed, missing codec, authentication issue");
+      loggers.error("[FFmpeg Process]", `✗ Exited with error code ${exitCode}`);
+      loggers.error("[FFmpeg Diagnostic]", "Possible causes: invalid URL, network error, RTP binding failed, missing codec");
     }
     
     onEnd?.();
@@ -246,8 +296,10 @@ export const spawnFfmpeg = (
   return {
     process: proc,
     kill() {
+      if (startupTimeout) clearTimeout(startupTimeout);
       try {
         proc.kill("SIGTERM");
+        loggers.debug("[FFmpeg]", "Kill signal sent");
       } catch {
         // Process may already be dead
       }
