@@ -137,6 +137,17 @@ const startStream = async (
 
     debugLog(ctx, `[startStream]`, `Starting stream for channel ${channelId}, video: ${item.title}`);
 
+    // PRE-FLIGHT CHECKS (REQ-026)
+    const urlLengthLimit = 2048;  // Typical buffer for statically-compiled ffmpeg
+    if (item.streamUrl.length > urlLengthLimit) {
+      loggers.error(`[Pre-flight] Video URL exceeds ${urlLengthLimit} chars (${item.streamUrl.length})`);
+      loggers.error(`[Pre-flight] This may cause segfault in statically-compiled ffmpeg builds`);
+    }
+    if (item.audioUrl.length > urlLengthLimit) {
+      loggers.error(`[Pre-flight] Audio URL exceeds ${urlLengthLimit} chars (${item.audioUrl.length})`);
+      loggers.error(`[Pre-flight] This may cause segfault in statically-compiled ffmpeg builds`);
+    }
+
     // 1. Clean up any existing stream in this channel
     streamManager.cleanup(channelId);
     debugLog(ctx, `[startStream]`, `Cleaned up old stream resources`);

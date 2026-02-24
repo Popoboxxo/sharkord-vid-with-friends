@@ -308,9 +308,42 @@ export const spawnFfmpeg = (
 };
 
 /**
- * Kill an ffmpeg process gracefully.
+ * Test if ffmpeg binary is available and functional.
+ * Returns version info if successful, throws an error otherwise.
  */
-export const killProcess = (spawned: SpawnedProcess | null): void => {
-  if (!spawned) return;
-  spawned.kill();
+export const testFfmpegBinary = async (loggers?: FfmpegLoggers): Promise<string> => {
+  const ffmpegPath = getFfmpegPath();
+  
+  try {
+    // Try running ffmpeg -version to test binary
+    const proc = Bun.spawn({
+      cmd: [ffmpegPath, "-version"],
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "ignore",
+    });
+    
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      throw new Error(`ffmpeg returned exit code ${exitCode}`);
+    }
+    
+    const reader = proc.stdout!.getReader();
+    const decoder = new TextDecoder();
+    let output = "";
+    
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      output += decoder.decode(value);
+    }
+    
+    const firstLine = output.split("\n")[0] || "ffmpeg (unknown version)";
+    loggers?.debug?.("[FFmpeg Binary Test]", "✓ Binary available:", firstLine);
+    return firstLine;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    loggers?.error?.("[FFmpeg Binary Test]", "✗ Binary test failed:", msg);
+    throw new Error(`ffmpeg binary not available or not functional: ${msg}`);
+  }
 };
