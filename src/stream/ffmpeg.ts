@@ -82,22 +82,15 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
   const { sourceUrl, rtpHost, rtpPort, payloadType, ssrc, bitrate } = options;
   const bitrateNorm = normalizeBitrate(bitrate);
 
-  // REQ-026: Use stdin pipe instead of direct URL to avoid segfault (exit 139)
-  // with network URLs in static ffmpeg builds
-  const usePipe = sourceUrl.startsWith("http");
-
-  // Build input args with -re BEFORE -i (it's an input option)
-  const inputArgs = usePipe 
-    ? ["-re", "-f", "mp4", "-i", "pipe:0"]  // Realtime read from stdin
-    : ["-i", sourceUrl];  // Read from file/URL
-
+  // ffmpeg can read HTTP URLs directly — no need to pipe via yt-dlp
+  // The sourceUrl from yt-dlp is already an authenticated/valid download URL
   return [
     "-hide_banner",
     "-nostats",
     "-loglevel", "verbose",
     "-protocol_whitelist", "pipe,file,http,https,tcp,tls",
-    ...inputArgs,
-    "-an",
+    "-i", sourceUrl,              // Read directly from HTTP URL
+    "-an",                         // No audio
     "-c:v", "libx264",
     "-preset", "ultrafast",
     "-tune", "zerolatency",
@@ -122,21 +115,15 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
 
   const volumeFilter = volume !== 1 ? ["-af", `volume=${volume}`] : [];
 
-  // REQ-026: Use stdin pipe instead of direct URL to avoid segfault (exit 139)
-  const usePipe = sourceUrl.startsWith("http");
-  
-  // Build input args with -re BEFORE -i (it's an input option)
-  const inputArgs = usePipe 
-    ? ["-re", "-f", "mp4", "-i", "pipe:0"]  // Realtime read from stdin
-    : ["-i", sourceUrl];  // Read from file/URL
-
+  // ffmpeg can read HTTP URLs directly — no need to pipe via yt-dlp
+  // The sourceUrl from yt-dlp is already an authenticated/valid download URL
   return [
     "-hide_banner",
     "-nostats",
     "-loglevel", "verbose",
     "-protocol_whitelist", "pipe,file,http,https,tcp,tls",
-    ...inputArgs,
-    "-vn",
+    "-i", sourceUrl,              // Read directly from HTTP URL
+    "-vn",                         // No video
     ...volumeFilter,
     "-c:a", "libopus",
     "-ar", "48000",
@@ -163,6 +150,13 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
  *                     If provided, this is used for download instead of sourceUrl
  * @param streamType - "video" or "audio" for yt-dlp format selection
  */
+/**
+ * Spawn an ffmpeg process with the given arguments.
+ * Pipes stderr for logging and returns a handle to kill the process.
+ * 
+ * NOTE: No longer uses piping via yt-dlp (REQ-026 workaround removed).
+ * ffmpeg can now directly read from HTTP URLs resolved by yt-dlp.ts
+ */
 export const spawnFfmpeg = (
   args: string[],
   loggers: FfmpegLoggers,
@@ -172,58 +166,15 @@ export const spawnFfmpeg = (
   onEnd?: () => void
 ): SpawnedProcess => {
   const ffmpegPath = getFfmpegPath();
-  const usePipe = sourceUrl.startsWith("http");
 
   // Log the full command for debugging
   loggers.debug("[FFmpeg Command]", ffmpegPath, ...args);
-  if (usePipe) {
-    loggers.debug("[FFmpeg Pipe Mode]", `Downloading ${streamType} and piping to ffmpeg stdin`);
-  }
-
-  // Spawn download process if using pipe mode (REQ-026)
-  // Use original YouTube URL if provided (better for yt-dlp than resolved URLs)
-  let downloadProc: any = null;
-  if (usePipe) {
-    const ytDlpPath = path.join(path.dirname(ffmpegPath), "yt-dlp");
-    const downloadUrl = youtubeUrl || sourceUrl;  // Prefer original YouTube URL
-    
-    // For YouTube URLs: let yt-dlp choose format based on stream type
-    // For already-resolved URLs (fallback): direct download
-    const isYouTubeUrl = downloadUrl.includes("youtube.com/watch") || downloadUrl.includes("youtu.be/");
-    
-    let ytDlpArgs: string[];
-    if (isYouTubeUrl) {
-      // Select best format for the specific stream type
-      const formatSelector = streamType === "video" 
-        ? "bestvideo[ext=mp4]/bestvideo"  // Best video track
-        : "bestaudio[ext=m4a]/bestaudio";  // Best audio track
-      ytDlpArgs = [
-        "--js-runtimes", "bun",  // Use Bun as JavaScript runtime for YouTube extraction
-        "-f", formatSelector, 
-        "-o", "-", 
-        downloadUrl
-      ];
-      loggers.debug("[Download] yt-dlp format:", formatSelector);
-    } else {
-      // Direct download for already-resolved URLs
-      ytDlpArgs = ["-o", "-", downloadUrl];
-    }
-    
-    loggers.debug("[Download] yt-dlp:", ytDlpPath, ...ytDlpArgs.slice(0, -1), downloadUrl.substring(0, 80) + "...");
-    
-    downloadProc = Bun.spawn({
-      cmd: [ytDlpPath, ...ytDlpArgs],
-      stdout: "pipe",
-      stderr: "inherit",
-      stdin: "ignore",
-    });
-  }
 
   const proc = Bun.spawn({
     cmd: [ffmpegPath, ...args],
     stdout: "ignore",
     stderr: "pipe",
-    stdin: usePipe ? downloadProc.stdout : "ignore",  // Pipe from download process if available
+    stdin: "ignore",
   });
 
   // Forward stderr to plugin logger — CONCURRENT with process
@@ -267,7 +218,7 @@ export const spawnFfmpeg = (
       waitCount++;
     }
     
-    // [REQ-026] Log exit status for debugging
+    // Log exit status for debugging
     if (exitCode === 0) {
       loggers.debug("[FFmpeg Process]", "Exited normally (code 0)");
     } else if (exitCode === null) {
@@ -287,14 +238,6 @@ export const spawnFfmpeg = (
         proc.kill("SIGTERM");
       } catch {
         // Process may already be dead
-      }
-      // Also kill download process if it exists
-      if (downloadProc) {
-        try {
-          downloadProc.kill("SIGTERM");
-        } catch {
-          // ignore
-        }
       }
     },
   };

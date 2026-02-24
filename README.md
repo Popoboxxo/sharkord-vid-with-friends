@@ -1,5 +1,8 @@
 # sharkord-vid-with-friends
 
+> **⚠️ Project Status:** This is a **95% "Vibe Coded" prototype** created for rapid development and feature exploration.  
+> Before production deployment, **a complete refactor is required** for stability, error handling, and code quality improvements.
+
 A Sharkord plugin for watching YouTube videos together in voice channels.  
 Server-side streaming via **yt-dlp → ffmpeg → Mediasoup RTP** guarantees frame-accurate synchronization for all participants.
 

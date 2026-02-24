@@ -52,7 +52,7 @@ describe("ffmpeg", () => {
       expect(args).toContain("-an"); // no audio
     });
 
-    it("[REQ-002] should include reconnect args for network sources", () => {
+    it("[REQ-002] should support HTTP URLs directly (no piping)", () => {
       const args = buildVideoStreamArgs({
         sourceUrl: "https://stream.example.com/video",
         rtpHost: "127.0.0.1",
@@ -62,8 +62,12 @@ describe("ffmpeg", () => {
         bitrate: "2000k",
       });
 
-      expect(args).toContain("-reconnect");
-      expect(args).toContain("1");
+      // Should read directly from HTTP URL (not piped via yt-dlp)
+      expect(args).toContain("-i");
+      expect(args).toContain("https://stream.example.com/video");
+      // Protocol whitelist should support HTTP
+      expect(args).toContain("-protocol_whitelist");
+      expect(args.some((a) => a.includes("http"))).toBe(true);
     });
   });
 
@@ -104,7 +108,7 @@ describe("ffmpeg", () => {
       expect(args.some((a) => a.includes("volume=0.5"))).toBe(true);
     });
 
-    it("[REQ-002] should include reconnect args for network sources", () => {
+    it("[REQ-002] should support HTTP URLs directly (no piping)", () => {
       const args = buildAudioStreamArgs({
         sourceUrl: "https://stream.example.com/video",
         rtpHost: "127.0.0.1",
@@ -115,8 +119,12 @@ describe("ffmpeg", () => {
         volume: 1,
       });
 
-      expect(args).toContain("-reconnect");
-      expect(args).toContain("1");
+      // Should read directly from HTTP URL (not piped via yt-dlp)
+      expect(args).toContain("-i");
+      expect(args).toContain("https://stream.example.com/video");
+      // Protocol whitelist should support HTTP
+      expect(args).toContain("-protocol_whitelist");
+      expect(args.some((a) => a.includes("http"))).toBe(true);
     });
   });
 

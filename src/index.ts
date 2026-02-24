@@ -310,48 +310,68 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
     }
   );
 
-  // 3. Register settings (REQ-018)
+  // 3. Register settings (REQ-018, REQ-018-A through REQ-018-H)
   ctx.settings.register([
     {
-      key: "syncMode",
-      label: "Sync Mode",
-      type: "select",
-      options: [
-        { label: "Server-Side (RTP)", value: "server" },
-        { label: "Client-Side (YouTube Player)", value: "client" },
-      ],
-      default: DEFAULT_SETTINGS.SYNC_MODE,
-      description: "How videos are synchronized across users.",
-    },
-    {
       key: "videoBitrate",
-      label: "Video Bitrate",
+      name: "Video-Bitrate (kbps)",
       type: "string",
-      default: DEFAULT_SETTINGS.BITRATE_VIDEO,
-      description: "Video bitrate for RTP streaming (e.g., 2000k, 4000k).",
+      description:
+        "Controlls video quality and file size for RTP streaming. Higher values = better quality, more bandwidth needed. " +
+        "Recommended: 2500–4000 kbps for standard, 4000–6000 kbps for HD. " +
+        "Range: 1000–12000 kbps. " +
+        "Example: 3000, 4000, 6000. " +
+        "[REQ-018-A]",
+      defaultValue: DEFAULT_SETTINGS.BITRATE_VIDEO,
     },
     {
       key: "audioBitrate",
-      label: "Audio Bitrate",
+      name: "Audio-Bitrate (kbps)",
       type: "string",
-      default: DEFAULT_SETTINGS.BITRATE_AUDIO,
-      description: "Audio bitrate for RTP streaming (e.g., 128k, 192k).",
+      description:
+        "Controlls audio quality for RTP streaming. 128 kbps is standard quality for most users, 192+ kbps for high-fidelity audio. " +
+        "Recommended: 128 kbps (standard), 192 kbps (high quality). " +
+        "Range: 64–320 kbps. " +
+        "Example: 128, 192. " +
+        "[REQ-018-B]",
+      defaultValue: DEFAULT_SETTINGS.BITRATE_AUDIO,
     },
     {
       key: "defaultVolume",
-      label: "Default Volume",
+      name: "Standard-Lautstärke (%)",
       type: "number",
-      default: DEFAULT_SETTINGS.DEFAULT_VOLUME,
+      description:
+        "Default playback volume when a new video starts. Applied to all channel participants. " +
+        "Recommended: 75% — loud enough but not overwhelming. " +
+        "Range: 0–100%. " +
+        "[REQ-018-C]",
+      defaultValue: DEFAULT_SETTINGS.DEFAULT_VOLUME,
       min: 0,
       max: 100,
-      description: "Default playback volume (0-100).",
+    },
+    {
+      key: "syncMode",
+      name: "Synchronisierungs-Modus",
+      type: "select",
+      description:
+        "Server-Streaming: Video streamed from server via RTP. Highest quality and reliability. Recommended for most use cases. " +
+        "Client-Sync: All clients play the local YouTube video with server-coordinated sync. Requires direct YouTube access on client. " +
+        "[REQ-018-D]",
+      defaultValue: DEFAULT_SETTINGS.SYNC_MODE,
+      options: [
+        { label: "Server-Streaming (Standard)", value: "server" },
+        { label: "Client-Sync (Hybrid/YouTube Player)", value: "client" },
+      ],
     },
     {
       key: "debugMode",
-      label: "Debug Mode",
+      name: "Debug-Ausgabe aktivieren",
       type: "boolean",
-      default: false,
-      description: "Enable detailed logging for debugging stream lifecycle, ffmpeg, and yt-dlp. (REQ-026)",
+      description:
+        "Enables detailed logging for debugging: stream lifecycle, ffmpeg stderr, yt-dlp calls, error diagnostics. " +
+        "⚠️ WARNING: May affect server performance. Use only for troubleshooting. " +
+        "[REQ-026, REQ-018 (Debug option)]",
+      defaultValue: false,
     },
   ]);
 
