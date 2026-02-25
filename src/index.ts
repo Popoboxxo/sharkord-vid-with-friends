@@ -124,6 +124,11 @@ const startStream = async (
   try {
     // Safe settings access - might not be available in callback context
     const debugMode = ctx.settings?.get ? (ctx.settings.get<boolean>("debugMode") ?? false) : false;
+    
+    // REQ-032: Cache is ALWAYS enabled (independent of debugMode setting)
+    // This allows download verification via /debug_cache even with debug output disabled
+    const cacheEnabled = true;
+    
     const loggers: FfmpegLoggers = {
       log: (...m) => ctx.log(`[stream:${channelId}]`, ...m),
       error: (...m) => ctx.error(`[stream:${channelId}]`, ...m),
@@ -203,7 +208,7 @@ const startStream = async (
     });
 
     loggers.debug(`[RTP Setup] Video: rtp://${rtpHost}:${transports.videoTransport.tuple.localPort}`);
-    const videoProcess = spawnFfmpeg(videoArgs, loggers, item.streamUrl, item.youtubeUrl, "video", debugMode);
+    const videoProcess = spawnFfmpeg(videoArgs, loggers, item.streamUrl, item.youtubeUrl, "video", cacheEnabled);
 
     // 7. Spawn audio RTP streamer (reads from separate audio URL if available)
     const audioArgs = buildAudioStreamArgs({
@@ -217,7 +222,7 @@ const startStream = async (
     });
 
     loggers.debug(`[RTP Setup] Audio: rtp://${rtpHost}:${transports.audioTransport.tuple.localPort}`);
-    const audioProcess = spawnFfmpeg(audioArgs, loggers, item.audioUrl, item.youtubeUrl, "audio", debugMode);
+    const audioProcess = spawnFfmpeg(audioArgs, loggers, item.audioUrl, item.youtubeUrl, "audio", cacheEnabled);
 
     // 8. Store all resources for lifecycle tracking
     const resources: ChannelStreamResources = {
