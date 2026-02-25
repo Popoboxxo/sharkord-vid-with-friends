@@ -84,26 +84,33 @@ export const normalizeBitrate = (bitrate?: string): string => {
  * NOTE: URL is passed via stdin (pipe:0) instead of command-line to avoid
  * buffer overflow in statically-compiled ffmpeg builds with long URLs (>2KB).
  * REQ-026: Workaround for URL length issue in statically-linked ffmpeg.
+ *
+ * COPY MODE: The input from yt-dlp is already H.264 encoded by YouTube.
+ * Re-encoding in real-time causes massive frame drops on limited CPU (Docker).
+ * Instead we remux (“copy”) the H.264 directly from the input container (HLS/MPEGTS
+ * or DASH/MP4) to RTP. Mediasoup SFU forwards RTP without decoding, so the
+ * actual H.264 profile (High/Main/Baseline) doesn't matter for forwarding.
  */
 export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
-  const { rtpHost, rtpPort, payloadType, ssrc, bitrate } = options;
-  // NOTE: sourceUrl not included here — it's passed via stdin instead!
-  const bitrateNorm = normalizeBitrate(bitrate);
+  const { rtpHost, rtpPort, payloadType, ssrc } = options;
 
-  // ffmpeg reads from stdin (pipe:0) to avoid command-line URL length limits
+  // Copy H.264 stream as-is — zero CPU for video, no frame drops.
+  // -bsf:v h264_mp4toannexb ensures correct NAL unit format for RTP output
+  //   (converts AVCC/length-prefixed from MP4/DASH to Annex B/start-code for RTP;
+  //    harmless no-op when input is already MPEGTS/Annex B).
   return [
     "-hide_banner",
     "-nostats",
-    "-loglevel", "verbose",
-    "-i", "pipe:0",                                          // Read from stdin instead of URL arg
+    "-loglevel", "warning",
+    // Input from yt-dlp stdin
+    "-i", "pipe:0",
+    // Drop audio (separate audio stream handles this)
     "-an",
-    "-c:v", "libx264",
-    "-preset", "ultrafast",
-    "-tune", "zerolatency",
-    "-b:v", bitrateNorm,
-    "-maxrate", bitrateNorm,
-    "-bufsize", `${parseInt(bitrateNorm) * 2 || 4000}k`,
-    "-pix_fmt", "yuv420p",
+    // Copy video codec as-is (no re-encoding!)
+    "-c:v", "copy",
+    // Ensure correct NAL format for RTP
+    "-bsf:v", "h264_mp4toannexb",
+    // RTP output
     "-payload_type", String(payloadType),
     "-ssrc", String(ssrc),
     "-f", "rtp",
@@ -126,19 +133,28 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
 
   const volumeFilter = volume !== 1 ? ["-af", `volume=${volume}`] : [];
 
-  // ffmpeg reads from stdin (pipe:0) to avoid command-line URL length limits
+  // Audio MUST be re-encoded (AAC → Opus) for Mediasoup/WebRTC compatibility.
+  // Unlike video, this is lightweight and doesn't cause frame drops.
   return [
     "-hide_banner",
     "-nostats",
-    "-loglevel", "verbose",
-    "-i", "pipe:0",                                          // Read from stdin instead of URL arg
+    "-loglevel", "warning",
+    // Probe larger buffer for fragmented MP4 format detection
+    "-probesize", "5000000",
+    "-analyzeduration", "5000000",
+    // Input from yt-dlp stdin
+    "-i", "pipe:0",
+    // Drop video (separate video stream handles this)
     "-vn",
+    // Volume filter
     ...volumeFilter,
+    // Opus encoding (required: Mediasoup expects Opus for audio)
     "-c:a", "libopus",
     "-ar", "48000",
     "-ac", "2",
     "-b:a", bitrateNorm,
     "-application", "audio",
+    // RTP output
     "-payload_type", String(payloadType),
     "-ssrc", String(ssrc),
     "-f", "rtp",
@@ -219,6 +235,7 @@ export const spawnFfmpeg = (
     const decoder = new TextDecoder();
     let lineBuffer = "";
     let reads = 0;
+    let droppedFrameCount = 0;
 
     try {
       loggers.debug("[FFmpeg]", "Reading stderr...");
@@ -235,12 +252,20 @@ export const spawnFfmpeg = (
         const text = decoder.decode(value, { stream: true });
         stderrStarted = true;
         
-        // Accumulate text and log by line
+        // Accumulate text and log by line (with spam filtering)
         lineBuffer += text;
         const lines = lineBuffer.split("\n");
         for (let i = 0; i < lines.length - 1; i++) {
           const line = lines[i].trim();
           if (line) {
+            // Filter out repetitive frame-drop messages to avoid log spam
+            if (line.includes("dropping frame") || line.includes("Past duration")) {
+              droppedFrameCount++;
+              if (droppedFrameCount === 1 || droppedFrameCount % 100 === 0) {
+                loggers.debug("[FFmpeg]", `${line} (total dropped: ${droppedFrameCount})`);
+              }
+              continue;
+            }
             loggers.debug("[FFmpeg]", line);
           }
         }

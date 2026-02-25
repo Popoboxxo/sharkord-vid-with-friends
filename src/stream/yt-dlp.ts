@@ -98,20 +98,34 @@ export const parseYtDlpOutput = (jsonString: string): ResolvedVideo => {
   if (Array.isArray(obj["formats"])) {
     const formats = obj["formats"] as Record<string, unknown>[];
     
-    // Find best video format (with or without audio)
-    const videoFormat = formats
-      .filter((f) => f["vcodec"] && f["vcodec"] !== "none" && f["url"])
+    // Find best H.264 (avc1) video format — MUST be H.264 for Mediasoup/RTP copy mode.
+    // YouTube also offers VP9/AV1 which are higher quality but incompatible with
+    // our -c:v copy + h264_mp4toannexb pipeline and the video/H264 Mediasoup producer.
+    const isH264 = (vcodec: unknown): boolean => {
+      if (typeof vcodec !== "string") return false;
+      const vc = vcodec.toLowerCase();
+      return vc.startsWith("avc") || vc.includes("h264") || vc.startsWith("h.264");
+    };
+
+    const h264Formats = formats
+      .filter((f) => isH264(f["vcodec"]) && f["url"])
       .sort((a, b) => {
         const heightA = typeof a["height"] === "number" ? a["height"] : 0;
         const heightB = typeof b["height"] === "number" ? b["height"] : 0;
         return heightB - heightA;  // Higher resolution first
-      })[0];
+      });
+
+    // Pick best H.264 format (prefer ≤1080p for bandwidth)
+    const videoFormat = h264Formats.find((f) => {
+      const h = typeof f["height"] === "number" ? f["height"] : 9999;
+      return h <= 1080;
+    }) || h264Formats[0];
     
     if (videoFormat && typeof videoFormat["url"] === "string") {
       streamUrl = videoFormat["url"];
     }
     
-    // Find best audio-only format
+    // Find best audio-only format (AAC preferred for reliable decoding)
     const audioFormat = formats
       .filter((f) => f["acodec"] && f["acodec"] !== "none" && (!f["vcodec"] || f["vcodec"] === "none") && f["url"])
       .sort((a, b) => {

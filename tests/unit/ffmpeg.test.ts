@@ -19,8 +19,9 @@ describe("ffmpeg", () => {
   // --- REQ-002: Video RTP stream args ---
 
   describe("buildVideoStreamArgs", () => {
-    it("[REQ-002] should produce H264 RTP output args", () => {
+    it("[REQ-002] should produce H264 RTP output args with copy mode", () => {
       const args = buildVideoStreamArgs({
+        sourceUrl: "test-url",
         rtpHost: "127.0.0.1",
         rtpPort: 40001,
         payloadType: 96,
@@ -32,6 +33,7 @@ describe("ffmpeg", () => {
       expect(args).toContain("rtp");
       expect(args.some((a) => a.includes("127.0.0.1:40001"))).toBe(true);
       expect(args).toContain("-c:v");
+      expect(args).toContain("copy");
       expect(args).toContain("-payload_type");
       expect(args).toContain("96");
       expect(args).toContain("-ssrc");
@@ -40,6 +42,7 @@ describe("ffmpeg", () => {
 
     it("[REQ-002] should include video-only flag (no audio)", () => {
       const args = buildVideoStreamArgs({
+        sourceUrl: "test-url",
         rtpHost: "127.0.0.1",
         rtpPort: 40001,
         payloadType: 96,
@@ -52,6 +55,7 @@ describe("ffmpeg", () => {
 
     it("[REQ-026] should use pipe:0 for URL input (avoid buffer overflow)", () => {
       const args = buildVideoStreamArgs({
+        sourceUrl: "test-url",
         rtpHost: "127.0.0.1",
         rtpPort: 40001,
         payloadType: 96,
@@ -59,10 +63,55 @@ describe("ffmpeg", () => {
         bitrate: "2000k",
       });
 
-      // URL is passed via stdin (pipe:0) to avoid command-line buffer overflow
-      // with very long YouTube URLs in statically-compiled ffmpeg
       expect(args).toContain("-i");
       expect(args).toContain("pipe:0");
+    });
+
+    it("[REQ-002] should use copy mode instead of re-encoding (avoids frame drops)", () => {
+      const args = buildVideoStreamArgs({
+        sourceUrl: "test-url",
+        rtpHost: "127.0.0.1",
+        rtpPort: 40001,
+        payloadType: 96,
+        ssrc: 123456,
+        bitrate: "2000k",
+      });
+
+      // Must use copy mode — re-encoding 1080p60 causes massive frame drops
+      expect(args).toContain("-c:v");
+      expect(args).toContain("copy");
+      // Must NOT have encoding-specific flags
+      expect(args).not.toContain("libx264");
+      expect(args).not.toContain("-preset");
+      expect(args).not.toContain("-profile:v");
+    });
+
+    it("[REQ-002] should include h264_mp4toannexb bitstream filter for RTP NAL format", () => {
+      const args = buildVideoStreamArgs({
+        sourceUrl: "test-url",
+        rtpHost: "127.0.0.1",
+        rtpPort: 40001,
+        payloadType: 96,
+        ssrc: 123456,
+        bitrate: "2000k",
+      });
+
+      expect(args).toContain("-bsf:v");
+      expect(args).toContain("h264_mp4toannexb");
+    });
+
+    it("[REQ-026] should use warning loglevel to reduce log spam", () => {
+      const args = buildVideoStreamArgs({
+        sourceUrl: "test-url",
+        rtpHost: "127.0.0.1",
+        rtpPort: 40001,
+        payloadType: 96,
+        ssrc: 123456,
+        bitrate: "2000k",
+      });
+
+      expect(args).toContain("-loglevel");
+      expect(args).toContain("warning");
     });
   });
 
@@ -71,6 +120,7 @@ describe("ffmpeg", () => {
   describe("buildAudioStreamArgs", () => {
     it("[REQ-002] should produce Opus RTP output args", () => {
       const args = buildAudioStreamArgs({
+        sourceUrl: "test-url",
         rtpHost: "127.0.0.1",
         rtpPort: 40002,
         payloadType: 111,
@@ -89,6 +139,7 @@ describe("ffmpeg", () => {
 
     it("[REQ-012] should include volume filter when volume is not 1.0", () => {
       const args = buildAudioStreamArgs({
+        sourceUrl: "test-url",
         rtpHost: "127.0.0.1",
         rtpPort: 40002,
         payloadType: 111,
@@ -103,6 +154,7 @@ describe("ffmpeg", () => {
 
     it("[REQ-026] should use pipe:0 for URL input (avoid buffer overflow)", () => {
       const args = buildAudioStreamArgs({
+        sourceUrl: "test-url",
         rtpHost: "127.0.0.1",
         rtpPort: 40002,
         payloadType: 111,
@@ -112,9 +164,23 @@ describe("ffmpeg", () => {
       });
 
       // URL is passed via stdin (pipe:0) to avoid command-line buffer overflow
-      // with very long YouTube URLs in statically-compiled ffmpeg
       expect(args).toContain("-i");
       expect(args).toContain("pipe:0");
+    });
+
+    it("[REQ-002] should include probesize for fragmented MP4 detection", () => {
+      const args = buildAudioStreamArgs({
+        sourceUrl: "test-url",
+        rtpHost: "127.0.0.1",
+        rtpPort: 40002,
+        payloadType: 111,
+        ssrc: 789012,
+        bitrate: "128k",
+        volume: 1,
+      });
+
+      expect(args).toContain("-probesize");
+      expect(args).toContain("-analyzeduration");
     });
   });
 

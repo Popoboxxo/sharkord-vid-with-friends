@@ -64,6 +64,28 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 | REQ-018-G | **Persistierung & Backup:** Alle Einstellungen werden in Plugin-Context (oder Sharkord Config) persistent gespeichert. Fallback auf Standardwerte bei fehlender Konfiguration. Keine sensiblen Daten. | Should |
 | REQ-018-H | **Benutzerfreundlichkeit:** SettingsPanel ist responsive, funktioniert auf Desktop und Mobile. Tastaturnavigation möglich (Tab-Reihenfolge). Hover-Effekte auf Buttons. Speichern-Button am Ende sichtbar. | Should |
 
+### Stream-Vorbereitung & Fortschrittsanzeige
+
+| ID | Anforderung | Priorität |
+|----|-------------|-----------|
+| REQ-027 | **Download-Fortschritt in Debug-Logs:** Der aktuelle Download-/Vorbereitungs-Status (yt-dlp Auflösung, ffmpeg Pipe-Start, RTP-Streaming aktiv) wird als strukturierte Debug-Log-Einträge ausgegeben, wenn Debug-Modus (REQ-026) aktiviert ist. Beinhaltet: Phase (resolving → downloading → streaming), verstrichene Zeit, ggf. Dateigröße/Durchsatz. | Must |
+| REQ-027-A | **yt-dlp Phasen-Logging:** Beim Resolve eines Videos werden die Phasen `RESOLVING` (yt-dlp --dump-json gestartet), `RESOLVED` (Metadaten empfangen, Titel + Dauer bekannt), und `FORMAT_SELECTED` (H.264-Format gewählt, URL-Länge) im Debug-Log dokumentiert. | Must |
+| REQ-027-B | **ffmpeg/yt-dlp Pipe-Logging:** Nach Start der yt-dlp→ffmpeg Pipe werden die Phasen `DOWNLOADING` (yt-dlp begonnen), `PIPING` (ffmpeg empfängt Daten auf stdin), und `STREAMING` (erste RTP-Pakete gesendet) im Debug-Log protokolliert. | Must |
+| REQ-028 | **Ladebalken-UI für Vorbereitungsstatus:** Dem Nutzer wird in der Voice-Channel-UI ein visueller Fortschrittsindikator angezeigt, der den aktuellen Vorbereitungsstatus des Videos darstellt. Phasen: „Video wird aufgelöst…" → „Download wird vorbereitet…" → „Stream wird gestartet…" → „▶ Läuft". Der Indikator verschwindet, sobald der Stream läuft. | Should |
+| REQ-028-A | **Fortschrittsphasen-Modell:** Vorbereitung wird in 4 diskrete Phasen aufgeteilt: (1) `RESOLVING` — yt-dlp sucht/prüft Video-URL, (2) `PREPARING` — Transport+Producer werden erstellt, (3) `BUFFERING` — yt-dlp→ffmpeg Pipe läuft, wartet auf erste RTP-Pakete, (4) `STREAMING` — RTP-Daten fließen, Video ist live. Jede Phase hat einen zugehörigen Prozent-Bereich: 0–25%, 25–50%, 50–90%, 90–100%. | Should |
+| REQ-028-B | **Stream-Status via `streamHandle.update()`:** Der aktuelle Vorbereitungsstatus wird über `streamHandle.update({ title })` an Sharkord übermittelt (Titel-Update mit Phasen-Prefix wie „⏳ Wird vorbereitet… — Videotitel"). Sobald Streaming aktiv, wird der Titel auf den normalen Videotitel zurückgesetzt. | Should |
+| REQ-028-C | **Timeout & Fehlerfall:** Wenn die Vorbereitung nach 30 Sekunden nicht die Phase `STREAMING` erreicht hat, wird ein Warnhinweis im Log und optional in der UI angezeigt. Bei Fehler wird der User über die Command-Response informiert. | Should |
+
+### Wiedergabe-Steuerung über UI (ohne Texteingabe)
+
+| ID | Anforderung | Priorität |
+|----|-------------|-----------|
+| REQ-029 | **Play/Pause-Button in der Stream-UI:** Nutzer können das Video ohne Texteingabe per Klick pausieren und fortsetzen. Der Button zeigt den aktuellen Zustand an (▶ Play / ⏸ Pause). Wird über die Sharkord Plugin-UI (Stream-Overlay oder Voice-Channel-Komponente) bereitgestellt. | Must |
+| REQ-029-A | **Button-Zustandssynchronisation:** Der Play/Pause-Button spiegelt den tatsächlichen Server-Status wider. Wenn ein anderer Nutzer per `/pause`-Command pausiert, aktualisiert sich der Button bei allen Nutzern. State-Sync erfolgt über Sharkord-Events oder Polling. | Should |
+| REQ-030 | **Stop-Button in der Stream-UI:** Nutzer können den gesamten Stream (Video + Audio + Queue) per Klick beenden, ohne `/watch_stop` tippen zu müssen. Der Button ist deutlich als „destruktive Aktion" erkennbar (z.B. rot/rot-Umrandung oder ⏹-Icon). | Must |
+| REQ-030-A | **Bestätigungsdialog (optional):** Vor dem Stoppen kann optional ein Bestätigungsdialog erscheinen („Stream wirklich beenden? Queue wird geleert."), um versehentliches Beenden zu vermeiden. Dies ist konfigurierbar oder entfällt, wenn die UI-Limitierungen es nicht erlauben. | Could |
+| REQ-031 | **Skip-Button in der Stream-UI:** Nutzer können zum nächsten Video in der Queue springen, ohne `/skip` tippen zu müssen. Der Button ist nur sichtbar/aktiv, wenn die Queue weitere Videos enthält. | Should |
+
 ### Nichtfunktionale Anforderungen
 
 | ID | Anforderung | Priorität |

@@ -132,7 +132,7 @@ describe("yt-dlp", () => {
         thumbnail: "https://img.example.com/thumb.jpg",
         formats: [
           { format_id: "251", acodec: "opus", url: "https://audio.example.com" },
-          { format_id: "137", vcodec: "avc1", url: "https://video.example.com" },
+          { format_id: "137", vcodec: "avc1", url: "https://video.example.com", height: 1080 },
         ],
       });
 
@@ -141,6 +141,40 @@ describe("yt-dlp", () => {
       expect(result.title).toBe("Test Video");
       expect(result.duration).toBe(300);
       expect(result.thumbnail).toBe("https://img.example.com/thumb.jpg");
+      expect(result.streamUrl).toBe("https://video.example.com");
+      expect(result.audioUrl).toBe("https://audio.example.com");
+    });
+
+    it("[REQ-002] should only select H.264 (avc1) video formats, not VP9 or AV1", () => {
+      const json = JSON.stringify({
+        title: "Codec Test",
+        duration: 100,
+        formats: [
+          { format_id: "248", vcodec: "vp9", url: "https://vp9-video.example.com", height: 1080 },
+          { format_id: "399", vcodec: "av01.0.08M.08", url: "https://av1-video.example.com", height: 1080 },
+          { format_id: "137", vcodec: "avc1.640028", url: "https://h264-video.example.com", height: 1080 },
+          { format_id: "251", acodec: "opus", url: "https://audio.example.com" },
+        ],
+      });
+
+      const result = parseYtDlpOutput(json);
+      // Must pick H.264, NOT VP9 or AV1
+      expect(result.streamUrl).toBe("https://h264-video.example.com");
+    });
+
+    it("[REQ-002] should prefer lower resolution H.264 over higher resolution VP9", () => {
+      const json = JSON.stringify({
+        title: "Resolution Test",
+        duration: 100,
+        formats: [
+          { format_id: "313", vcodec: "vp9", url: "https://vp9-4k.example.com", height: 2160 },
+          { format_id: "136", vcodec: "avc1.4d401f", url: "https://h264-720p.example.com", height: 720 },
+          { format_id: "251", acodec: "opus", url: "https://audio.example.com" },
+        ],
+      });
+
+      const result = parseYtDlpOutput(json);
+      expect(result.streamUrl).toBe("https://h264-720p.example.com");
     });
 
     it("[REQ-001] should handle missing optional fields gracefully", () => {
