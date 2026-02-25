@@ -167,8 +167,7 @@ const startStream = async (
     debugLog(ctx, `[startStream]`, `Created transports - Video port: ${transports.videoTransport.tuple.localPort}, Audio port: ${transports.audioTransport.tuple.localPort}`);
 
     const producers = await streamManager.createProducers(
-      transports,
-      item.videoProfileLevelId
+      transports
     );
     debugLog(ctx, `[startStream]`, `Created producers with SSRCs - Video: ${transports.videoSsrc}, Audio: ${transports.audioSsrc}`);
 

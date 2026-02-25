@@ -1,11 +1,10 @@
 /**
- * /debug_cache — Shows downloaded video/audio cache files in debug mode.
+ * /debug_cache — Shows downloaded video/audio cache files.
  * 
- * When Debug Output is enabled, enables download verification by caching
- * the complete yt-dlp output to disk. This command lists all cached files
- * with their sizes and timestamps for inspection.
+ * Lists all cached video/audio files from yt-dlp downloads in debug mode.
+ * Cache files are written to ~/.config/sharkord/vid-with-friends-cache/
  *
- * Referenced by: REQ-032
+ * Referenced by: REQ-032, REQ-033
  */
 import path from "path";
 import { readdirSync, statSync } from "fs";
@@ -22,9 +21,6 @@ type PluginContextLike = {
   log: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
   debug: (...args: unknown[]) => void;
-  settings: {
-    get: <T = unknown>(key: string) => Promise<T | null>;
-  };
 };
 
 export const registerDebugCacheCommand = (ctx: PluginContextLike): void => {
@@ -33,14 +29,6 @@ export const registerDebugCacheCommand = (ctx: PluginContextLike): void => {
     description: "List debug cache files (video/audio) for inspection",
     args: [],
     executes: async (_invoker, _args) => {
-      const debugMode = await ctx.settings.get<boolean>("debugMode");
-      
-      if (!debugMode) {
-        throw new Error(
-          "Debug Output is disabled. Enable in plugin settings first.\n" +
-          "(Cache files are only created in debug mode.)"
-        );
-      }
 
       const homeDir = process.env.HOME || process.env.USERPROFILE || process.cwd();
       const cacheDir = path.join(homeDir, ".config", "sharkord", "vid-with-friends-cache");

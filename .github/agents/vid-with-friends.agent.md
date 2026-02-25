@@ -98,9 +98,9 @@ docker compose -f docker-compose.dev.yml ps
 docker logs sharkord-dev --tail 50
 ```
 
-### Testsystem-Startup-Anzeige
+### Testsystem Neuaufsatz-Startup-Anzeige
 
-**WICHTIG:** Bei jedem Testsystem-Restart (besonders nach `docker compose down --volumes`) IMMER folgende Anzeige ausgeben:
+**WICHTIG:** Bei jedem Testsystem-Neuaufsatz (besonders nach `docker compose down --volumes`) IMMER folgende Anzeige ausgeben:
 
 ```
 ╔════════════════════════════════════════════════════════════════╗

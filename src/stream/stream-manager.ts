@@ -132,13 +132,11 @@ export class StreamManager {
    * Create audio and video producers on the transports. (REQ-002)
    */
   async createProducers(
-    transports: TransportResources,
-    videoProfileLevelId?: string
+    transports: TransportResources
   ): Promise<ProducerResources> {
     const { audioTransport, videoTransport, audioSsrc, videoSsrc } = transports;
-    const profileLevelId = typeof videoProfileLevelId === "string" && /^[0-9a-fA-F]{6}$/.test(videoProfileLevelId)
-      ? videoProfileLevelId.toLowerCase()
-      : "640033";
+    // Use Mediasoup default H.264 High profile, Level 5.1
+    const profileLevelId = "640033";
 
     const [audioProducer, videoProducer] = await Promise.all([
       audioTransport.produce({
