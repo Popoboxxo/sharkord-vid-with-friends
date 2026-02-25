@@ -9,7 +9,7 @@
 import path from "path";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
-import { existsSync } from "fs";
+import { existsSync, mkdirSync } from "fs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -48,6 +48,22 @@ export type SpawnedProcess = {
   kill: () => void;
 };
 
+export type YtDlpDownloadOptions = {
+  ytDlpPath: string;
+  ffmpegLocation: string;
+  sourceUrl: string;
+  youtubeUrl?: string;
+  streamType: "video" | "audio";
+  cookiesPath?: string;
+  debug: boolean;
+};
+
+export type DebugCacheFileOptions = {
+  streamType: "video" | "audio";
+  videoId: string;
+  now: number;
+};
+
 // ---- Pure functions (testable without ffmpeg binary) ----
 
 /** Get the platform-appropriate ffmpeg binary name. */
@@ -76,6 +92,51 @@ export const normalizeBitrate = (bitrate?: string): string => {
   if (/^\d+(?:\.\d+)?k$/i.test(trimmed)) return trimmed.toLowerCase();
   if (/^\d+$/.test(trimmed)) return trimmed;
   return "192k";
+};
+
+/** Build yt-dlp download command for piping to ffmpeg. (REQ-027-B, REQ-027-C) */
+export const buildYtDlpDownloadCmd = (options: YtDlpDownloadOptions): string[] => {
+  const {
+    ytDlpPath,
+    ffmpegLocation,
+    sourceUrl,
+    youtubeUrl,
+    streamType,
+    cookiesPath,
+    debug,
+  } = options;
+
+  const cmd: string[] = [ytDlpPath, "--no-warnings", "--newline"];
+  if (debug) cmd.push("--verbose");
+  if (cookiesPath) cmd.push("--cookies", cookiesPath);
+  cmd.push("--ffmpeg-location", ffmpegLocation);
+
+  if (youtubeUrl) {
+    const formatSel = streamType === "video"
+      ? "bv[vcodec^=avc1][height<=1080]/bv[vcodec^=avc1]/bv*[vcodec^=avc1]"
+      : "ba/ba*";
+    cmd.push("-f", formatSel, "-o", "-", youtubeUrl);
+  } else {
+    cmd.push("-o", "-", sourceUrl);
+  }
+
+  return cmd;
+};
+
+/** Build a debug cache filename for a yt-dlp stream. (REQ-032) */
+export const buildDebugCacheFileName = (options: DebugCacheFileOptions): string => {
+  const safeId = options.videoId.replace(/[^a-zA-Z0-9_-]/g, "");
+  return `yt-dlp-${options.streamType}-${safeId || "unknown"}-${options.now}.bin`;
+};
+
+const extractYouTubeId = (url: string): string => {
+  const match = url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  return match ? match[1] : "";
+};
+
+const getDebugCacheDir = (): string => {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || process.cwd();
+  return path.join(homeDir, ".config", "sharkord", "vid-with-friends-cache");
 };
 
 /**
@@ -195,6 +256,7 @@ export const spawnFfmpeg = (
   sourceUrl: string,
   youtubeUrl?: string,
   streamType: "video" | "audio" = "video",
+  debugEnabled = false,
   onEnd?: () => void
 ): SpawnedProcess => {
   const ffmpegPath = getFfmpegPath();
@@ -206,33 +268,34 @@ export const spawnFfmpeg = (
   loggers.log(`[${tag}]`, "Phase: DOWNLOADING — starting yt-dlp download...");
 
   // Build yt-dlp download command
-  // Prefer YouTube URL with format selection — yt-dlp handles URL resolution,
-  // authentication, retries, and format selection end-to-end.
-  // This avoids issues with expired CDN URLs or command-line buffer overflow.
-  const ytDlpCmd: string[] = [ytDlpPath, "--no-warnings", "--newline"];
+  const ytDlpCmd = buildYtDlpDownloadCmd({
+    ytDlpPath,
+    ffmpegLocation: binDir,
+    sourceUrl,
+    youtubeUrl,
+    streamType,
+    cookiesPath: existsSync(cookiesPath) ? cookiesPath : undefined,
+    debug: debugEnabled,
+  });
 
-  // Add cookies if file exists (needed for age-restricted videos)
   if (existsSync(cookiesPath)) {
-    ytDlpCmd.push("--cookies", cookiesPath);
     loggers.debug(`[${tag}]`, "Using cookies file for download");
   }
 
-  ytDlpCmd.push("--ffmpeg-location", binDir);
-
   if (youtubeUrl) {
-    // Use YouTube URL with format selection — most reliable approach
     const formatSel = streamType === "video"
       ? "bv[vcodec^=avc1][height<=1080]/bv[vcodec^=avc1]/bv*[vcodec^=avc1]"
       : "ba/ba*";
-    ytDlpCmd.push("-f", formatSel, "-o", "-", youtubeUrl);
     loggers.log(`[${tag}]`, `Downloading via YouTube URL (format: ${formatSel})`);
   } else {
-    // Fallback: download from pre-resolved CDN URL
-    ytDlpCmd.push("-o", "-", sourceUrl);
     loggers.log(`[${tag}]`, `Fallback: downloading from CDN URL (${sourceUrl.length} chars)`);
   }
 
-  loggers.debug(`[${tag}]`, "[yt-dlp cmd]", ytDlpCmd.slice(0, 5).join(" ") + " ... " + ytDlpCmd.slice(-1)[0]?.substring(0, 60));
+  if (debugEnabled) {
+    loggers.debug(`[${tag}]`, "[yt-dlp cmd full]", ytDlpCmd.join(" "));
+  } else {
+    loggers.debug(`[${tag}]`, "[yt-dlp cmd]", ytDlpCmd.slice(0, 5).join(" ") + " ... " + ytDlpCmd.slice(-1)[0]?.substring(0, 60));
+  }
   loggers.debug(`[${tag}]`, "[FFmpeg cmd]", ffmpegPath, ...args);
 
   // Start yt-dlp to download and pipe to stdout
@@ -281,12 +344,36 @@ export const spawnFfmpeg = (
 
   loggers.log(`[${tag}]`, "Phase: PIPING — ffmpeg receiving data from yt-dlp...");
 
+  // Optionally cache yt-dlp output in debug mode (REQ-032)
+  let ffmpegInput: ReadableStream<Uint8Array> | undefined = ytDlpProc.stdout ?? undefined;
+  if (debugEnabled && ytDlpProc.stdout) {
+    const cacheDir = getDebugCacheDir();
+    try {
+      mkdirSync(cacheDir, { recursive: true });
+      const videoId = extractYouTubeId(youtubeUrl || "");
+      const cacheName = buildDebugCacheFileName({
+        streamType,
+        videoId,
+        now: Date.now(),
+      });
+      const cachePath = path.join(cacheDir, cacheName);
+      const [toFfmpeg, toCache] = ytDlpProc.stdout.tee();
+      ffmpegInput = toFfmpeg;
+      void Bun.write(cachePath, toCache)
+        .then(() => loggers.debug(`[${tag}]`, `[yt-dlp cache] wrote ${cachePath}`))
+        .catch((err) => loggers.error(`[${tag}]`, `[yt-dlp cache] failed:`, err));
+      loggers.debug(`[${tag}]`, `[yt-dlp cache] enabled: ${cachePath}`);
+    } catch (err) {
+      loggers.error(`[${tag}]`, "[yt-dlp cache] failed to initialize:", err);
+    }
+  }
+
   // Start ffmpeg with yt-dlp's stdout as stdin
   const proc = Bun.spawn({
     cmd: [ffmpegPath, ...args],
     stdout: "ignore",
     stderr: "pipe",
-    stdin: ytDlpProc.stdout,  // Pipe media data from yt-dlp
+    stdin: ffmpegInput,  // Pipe media data from yt-dlp
   });
 
   loggers.log(`[${tag}]`, `[FFmpeg] Process started (PID: ${proc.pid})`);

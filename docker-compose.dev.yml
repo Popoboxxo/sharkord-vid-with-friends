@@ -65,6 +65,8 @@ services:
       - ./dist/sharkord-vid-with-friends:/root/.config/sharkord/plugins/sharkord-vid-with-friends:ro
       # Mount ffmpeg + yt-dlp binaries (downloaded by init-binaries service)
       - plugin-binaries:/root/.config/sharkord/plugins/sharkord-vid-with-friends/bin:ro
+      # Mount debug cache directory so user can access downloaded video/audio files from host
+      - ./debug-cache:/root/.config/sharkord/vid-with-friends-cache
     restart: unless-stopped
 
 volumes:

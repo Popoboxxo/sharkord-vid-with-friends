@@ -96,6 +96,13 @@ export const parseYtDlpOutput = (jsonString: string): ResolvedVideo => {
   let audioUrl = "";
   let videoFormatId = "";
   let audioFormatId = "";
+  let videoProfileLevelId = "";
+
+  const parseAvc1ProfileLevelId = (vcodec: unknown): string => {
+    if (typeof vcodec !== "string") return "";
+    const match = vcodec.match(/avc1\.([0-9a-fA-F]{6})/);
+    return match ? match[1].toLowerCase() : "";
+  };
   
   if (Array.isArray(obj["formats"])) {
     const formats = obj["formats"] as Record<string, unknown>[];
@@ -126,6 +133,7 @@ export const parseYtDlpOutput = (jsonString: string): ResolvedVideo => {
     if (videoFormat && typeof videoFormat["url"] === "string") {
       streamUrl = videoFormat["url"];
       videoFormatId = String(videoFormat["format_id"] || "");
+      videoProfileLevelId = parseAvc1ProfileLevelId(videoFormat["vcodec"]);
     }
     
     // Find best audio-only format (AAC preferred for reliable decoding)
@@ -155,6 +163,7 @@ export const parseYtDlpOutput = (jsonString: string): ResolvedVideo => {
     audioUrl: audioUrl || streamUrl, 
     duration, 
     thumbnail,
+    videoProfileLevelId,
     videoFormatId,
     audioFormatId,
   };

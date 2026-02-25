@@ -33,6 +33,7 @@ import { registerStopCommand } from "./commands/stop";
 import { registerNowPlayingCommand } from "./commands/nowplaying";
 import { registerPauseCommand } from "./commands/pause";
 import { registerVolumeCommand } from "./commands/volume";
+import { registerDebugCacheCommand } from "./commands/debug_cache";
 
 import path from "path";
 
@@ -165,7 +166,10 @@ const startStream = async (
     );
     debugLog(ctx, `[startStream]`, `Created transports - Video port: ${transports.videoTransport.tuple.localPort}, Audio port: ${transports.audioTransport.tuple.localPort}`);
 
-    const producers = await streamManager.createProducers(transports);
+    const producers = await streamManager.createProducers(
+      transports,
+      item.videoProfileLevelId
+    );
     debugLog(ctx, `[startStream]`, `Created producers with SSRCs - Video: ${transports.videoSsrc}, Audio: ${transports.audioSsrc}`);
 
     // 4. Register stream with Sharkord (REQ-028-B: start with preparation title)
@@ -200,7 +204,7 @@ const startStream = async (
     });
 
     loggers.debug(`[RTP Setup] Video: rtp://${rtpHost}:${transports.videoTransport.tuple.localPort}`);
-    const videoProcess = spawnFfmpeg(videoArgs, loggers, item.streamUrl, item.youtubeUrl, "video");
+    const videoProcess = spawnFfmpeg(videoArgs, loggers, item.streamUrl, item.youtubeUrl, "video", debugMode);
 
     // 7. Spawn audio RTP streamer (reads from separate audio URL if available)
     const audioArgs = buildAudioStreamArgs({
@@ -214,7 +218,7 @@ const startStream = async (
     });
 
     loggers.debug(`[RTP Setup] Audio: rtp://${rtpHost}:${transports.audioTransport.tuple.localPort}`);
-    const audioProcess = spawnFfmpeg(audioArgs, loggers, item.audioUrl, item.youtubeUrl, "audio");
+    const audioProcess = spawnFfmpeg(audioArgs, loggers, item.audioUrl, item.youtubeUrl, "audio", debugMode);
 
     // 8. Store all resources for lifecycle tracking
     const resources: ChannelStreamResources = {
@@ -562,6 +566,7 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
   registerNowPlayingCommand(ctx as never, queueManager);
   registerPauseCommand(ctx as never, syncController);
   registerVolumeCommand(ctx as never, syncController);
+  registerDebugCacheCommand(ctx as never);
 
   // 5. Listen for voice channel close events (REQ-016)
   ctx.events.on("voice:runtime_closed", handleVoiceRuntimeClosed(ctx));

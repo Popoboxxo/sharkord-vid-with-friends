@@ -85,6 +85,7 @@ export const registerPlayCommand = (
         query: args.query,
         title: resolved.title,
         youtubeUrl: resolved.youtubeUrl,
+        videoProfileLevelId: resolved.videoProfileLevelId,
         streamUrl: resolved.streamUrl,
         audioUrl: resolved.audioUrl || resolved.streamUrl,  // Fallback to streamUrl if no separate audio
         duration: resolved.duration,

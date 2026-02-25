@@ -60,8 +60,8 @@ describe("Integration: Streaming (real URL)", () => {
       volume: 0.5,
     });
 
-    const videoProc = spawnFfmpeg(videoArgs, loggers, resolved.streamUrl, resolved.youtubeUrl, "video");
-    const audioProc = spawnFfmpeg(audioArgs, loggers, resolved.audioUrl, resolved.youtubeUrl, "audio");
+    const videoProc = spawnFfmpeg(videoArgs, loggers, resolved.streamUrl, resolved.youtubeUrl, "video", false);
+    const audioProc = spawnFfmpeg(audioArgs, loggers, resolved.audioUrl, resolved.youtubeUrl, "audio", false);
 
     await new Promise<void>((resolve) => setTimeout(resolve, 5000));
 

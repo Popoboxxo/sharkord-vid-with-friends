@@ -71,6 +71,7 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 | REQ-027 | **Download-Fortschritt in Debug-Logs:** Der aktuelle Download-/Vorbereitungs-Status (yt-dlp Auflösung, ffmpeg Pipe-Start, RTP-Streaming aktiv) wird als strukturierte Debug-Log-Einträge ausgegeben, wenn Debug-Modus (REQ-026) aktiviert ist. Beinhaltet: Phase (resolving → downloading → streaming), verstrichene Zeit, ggf. Dateigröße/Durchsatz. | Must |
 | REQ-027-A | **yt-dlp Phasen-Logging:** Beim Resolve eines Videos werden die Phasen `RESOLVING` (yt-dlp --dump-json gestartet), `RESOLVED` (Metadaten empfangen, Titel + Dauer bekannt), und `FORMAT_SELECTED` (H.264-Format gewählt, URL-Länge) im Debug-Log dokumentiert. | Must |
 | REQ-027-B | **ffmpeg/yt-dlp Pipe-Logging:** Nach Start der yt-dlp→ffmpeg Pipe werden die Phasen `DOWNLOADING` (yt-dlp begonnen), `PIPING` (ffmpeg empfängt Daten auf stdin), und `STREAMING` (erste RTP-Pakete gesendet) im Debug-Log protokolliert. | Must |
+| REQ-027-C | **Erweitertes yt-dlp Debug-Logging:** Im Debug-Modus wird yt-dlp mit verbose Output gestartet und die vollständige Command-Line geloggt (ohne Kürzung), um Download-Probleme zu diagnostizieren. | Must |
 | REQ-028 | **Ladebalken-UI für Vorbereitungsstatus:** Dem Nutzer wird in der Voice-Channel-UI ein visueller Fortschrittsindikator angezeigt, der den aktuellen Vorbereitungsstatus des Videos darstellt. Phasen: „Video wird aufgelöst…" → „Download wird vorbereitet…" → „Stream wird gestartet…" → „▶ Läuft". Der Indikator verschwindet, sobald der Stream läuft. | Should |
 | REQ-028-A | **Fortschrittsphasen-Modell:** Vorbereitung wird in 4 diskrete Phasen aufgeteilt: (1) `RESOLVING` — yt-dlp sucht/prüft Video-URL, (2) `PREPARING` — Transport+Producer werden erstellt, (3) `BUFFERING` — yt-dlp→ffmpeg Pipe läuft, wartet auf erste RTP-Pakete, (4) `STREAMING` — RTP-Daten fließen, Video ist live. Jede Phase hat einen zugehörigen Prozent-Bereich: 0–25%, 25–50%, 50–90%, 90–100%. | Should |
 | REQ-028-B | **Stream-Status via `streamHandle.update()`:** Der aktuelle Vorbereitungsstatus wird über `streamHandle.update({ title })` an Sharkord übermittelt (Titel-Update mit Phasen-Prefix wie „⏳ Wird vorbereitet… — Videotitel"). Sobald Streaming aktiv, wird der Titel auf den normalen Videotitel zurückgesetzt. | Should |
@@ -98,6 +99,8 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 | REQ-024 | Portabilität: Plugin läuft auf Linux, macOS und Windows ohne Code-Anpassungen | Should |
 | REQ-025 | Dokumentation: README (Englisch), REQUIREMENTS und ARCHITECTURE sind aktuell | Should |
 | REQ-026 | Plugin-Setting "Debug Output" (Boolean) aktiviert/deaktiviert detailliertes Logging für Stream-Prozesse, ffmpeg stderr, yt-dlp Aufrufe, und Fehler-Diagnose | Must |
+| REQ-032 | **Debug-Cache für Downloads:** Im Debug-Modus wird der yt-dlp Download parallel in eine lokale Datei geschrieben (Video/Audio separat), um die Download-Funktion unabhängig vom RTP-Pfad prüfen zu können. | Should |
+| REQ-033 | **`/debug_cache` Command:** Zeigt alle gecachten Download-Dateien (Video/Audio) mit Größe und Zeitstempel an. Ermöglicht Nutzer, heruntergeladene Dateien zu inspizieren und vom Host aus (via Docker-Volume `./debug-cache/`) herunterzuladen. Nur verfügbar wenn Debug Output aktiv ist. | Should |
 
 ## Traceability
 

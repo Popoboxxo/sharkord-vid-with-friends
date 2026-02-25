@@ -14,6 +14,8 @@ export type QueueItem = {
   title: string;
   /** Original YouTube URL (for piping to yt-dlp), may differ from query if search was used */
   youtubeUrl: string;
+  /** H.264 profile-level-id (e.g., "640028") derived from avc1 codec string */
+  videoProfileLevelId: string;
   /** Resolved direct stream URL (from yt-dlp) - video or combined */
   streamUrl: string;
   /** Resolved audio-only stream URL (from yt-dlp) - may be same as streamUrl */
@@ -38,6 +40,7 @@ export type QueueAddInput = {
 export type ResolvedVideo = {
   title: string;
   youtubeUrl: string;  // Original YouTube URL for piping to yt-dlp
+  videoProfileLevelId: string;  // H.264 profile-level-id (e.g., "640028")
   streamUrl: string;
   audioUrl: string;
   duration: number;

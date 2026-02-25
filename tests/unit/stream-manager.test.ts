@@ -13,6 +13,7 @@ import {
   createMockRouter,
   createMockPluginContext,
   type MockPluginContext,
+  type MockTransport,
 } from "../integration/mock-plugin-context";
 
 describe("StreamManager", () => {
@@ -50,6 +51,23 @@ describe("StreamManager", () => {
     expect(producers.videoProducer).toBeTruthy();
     expect(producers.audioProducer.kind).toBe("audio");
     expect(producers.videoProducer.kind).toBe("video");
+  });
+
+  it("[REQ-002] should use provided H.264 profile-level-id", async () => {
+    const router = createMockRouter();
+    const { ip } = ctx.actions.voice.getListenInfo();
+
+    const resources = await streamManager.createTransports(router, ip, undefined);
+    await streamManager.createProducers(resources, "640028");
+
+    const videoTransport = resources.videoTransport as MockTransport;
+    const produceCall = (videoTransport.produceCalls[0] ?? {}) as {
+      rtpParameters?: { codecs?: Array<{ parameters?: Record<string, unknown> }> };
+    };
+    const parameters = produceCall.rtpParameters?.codecs?.[0]?.parameters;
+    const profileLevelId = parameters ? parameters["profile-level-id"] : undefined;
+
+    expect(profileLevelId).toBe("640028");
   });
 
   // --- REQ-015: Track channel state ---

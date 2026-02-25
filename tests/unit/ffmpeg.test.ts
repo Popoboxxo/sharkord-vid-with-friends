@@ -13,6 +13,8 @@ import {
   normalizeVolume,
   normalizeBitrate,
   getFfmpegBinaryName,
+  buildYtDlpDownloadCmd,
+  buildDebugCacheFileName,
 } from "../../src/stream/ffmpeg";
 
 describe("ffmpeg", () => {
@@ -271,6 +273,49 @@ describe("ffmpeg", () => {
       } else {
         expect(name).toBe("ffmpeg");
       }
+    });
+  });
+
+  describe("buildYtDlpDownloadCmd", () => {
+    it("[REQ-027-C] should include --verbose in debug mode", () => {
+      const cmd = buildYtDlpDownloadCmd({
+        ytDlpPath: "/bin/yt-dlp",
+        ffmpegLocation: "/bin",
+        sourceUrl: "https://example.com/video",
+        youtubeUrl: "https://www.youtube.com/watch?v=H6P3kJ8nrR8",
+        streamType: "video",
+        debug: true,
+      });
+
+      expect(cmd).toContain("--verbose");
+    });
+
+    it("[REQ-027-B] should select audio format for audio streams", () => {
+      const cmd = buildYtDlpDownloadCmd({
+        ytDlpPath: "/bin/yt-dlp",
+        ffmpegLocation: "/bin",
+        sourceUrl: "https://example.com/audio",
+        youtubeUrl: "https://www.youtube.com/watch?v=H6P3kJ8nrR8",
+        streamType: "audio",
+        debug: false,
+      });
+
+      expect(cmd).toContain("-f");
+      expect(cmd.some((part) => part.includes("ba/ba*"))).toBe(true);
+    });
+  });
+
+  describe("buildDebugCacheFileName", () => {
+    it("[REQ-032] should include stream type and video id", () => {
+      const name = buildDebugCacheFileName({
+        streamType: "video",
+        videoId: "H6P3kJ8nrR8",
+        now: 1700000000000,
+      });
+
+      expect(name).toContain("video");
+      expect(name).toContain("H6P3kJ8nrR8");
+      expect(name).toContain("1700000000000");
     });
   });
 });

@@ -167,6 +167,20 @@ describe("yt-dlp", () => {
       expect(result.audioFormatId).toBe("251");
     });
 
+    it("[REQ-002] should extract H.264 profile-level-id from avc1 codec", () => {
+      const json = JSON.stringify({
+        title: "Profile Test",
+        duration: 120,
+        formats: [
+          { format_id: "137", vcodec: "avc1.640028", url: "https://video.example.com", height: 1080 },
+        ],
+      });
+
+      const result = parseYtDlpOutput(json);
+
+      expect(result.videoProfileLevelId).toBe("640028");
+    });
+
     it("[REQ-027-A] should return empty format IDs when no formats available", () => {
       const json = JSON.stringify({
         title: "No Formats",

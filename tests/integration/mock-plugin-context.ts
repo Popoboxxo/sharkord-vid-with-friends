@@ -86,6 +86,7 @@ export type MockTransport = {
   tuple: { localPort: number };
   close: () => void;
   produce: (options: unknown) => Promise<MockProducer>;
+  produceCalls: unknown[];
 };
 
 export type MockRouter = {
@@ -134,10 +135,12 @@ export const createMockTransport = (): MockTransport => {
     id: nextId(),
     closed: false,
     tuple: { localPort: port },
+    produceCalls: [],
     close() {
       this.closed = true;
     },
     async produce(options: unknown) {
+      this.produceCalls.push(options);
       const opts = options as { kind?: "audio" | "video" };
       return createMockProducer(opts?.kind ?? "audio");
     },

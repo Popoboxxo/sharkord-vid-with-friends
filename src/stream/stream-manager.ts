@@ -132,9 +132,13 @@ export class StreamManager {
    * Create audio and video producers on the transports. (REQ-002)
    */
   async createProducers(
-    transports: TransportResources
+    transports: TransportResources,
+    videoProfileLevelId?: string
   ): Promise<ProducerResources> {
     const { audioTransport, videoTransport, audioSsrc, videoSsrc } = transports;
+    const profileLevelId = typeof videoProfileLevelId === "string" && /^[0-9a-fA-F]{6}$/.test(videoProfileLevelId)
+      ? videoProfileLevelId.toLowerCase()
+      : "640033";
 
     const [audioProducer, videoProducer] = await Promise.all([
       audioTransport.produce({
@@ -166,7 +170,7 @@ export class StreamManager {
                 // H.264 High profile, Level 5.1 — permissive enough for any YouTube stream.
                 // We use -c:v copy (no re-encoding), so the actual profile matches the source.
                 // YouTube typically sends High profile at various levels (3.1-5.1).
-                "profile-level-id": "640033",
+                "profile-level-id": profileLevelId,
               },
               rtcpFeedback: [],
             },
