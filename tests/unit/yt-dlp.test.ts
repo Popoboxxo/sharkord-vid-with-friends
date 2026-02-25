@@ -15,6 +15,8 @@ import {
 } from "../../src/stream/yt-dlp";
 
 describe("yt-dlp", () => {
+  const REAL_STREAM_URL = "https://www.youtube.com/watch?v=H6P3kJ8nrR8";
+
   // --- REQ-001: YouTube URL/Query erkennen ---
 
   describe("isYouTubeUrl", () => {
@@ -30,6 +32,10 @@ describe("yt-dlp", () => {
 
     it("[REQ-001] should recognize ytsearch: prefixed queries", () => {
       expect(isYouTubeUrl("ytsearch:funny cats")).toBe(true);
+    });
+
+    it("[REQ-001] should recognize a real watch URL", () => {
+      expect(isYouTubeUrl(REAL_STREAM_URL)).toBe(true);
     });
 
     it("[REQ-001] should reject non-YouTube URLs", () => {

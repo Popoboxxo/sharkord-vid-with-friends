@@ -9,6 +9,9 @@
 import { describe, it, expect } from "bun:test";
 
 describe("E2E Smoke", () => {
+  const STREAM_TEST_URL = "https://www.youtube.com/watch?v=H6P3kJ8nrR8";
+  const RUN_STREAMING_TESTS = process.env.RUN_STREAMING_TESTS === "1";
+
   it("[REQ-015] should import plugin entry without errors", async () => {
     // Dynamic import to test that the module resolves correctly
     const plugin = await import("../../src/index");
@@ -119,5 +122,49 @@ describe("E2E Smoke", () => {
     const state = qm.getState(1);
     expect(state.size).toBe(1);
     expect(state.current?.title).toBe("Test Video");
+  });
+
+  it("[REQ-002] should stream for 5s via yt-dlp + ffmpeg", async () => {
+    if (!isDocker || !RUN_STREAMING_TESTS) return;
+
+    const ytDlpProc = Bun.spawn([
+      "yt-dlp",
+      "--no-warnings",
+      "-f",
+      "bv[vcodec^=avc1][height<=1080]/bv[vcodec^=avc1]/bv*[vcodec^=avc1]",
+      "-o",
+      "-",
+      STREAM_TEST_URL,
+    ], {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "ignore",
+    });
+
+    const ffmpegProc = Bun.spawn([
+      "ffmpeg",
+      "-hide_banner",
+      "-nostats",
+      "-loglevel", "error",
+      "-re",
+      "-fflags", "+genpts",
+      "-i", "pipe:0",
+      "-an",
+      "-c:v", "copy",
+      "-bsf:v", "h264_mp4toannexb",
+      "-t", "5",
+      "-f", "rtp",
+      "rtp://127.0.0.1:40000?pkt_size=1200",
+    ], {
+      stdin: ytDlpProc.stdout,
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+
+    const exitCode = await ffmpegProc.exited;
+
+    try { ytDlpProc.kill("SIGTERM"); } catch { /* ignore */ }
+
+    expect(exitCode).toBe(0);
   });
 });

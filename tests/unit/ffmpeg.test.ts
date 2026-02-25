@@ -80,6 +80,20 @@ describe("ffmpeg", () => {
       expect(args).toContain("-re");
     });
 
+    it("[REQ-002] should generate timestamps for piped input", () => {
+      const args = buildVideoStreamArgs({
+        sourceUrl: "test-url",
+        rtpHost: "127.0.0.1",
+        rtpPort: 40001,
+        payloadType: 96,
+        ssrc: 123456,
+        bitrate: "2000k",
+      });
+
+      expect(args).toContain("-fflags");
+      expect(args).toContain("+genpts");
+    });
+
     it("[REQ-002] should use copy mode instead of re-encoding (avoids frame drops)", () => {
       const args = buildVideoStreamArgs({
         sourceUrl: "test-url",
@@ -193,6 +207,21 @@ describe("ffmpeg", () => {
       });
 
       expect(args).toContain("-re");
+    });
+
+    it("[REQ-002] should generate timestamps for piped input", () => {
+      const args = buildAudioStreamArgs({
+        sourceUrl: "test-url",
+        rtpHost: "127.0.0.1",
+        rtpPort: 40002,
+        payloadType: 111,
+        ssrc: 789012,
+        bitrate: "128k",
+        volume: 1,
+      });
+
+      expect(args).toContain("-fflags");
+      expect(args).toContain("+genpts");
     });
 
     it("[REQ-002] should include probesize for fragmented MP4 detection", () => {

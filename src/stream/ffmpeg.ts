@@ -105,6 +105,8 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
     "-loglevel", "warning",
     // Read input at realtime speed to avoid fast playback and early exit
     "-re",
+    // Generate timestamps for piped input to keep RTP timing stable
+    "-fflags", "+genpts",
     // Input from yt-dlp stdin
     "-i", "pipe:0",
     // Drop audio (separate audio stream handles this)
@@ -144,6 +146,8 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
     "-loglevel", "warning",
     // Read input at realtime speed to avoid fast playback and early exit
     "-re",
+    // Generate timestamps for piped input to keep RTP timing stable
+    "-fflags", "+genpts",
     // Probe larger buffer for fragmented MP4 format detection
     "-probesize", "5000000",
     "-analyzeduration", "5000000",
