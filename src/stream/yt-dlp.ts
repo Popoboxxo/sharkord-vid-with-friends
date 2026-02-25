@@ -126,7 +126,6 @@ export const parseYtDlpOutput = (jsonString: string): ResolvedVideo => {
     if (videoFormat && typeof videoFormat["url"] === "string") {
       streamUrl = videoFormat["url"];
       videoFormatId = String(videoFormat["format_id"] || "");
-      videoProfileLevelId = parseAvc1ProfileLevelId(videoFormat["vcodec"]);
     }
     
     // Find best audio-only format (AAC preferred for reliable decoding)
