@@ -103,6 +103,8 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
     "-hide_banner",
     "-nostats",
     "-loglevel", "warning",
+    // Read input at realtime speed to avoid fast playback and early exit
+    "-re",
     // Input from yt-dlp stdin
     "-i", "pipe:0",
     // Drop audio (separate audio stream handles this)
@@ -140,6 +142,8 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
     "-hide_banner",
     "-nostats",
     "-loglevel", "warning",
+    // Read input at realtime speed to avoid fast playback and early exit
+    "-re",
     // Probe larger buffer for fragmented MP4 format detection
     "-probesize", "5000000",
     "-analyzeduration", "5000000",

@@ -67,6 +67,19 @@ describe("ffmpeg", () => {
       expect(args).toContain("pipe:0");
     });
 
+    it("[REQ-002] should read input in realtime to avoid fast playback", () => {
+      const args = buildVideoStreamArgs({
+        sourceUrl: "test-url",
+        rtpHost: "127.0.0.1",
+        rtpPort: 40001,
+        payloadType: 96,
+        ssrc: 123456,
+        bitrate: "2000k",
+      });
+
+      expect(args).toContain("-re");
+    });
+
     it("[REQ-002] should use copy mode instead of re-encoding (avoids frame drops)", () => {
       const args = buildVideoStreamArgs({
         sourceUrl: "test-url",
@@ -166,6 +179,20 @@ describe("ffmpeg", () => {
       // URL is passed via stdin (pipe:0) to avoid command-line buffer overflow
       expect(args).toContain("-i");
       expect(args).toContain("pipe:0");
+    });
+
+    it("[REQ-002] should read input in realtime to avoid fast playback", () => {
+      const args = buildAudioStreamArgs({
+        sourceUrl: "test-url",
+        rtpHost: "127.0.0.1",
+        rtpPort: 40002,
+        payloadType: 111,
+        ssrc: 789012,
+        bitrate: "128k",
+        volume: 1,
+      });
+
+      expect(args).toContain("-re");
     });
 
     it("[REQ-002] should include probesize for fragmented MP4 detection", () => {
