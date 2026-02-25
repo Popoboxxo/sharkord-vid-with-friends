@@ -188,28 +188,52 @@ const getDebugCacheDir = (): string => {
  * actual H.264 profile (High/Main/Baseline) doesn't matter for forwarding.
  */
 export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
-  const { inputPath, rtpHost, rtpPort, payloadType, ssrc } = options;
+  const { inputPath, rtpHost, rtpPort, payloadType, ssrc, bitrate } = options;
+  const bitrateNorm = normalizeBitrate(bitrate);
 
-  // Copy H.264 stream as-is — zero CPU for video, no frame drops.
-  // -bsf:v h264_mp4toannexb ensures correct NAL unit format for RTP output
-  //   (converts AVCC/length-prefixed from MP4/DASH to Annex B/start-code for RTP;
-  //    harmless no-op when input is already MPEGTS/Annex B).
+  // Re-encode to VP8 with frequent keyframes for WebRTC streaming.
+  //
+  // WHY VP8 INSTEAD OF H264?
+  // H264 over PlainTransport has a fundamental keyframe problem:
+  // 1. ffmpeg sends IDR only at the start of the stream
+  // 2. If a Mediasoup consumer connects AFTER the IDR, it can't decode
+  // 3. PlainTransport + comedia → ffmpeg ignores RTCP (PLI/FIR) → no new IDR
+  // 4. Result: consumer stays paused → black screen forever
+  //
+  // VP8 advantages:
+  // - No SPS/PPS negotiation (simpler than H264)
+  // - Self-contained keyframes (no decoder state dependency)
+  // - Universal browser support via WebRTC
+  // - Frequent keyframes with low overhead (-auto-alt-ref 0)
+  //
+  // Using realtime preset with max speed for Docker CPU constraints.
   return [
     "-hide_banner",
-    "-nostats",
-    "-loglevel", "warning",
-    // Read input at realtime speed to avoid fast playback and early exit
+    "-loglevel", "info",
+    // Read input at realtime speed
     "-re",
-    // Generate timestamps for piped input to keep RTP timing stable
+    // Generate timestamps
     "-fflags", "+genpts",
-    // Input from temp file (grows as yt-dlp downloads)
+    // Input from temp file
     "-i", inputPath,
     // Drop audio (separate audio stream handles this)
     "-an",
-    // Copy video codec as-is (no re-encoding!)
-    "-c:v", "copy",
-    // Ensure correct NAL format for RTP
-    "-bsf:v", "h264_mp4toannexb",
+    // VP8 encoding with realtime settings
+    "-c:v", "libvpx",
+    "-quality", "realtime",
+    "-deadline", "realtime",
+    "-cpu-used", "8",
+    "-b:v", bitrateNorm,
+    "-maxrate", bitrateNorm,
+    "-bufsize", "2M",
+    // Keyframe every 1 second (at 25fps = every 25 frames)
+    // Frequent keyframes ensure any late-joining consumer can start within 1s
+    "-g", "25",
+    "-keyint_min", "25",
+    // Disable alternate reference frames (required for RTP streaming)
+    "-auto-alt-ref", "0",
+    // Error resilience for packet loss
+    "-error-resilient", "1",
     // RTP output
     "-payload_type", String(payloadType),
     "-ssrc", String(ssrc),
@@ -236,8 +260,7 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
   // Unlike video, this is lightweight and doesn't cause frame drops.
   return [
     "-hide_banner",
-    "-nostats",
-    "-loglevel", "warning",
+    "-loglevel", "info",
     // Read input at realtime speed to avoid fast playback and early exit
     "-re",
     // Generate timestamps for piped input to keep RTP timing stable
@@ -268,47 +291,30 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
 // ---- Runtime functions (require ffmpeg binary) ----
 
 /**
- * Spawn an ffmpeg process with yt-dlp download piped to stdin.
- *
- * Downloads YouTube stream via yt-dlp (using YouTube URL + format selection)
- * and pipes it directly to ffmpeg for RTP output. This is more reliable than
- * using pre-resolved CDN URLs which may expire or fail silently.
- *
- * REQ-002, REQ-027-B: Phase logging (DOWNLOADING → PIPING → STREAMING)
- *
- * @param args ffmpeg arguments (from buildVideoStreamArgs/buildAudioStreamArgs)
- * @param loggers Plugin loggers for output
- * @param sourceUrl Pre-resolved CDN URL (fallback if youtubeUrl unavailable)
- * @param youtubeUrl Original YouTube URL — preferred for download (yt-dlp handles auth/retries)
- * @param streamType "video" or "audio" — determines yt-dlp format selection
- * @param onEnd Callback when ffmpeg process exits
- */
-/**
  * Spawn ffmpeg process that reads from a temp file (downloaded by yt-dlp in parallel).
  *
- * NEW APPROACH (REQ-002 fix):
- * - yt-dlp downloads to temp file (stable, no stdout piping bugs)
+ * REQ-002: Stable temp-file streaming approach:
+ * - yt-dlp downloads to temp file (no stdout piping bugs)
  * - ffmpeg reads from growing temp file (progressive playback)
  * - User sees video immediately (as soon as first chunks arrive)
- * - Cleanup: temp file deleted after stream ends
- *
- * @param args ffmpeg arguments (from buildVideoStreamArgs/buildAudioStreamArgs)
- * @param loggers Plugin loggers for output
- * @param sourceUrl Pre-resolved CDN URL (fallback if youtubeUrl unavailable)
- * @param youtubeUrl Original YouTube URL — preferred for download
- * @param streamType "video" or "audio" — determines yt-dlp format selection
- * @param debugEnabled Enable verbose logging
- * @param onEnd Callback when ffmpeg process exits
+ * - Cleanup: temp file retained for debugging
  */
-export const spawnFfmpeg = (
-  args: string[],
-  loggers: FfmpegLoggers,
-  sourceUrl: string,
-  youtubeUrl?: string,
-  streamType: "video" | "audio" = "video",
-  debugEnabled = false,
-  onEnd?: () => void
-): SpawnedProcess => {
+export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedProcess> => {
+  const {
+    streamType,
+    sourceUrl,
+    youtubeUrl,
+    rtpHost,
+    rtpPort,
+    payloadType,
+    ssrc,
+    bitrate,
+    volume = 1,
+    debugEnabled = false,
+    loggers,
+    onEnd,
+  } = options;
+
   const ffmpegPath = getFfmpegPath();
   const binDir = path.dirname(ffmpegPath);
   const ytDlpPath = path.join(binDir, "yt-dlp");
@@ -319,11 +325,16 @@ export const spawnFfmpeg = (
   const videoId = extractYouTubeId(youtubeUrl || "");
   const tempFilePath = buildTempFilePath(videoId, streamType);
   
+  // Build ffmpeg args with temp file as input
+  const args = streamType === "video"
+    ? buildVideoStreamArgs({ inputPath: tempFilePath, rtpHost, rtpPort, payloadType, ssrc, bitrate })
+    : buildAudioStreamArgs({ inputPath: tempFilePath, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume });
+  
   // Ensure cache directory exists
   const cacheDir = path.dirname(tempFilePath);
   mkdirSync(cacheDir, { recursive: true });
 
-  loggers.log(`[${tag}]`, `Phase: DOWNLOADING — yt-dlp downloading to temp file: ${path.basename(tempFilePath)}`);
+  loggers.log(`[${tag}]`, `Phase: DOWNLOADING — yt-dlp downloading to: ${path.basename(tempFilePath)}`);
 
   // Build yt-dlp download command (downloads to temp file)
   const ytDlpCmd = buildYtDlpDownloadCmd({
@@ -337,10 +348,6 @@ export const spawnFfmpeg = (
     outputPath: tempFilePath,
   });
 
-  if (existsSync(cookiesPath)) {
-    loggers.debug(`[${tag}]`, "Using cookies file for download");
-  }
-
   if (youtubeUrl) {
     const formatSel = streamType === "video"
       ? "bv[vcodec^=avc1][height<=1080]/bv[vcodec^=avc1]/bv*[vcodec^=avc1]"
@@ -352,15 +359,13 @@ export const spawnFfmpeg = (
 
   if (debugEnabled) {
     loggers.debug(`[${tag}]`, "[yt-dlp cmd full]", ytDlpCmd.join(" "));
-  } else {
-    loggers.debug(`[${tag}]`, "[yt-dlp cmd]", ytDlpCmd.slice(0, 5).join(" ") + " ... " + ytDlpCmd.slice(-1)[0]?.substring(0, 60));
   }
   loggers.debug(`[${tag}]`, "[FFmpeg cmd]", ffmpegPath, ...args);
 
   // Start yt-dlp to download to temp file
   const ytDlpProc = Bun.spawn({
     cmd: ytDlpCmd,
-    stdout: "pipe",
+    stdout: "ignore",  // yt-dlp writes to file, not stdout
     stderr: "pipe",
     stdin: "ignore",
   });
@@ -392,168 +397,177 @@ export const spawnFfmpeg = (
     finally { try { reader.releaseLock(); } catch { /* */ } }
   })();
 
-  // Monitor yt-dlp exit — critical for diagnosing download failures (REQ-027-B)
-  ytDlpProc.exited.then((code) => {
-    if (code !== 0) {
+  // Monitor yt-dlp exit + log final file size
+  ytDlpProc.exited.then(async (code) => {
+    if (code !== 0 && code !== 143) {  // 143 = SIGTERM (expected on cleanup)
       loggers.error(`[${tag}]`, `[yt-dlp] FAILED (exit code ${code}) — download did not complete!`);
+    } else if (code === 0) {
+      // Log final file size
+      try {
+        const fileSize = existsSync(tempFilePath) ? Bun.file(tempFilePath).size : 0;
+        loggers.log(`[${tag}]`, `[yt-dlp] Download completed (exit 0) — file size: ${Math.round(fileSize / 1024)} KB`);
+      } catch {
+        loggers.log(`[${tag}]`, "[yt-dlp] Download completed (exit 0)");
+      }
     } else {
-      loggers.log(`[${tag}]`, "[yt-dlp] Download completed successfully (exit 0)");
+      loggers.debug(`[${tag}]`, `[yt-dlp] Stopped (exit ${code})`);
     }
   });
 
-  // Wait for temp file to exist and have some data before starting ffmpeg
-  const waitForFile = async () => {
-    let retries = 0;
-    while (retries < 100) {  // 10 seconds max wait
-      if (existsSync(tempFilePath)) {
-        const stat = await Bun.file(tempFilePath).size;
-        if (stat > 10000) {  // Wait for at least 10KB
-          loggers.log(`[${tag}]`, `Temp file ready (${Math.round(stat / 1024)} KB), starting ffmpeg...`);
-          return true;
-        }
-      }
-      await new Promise<void>(r => setTimeout(r, 100));
-      retries++;
-    }
-    loggers.error(`[${tag}]`, `Temp file not ready after 10s! yt-dlp may have failed.`);
-    return false;
-  };
+  // Log RTP summary for diagnostics
+  loggers.log(`[${tag}]`, `[RTP Config] PT=${options.payloadType}, SSRC=${options.ssrc}, dest=rtp://${rtpHost}:${rtpPort}`);
 
-  // Start ffmpeg once temp file is ready
-  let proc: ReturnType<typeof Bun.spawn> | null = null;
-  const startFfmpeg = async () => {
-    const ready = await waitForFile();
-    if (!ready) {
-      onEnd?.();
+  // ---- AWAIT: Wait for temp file to have enough data ----
+  loggers.log(`[${tag}]`, "Waiting for download data...");
+  let fileReady = false;
+  for (let i = 0; i < 300; i++) {  // 30 seconds max wait
+    if (existsSync(tempFilePath)) {
+      const fileSize = Bun.file(tempFilePath).size;
+      if (fileSize > 10000) {  // Wait for at least 10KB
+        loggers.log(`[${tag}]`, `Temp file ready (${Math.round(fileSize / 1024)} KB), starting ffmpeg...`);
+        fileReady = true;
+        break;
+      }
+    }
+    await new Promise<void>(r => setTimeout(r, 100));
+  }
+
+  if (!fileReady) {
+    loggers.error(`[${tag}]`, `Temp file not ready after 30s! yt-dlp may have failed.`);
+    try { ytDlpProc.kill("SIGTERM"); } catch { /* */ }
+    throw new Error(`${tag}: yt-dlp download failed — no data received after 30s`);
+  }
+
+  // ---- Start ffmpeg (file has data now) ----
+  loggers.log(`[${tag}]`, "Phase: STREAMING — ffmpeg reading from temp file...");
+
+  const proc = Bun.spawn({
+    cmd: [ffmpegPath, ...args],
+    stdout: "ignore",
+    stderr: "pipe",
+    stdin: "ignore",  // ffmpeg reads from temp file, no piping
+  });
+
+  loggers.log(`[${tag}]`, `[FFmpeg] Process started (PID: ${proc.pid})`);
+
+  let stderrDrained = false;
+  let firstOutputLogged = false;
+  let lastProgressLog = 0;
+
+  // Forward ffmpeg stderr to plugin logger with progress parsing
+  (async () => {
+    if (!proc.stderr) {
+      stderrDrained = true;
       return;
     }
+    
+    const reader = proc.stderr.getReader();
+    const decoder = new TextDecoder();
+    let lineBuffer = "";
+    let droppedFrameCount = 0;
+    let totalFrames = 0;
 
-    loggers.log(`[${tag}]`, "Phase: STREAMING — ffmpeg reading from temp file...");
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          if (lineBuffer) loggers.debug(`[${tag}]`, "[FFmpeg]", lineBuffer);
+          break;
+        }
+        
+        const text = decoder.decode(value, { stream: true });
 
-    proc = Bun.spawn({
-      cmd: [ffmpegPath, ...args],
-      stdout: "ignore",
-      stderr: "pipe",
-      stdin: "ignore",  // No piping needed — ffmpeg reads from file
-    });
-
-    loggers.log(`[${tag}]`, `[FFmpeg] Process started (PID: ${proc.pid})`);
-
-    let stderrDrained = false;
-    let firstOutputLogged = false;
-
-    // Forward ffmpeg stderr to plugin logger
-    (async () => {
-      if (!proc?.stderr) {
-        stderrDrained = true;
-        loggers.debug(`[${tag}]`, "[FFmpeg] No stderr pipe available");
-        return;
-      }
-      
-      const reader = proc.stderr.getReader();
-      const decoder = new TextDecoder();
-      let lineBuffer = "";
-      let droppedFrameCount = 0;
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            if (lineBuffer) loggers.debug(`[${tag}]`, "[FFmpeg]", lineBuffer);
-            break;
-          }
+        if (!firstOutputLogged) {
+          firstOutputLogged = true;
+          loggers.log(`[${tag}]`, "Phase: RTP OUTPUT — ffmpeg producing RTP packets");
+        }
+        
+        lineBuffer += text;
+        // ffmpeg progress uses \r for in-place updates, split on both
+        const lines = lineBuffer.split(/[\r\n]/);
+        for (let i = 0; i < lines.length - 1; i++) {
+          const line = lines[i]!.trim();
+          if (!line) continue;
           
-          const text = decoder.decode(value, { stream: true });
+          // Parse ffmpeg progress lines (frame= 123 fps= 30 ...)
+          const frameMatch = line.match(/frame=\s*(\d+)/);
+          const timeMatch = line.match(/time=\s*([\d:.]+)/);
+          const speedMatch = line.match(/speed=\s*([\d.]+)/);
+          const bitrateMatch = line.match(/bitrate=\s*([\d.]+\s*\w+)/);
 
-          // Log the STREAMING phase on first output (REQ-027-B)
-          if (!firstOutputLogged) {
-            firstOutputLogged = true;
-            loggers.log(`[${tag}]`, "Phase: RTP OUTPUT — ffmpeg producing RTP packets");
-          }
-          
-          // Accumulate text and log by line (with spam filtering)
-          lineBuffer += text;
-          const lines = lineBuffer.split("\n");
-          for (let i = 0; i < lines.length - 1; i++) {
-            const line = lines[i]!.trim();
-            if (line) {
-              // Filter out repetitive frame-drop messages to avoid log spam
-              if (line.includes("dropping frame") || line.includes("Past duration")) {
-                droppedFrameCount++;
-                if (droppedFrameCount === 1 || droppedFrameCount % 100 === 0) {
-                  loggers.debug(`[${tag}]`, "[FFmpeg]", `${line} (total dropped: ${droppedFrameCount})`);
-                }
-                continue;
-              }
-              loggers.debug(`[${tag}]`, "[FFmpeg]", line);
+          if (frameMatch || timeMatch) {
+            const now = Date.now();
+            if (frameMatch) totalFrames = parseInt(frameMatch[1]!);
+            // Log progress every 3 seconds
+            if (now - lastProgressLog >= 3000) {
+              lastProgressLog = now;
+              const parts: string[] = [];
+              if (frameMatch) parts.push(`frame=${frameMatch[1]}`);
+              if (timeMatch) parts.push(`time=${timeMatch[1]}`);
+              if (speedMatch) parts.push(`speed=${speedMatch[1]}x`);
+              if (bitrateMatch) parts.push(`bitrate=${bitrateMatch[1]}`);
+              loggers.log(`[${tag}]`, `[FFmpeg Progress] ${parts.join(", ")}`);
             }
+            continue;  // Don't double-log progress lines as debug
           }
-          lineBuffer = lines[lines.length - 1] ?? "";
+          
+          if (line.includes("dropping frame") || line.includes("Past duration")) {
+            droppedFrameCount++;
+            if (droppedFrameCount === 1 || droppedFrameCount % 100 === 0) {
+              loggers.debug(`[${tag}]`, "[FFmpeg]", `${line} (total dropped: ${droppedFrameCount})`);
+            }
+            continue;
+          }
+          
+          // Log important lines (Input, Stream, Output, codec info) at info level
+          if (line.startsWith("Input") || line.startsWith("Output") || line.startsWith("Stream") || line.includes("encoder") || line.includes("decoder") || line.includes("h264") || line.includes("opus") || line.includes("aac")) {
+            loggers.log(`[${tag}]`, "[FFmpeg]", line);
+          } else {
+            loggers.debug(`[${tag}]`, "[FFmpeg]", line);
+          }
         }
-      } catch (err) {
-        loggers.error(`[${tag}]`, "[FFmpeg stderr error]", err);
-      } finally {
-        stderrDrained = true;
-        try { reader.releaseLock(); } catch { /* */ }
-        if (droppedFrameCount > 0) {
-          loggers.log(`[${tag}]`, `[FFmpeg] Total dropped frames during session: ${droppedFrameCount}`);
-        }
-        loggers.debug(`[${tag}]`, "[FFmpeg] Stderr stream closed");
+        lineBuffer = lines[lines.length - 1] ?? "";
       }
-    })();
+    } catch (err) {
+      loggers.error(`[${tag}]`, "[FFmpeg stderr error]", err);
+    } finally {
+      stderrDrained = true;
+      try { reader.releaseLock(); } catch { /* */ }
+      loggers.log(`[${tag}]`, `[FFmpeg] Stream ended — total frames: ${totalFrames}, dropped: ${droppedFrameCount}`);
+      loggers.debug(`[${tag}]`, "[FFmpeg] Stderr stream closed");
+    }
+  })();
 
-    proc.exited.then(async (exitCode) => {
-      // Wait for stderr to be fully drained
-      let waitCount = 0;
-      while (!stderrDrained && waitCount < 100) {
-        await new Promise<void>((r) => setTimeout(r, 10));
-        waitCount++;
-      }
-      
-      if (exitCode === 0) {
-        loggers.log(`[${tag}]`, "[FFmpeg] ✓ Exited normally (code 0)");
-      } else if (exitCode === null) {
-        loggers.error(`[${tag}]`, "[FFmpeg] ✗ Killed by signal (SIGSEGV/SIGABRT)");
-      } else if (exitCode === 139) {
-        loggers.error(`[${tag}]`, "[FFmpeg] ✗ Segmentation Fault (exit 139)");
-      } else {
-        loggers.error(`[${tag}]`, `[FFmpeg] ✗ Exited with error code ${exitCode}`);
-      }
-      
-      // Cleanup temp file
-      try {
-        if (existsSync(tempFilePath)) {
-          await Bun.write(tempFilePath.replace(/\.(mp4|webm)$/, ".cached.$1"), await Bun.file(tempFilePath).arrayBuffer());
-          // Delete temp file (keep cached version for debugging)
-          loggers.debug(`[${tag}]`, `Temp file moved to cache: ${path.basename(tempFilePath)}`);
-        }
-      } catch (err) {
-        loggers.error(`[${tag}]`, "Failed to cleanup temp file:", err);
-      }
-      
-      onEnd?.();
-    });
-  };
+  let killed = false;
 
-  // Start ffmpeg asynchronously
-  void startFfmpeg();
+  proc.exited.then(async (exitCode) => {
+    let waitCount = 0;
+    while (!stderrDrained && waitCount < 100) {
+      await new Promise<void>((r) => setTimeout(r, 10));
+      waitCount++;
+    }
+    
+    if (exitCode === 0) {
+      loggers.log(`[${tag}]`, "[FFmpeg] ✓ Exited normally (code 0)");
+    } else if (killed || exitCode === null || exitCode === 137 || exitCode === 255) {
+      loggers.debug(`[${tag}]`, `[FFmpeg] Killed/stopped (code ${exitCode})`);
+    } else if (exitCode === 139) {
+      loggers.error(`[${tag}]`, "[FFmpeg] ✗ Segmentation Fault (exit 139)");
+    } else {
+      loggers.error(`[${tag}]`, `[FFmpeg] ✗ Exited with error code ${exitCode}`);
+    }
+    
+    onEnd?.();
+  });
 
-  // Return kill function (dummy proc until ffmpeg starts)
   return {
-    process: proc as unknown as ReturnType<typeof Bun.spawn>,
+    process: proc,
     kill() {
+      killed = true;
       try {
-        if (proc) proc.kill("SIGTERM");
+        proc.kill("SIGTERM");
         ytDlpProc.kill("SIGTERM");
         loggers.debug(`[${tag}]`, "[Kill] SIGTERM sent to ffmpeg + yt-dlp");
-        
-        // Cleanup temp file on kill
-        if (existsSync(tempFilePath)) {
-          try {
-            Bun.file(tempFilePath).writer().end();
-            loggers.debug(`[${tag}]`, `Temp file cleaned up: ${path.basename(tempFilePath)}`);
-          } catch { /* ignore */ }
-        }
       } catch {
         // Process may already be dead
       }

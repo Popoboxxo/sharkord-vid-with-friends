@@ -167,7 +167,7 @@ describe("yt-dlp", () => {
       expect(result.audioFormatId).toBe("251");
     });
 
-    it("[REQ-002] should extract H.264 profile-level-id from avc1 codec", () => {
+    it("[REQ-002] should extract video format ID from avc1 codec", () => {
       const json = JSON.stringify({
         title: "Profile Test",
         duration: 120,
@@ -178,7 +178,9 @@ describe("yt-dlp", () => {
 
       const result = parseYtDlpOutput(json);
 
-      expect(result.videoProfileLevelId).toBe("640028");
+      // videoProfileLevelId was removed — VP8 re-encoding doesn't need it.
+      // We still select H264 input formats since ffmpeg re-encodes to VP8.
+      expect(result.videoFormatId).toBe("137");
     });
 
     it("[REQ-027-A] should return empty format IDs when no formats available", () => {

@@ -25,3 +25,6 @@ Thumbs.db
 
 # Bun
 bun.lock
+
+# Debug cache
+debug-cache/

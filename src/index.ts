@@ -163,6 +163,22 @@ const startStream = async (
     const { ip, announcedAddress } = await ctx.actions.voice.getListenInfo();
     debugLog(ctx, `[startStream]`, `Mediasoup listen: ${ip} (announced: ${announcedAddress || 'none'})`);
 
+    // === DIAGNOSTIC: Log Router RTP Capabilities ===
+    try {
+      const routerAny = router as Record<string, unknown>;
+      const rtpCaps = routerAny.rtpCapabilities as { codecs?: unknown[] } | undefined;
+      if (rtpCaps?.codecs) {
+        ctx.log(`[stream:${channelId}] [Router Capabilities] ${rtpCaps.codecs.length} codecs supported:`);
+        for (const codec of rtpCaps.codecs) {
+          const c = codec as Record<string, unknown>;
+          ctx.log(`[stream:${channelId}] [Router Codec] ${c.mimeType} PT=${c.preferredPayloadType} clock=${c.clockRate} params=${JSON.stringify(c.parameters)}`);
+        }
+      } else {
+        ctx.log(`[stream:${channelId}] [Router] No rtpCapabilities found (keys: ${Object.keys(routerAny).join(", ")})`);
+      }
+    } catch (err) {
+      ctx.debug(`[stream:${channelId}] [Router] Could not read capabilities: ${err}`);
+    }
     // 3. Create transports + producers
     const transports = await streamManager.createTransports(
       router as never,
@@ -175,6 +191,30 @@ const startStream = async (
       transports
     );
     debugLog(ctx, `[startStream]`, `Created producers with SSRCs - Video: ${transports.videoSsrc}, Audio: ${transports.audioSsrc}`);
+
+    // === DIAGNOSTIC: Log Producer details ===
+    try {
+      const vp = producers.videoProducer as Record<string, unknown>;
+      const ap = producers.audioProducer as Record<string, unknown>;
+      ctx.log(`[stream:${channelId}] [Video Producer] id=${vp.id}, kind=${vp.kind}, type=${vp.type}, paused=${vp.paused}`);
+      ctx.log(`[stream:${channelId}] [Audio Producer] id=${ap.id}, kind=${ap.kind}, type=${ap.type}, paused=${ap.paused}`);
+      
+      // Log the Producer's actual rtpParameters (what Mediasoup accepted)
+      if (vp.rtpParameters) {
+        ctx.log(`[stream:${channelId}] [Video Producer RTP] ${JSON.stringify(vp.rtpParameters)}`);
+      }
+      if (ap.rtpParameters) {
+        ctx.log(`[stream:${channelId}] [Audio Producer RTP] ${JSON.stringify(ap.rtpParameters)}`);
+      }
+    } catch (err) {
+      ctx.debug(`[stream:${channelId}] Could not log producer details: ${err}`);
+    }
+
+    // Log Mediasoup codec configuration
+    ctx.log(`[stream:${channelId}] [Mediasoup Config] Video: ${VIDEO_CODEC.mimeType}, PT=${VIDEO_CODEC.payloadType}, clock=${VIDEO_CODEC.clockRate}, SSRC=${transports.videoSsrc}`);
+    ctx.log(`[stream:${channelId}] [Mediasoup Config] Audio: ${AUDIO_CODEC.mimeType}, PT=${AUDIO_CODEC.payloadType}, clock=${AUDIO_CODEC.clockRate}, ch=${AUDIO_CODEC.channels}, SSRC=${transports.audioSsrc}`);
+    ctx.log(`[stream:${channelId}] [Transport] Video port=${transports.videoTransport.tuple.localPort}, Audio port=${transports.audioTransport.tuple.localPort}`);
+    ctx.log(`[stream:${channelId}] [Transport] Video transport id=${transports.videoTransport.id}, Audio transport id=${transports.audioTransport.id}`);
 
     // 4. Register stream with Sharkord (REQ-028-B: start with preparation title)
     const streamHandle = ctx.actions.voice.createStream({
@@ -190,6 +230,15 @@ const startStream = async (
 
     ctx.log(`[stream:${channelId}] Stream registered with preparation title`);
 
+    // 4b. CRITICAL: Wait for client to set up consumer transport (ICE + DTLS handshake).
+    // createStream() triggers onNewProducer events → client calls voice.consume → connectConsumerTransport.
+    // Without this delay, ffmpeg may send the first keyframe BEFORE the consumer transport is connected,
+    // causing the keyframe to be lost and resulting in a permanent black screen.
+    // The 2-second delay gives the client sufficient time for the full DTLS handshake.
+    ctx.log(`[stream:${channelId}] Waiting 2s for client consumer transport setup...`);
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    ctx.log(`[stream:${channelId}] Consumer transport setup window complete, starting ffmpeg`);
+
     // 5. Get volume setting
     const volume = syncController.getVolume(channelId) / 100;
 
@@ -197,36 +246,37 @@ const startStream = async (
     const rtpHost = ip === "0.0.0.0" ? "127.0.0.1" : ip;
     debugLog(ctx, `[startStream]`, `RTP destination: ${rtpHost} (listen IP: ${ip})`);
 
-    // 6. Spawn video RTP streamer
+    // 6+7. Spawn video & audio RTP streamers IN PARALLEL for sync
     loggers.debug(`[RTP Setup] Video: rtp://${rtpHost}:${transports.videoTransport.tuple.localPort}`);
-    const videoProcess = spawnFfmpeg({
-      streamType: "video",
-      sourceUrl: item.streamUrl,
-      youtubeUrl: item.youtubeUrl,
-      rtpHost,
-      rtpPort: transports.videoTransport.tuple.localPort,
-      payloadType: VIDEO_CODEC.payloadType,
-      ssrc: transports.videoSsrc,
-      bitrate: DEFAULT_SETTINGS.BITRATE_VIDEO,
-      debugEnabled: cacheEnabled,
-      loggers,
-    });
-
-    // 7. Spawn audio RTP streamer
     loggers.debug(`[RTP Setup] Audio: rtp://${rtpHost}:${transports.audioTransport.tuple.localPort}`);
-    const audioProcess = spawnFfmpeg({
-      streamType: "audio",
-      sourceUrl: item.audioUrl,
-      youtubeUrl: item.youtubeUrl,
-      rtpHost,
-      rtpPort: transports.audioTransport.tuple.localPort,
-      payloadType: AUDIO_CODEC.payloadType,
-      ssrc: transports.audioSsrc,
-      bitrate: DEFAULT_SETTINGS.BITRATE_AUDIO,
-      volume,
-      debugEnabled: cacheEnabled,
-      loggers,
-    });
+    
+    const [videoProcess, audioProcess] = await Promise.all([
+      spawnFfmpeg({
+        streamType: "video",
+        sourceUrl: item.streamUrl,
+        youtubeUrl: item.youtubeUrl,
+        rtpHost,
+        rtpPort: transports.videoTransport.tuple.localPort,
+        payloadType: VIDEO_CODEC.payloadType,
+        ssrc: transports.videoSsrc,
+        bitrate: DEFAULT_SETTINGS.BITRATE_VIDEO,
+        debugEnabled: cacheEnabled,
+        loggers,
+      }),
+      spawnFfmpeg({
+        streamType: "audio",
+        sourceUrl: item.audioUrl,
+        youtubeUrl: item.youtubeUrl,
+        rtpHost,
+        rtpPort: transports.audioTransport.tuple.localPort,
+        payloadType: AUDIO_CODEC.payloadType,
+        ssrc: transports.audioSsrc,
+        bitrate: DEFAULT_SETTINGS.BITRATE_AUDIO,
+        volume,
+        debugEnabled: cacheEnabled,
+        loggers,
+      }),
+    ]);
 
     // 8. Store all resources for lifecycle tracking
     const resources: ChannelStreamResources = {

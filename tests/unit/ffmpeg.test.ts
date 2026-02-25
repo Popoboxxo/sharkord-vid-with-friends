@@ -21,9 +21,9 @@ describe("ffmpeg", () => {
   // --- REQ-002: Video RTP stream args ---
 
   describe("buildVideoStreamArgs", () => {
-    it("[REQ-002] should produce H264 RTP output args with copy mode", () => {
+    it("[REQ-002] should produce VP8 RTP output args", () => {
       const args = buildVideoStreamArgs({
-        sourceUrl: "test-url",
+        inputPath: "/tmp/video.mp4",
         rtpHost: "127.0.0.1",
         rtpPort: 40001,
         payloadType: 96,
@@ -35,7 +35,7 @@ describe("ffmpeg", () => {
       expect(args).toContain("rtp");
       expect(args.some((a) => a.includes("127.0.0.1:40001"))).toBe(true);
       expect(args).toContain("-c:v");
-      expect(args).toContain("copy");
+      expect(args).toContain("libvpx");
       expect(args).toContain("-payload_type");
       expect(args).toContain("96");
       expect(args).toContain("-ssrc");
@@ -44,7 +44,7 @@ describe("ffmpeg", () => {
 
     it("[REQ-002] should include video-only flag (no audio)", () => {
       const args = buildVideoStreamArgs({
-        sourceUrl: "test-url",
+        inputPath: "/tmp/video.mp4",
         rtpHost: "127.0.0.1",
         rtpPort: 40001,
         payloadType: 96,
@@ -55,9 +55,9 @@ describe("ffmpeg", () => {
       expect(args).toContain("-an"); // no audio
     });
 
-    it("[REQ-026] should use pipe:0 for URL input (avoid buffer overflow)", () => {
+    it("[REQ-002] should use inputPath for file input", () => {
       const args = buildVideoStreamArgs({
-        sourceUrl: "test-url",
+        inputPath: "/tmp/video.mp4",
         rtpHost: "127.0.0.1",
         rtpPort: 40001,
         payloadType: 96,
@@ -66,12 +66,12 @@ describe("ffmpeg", () => {
       });
 
       expect(args).toContain("-i");
-      expect(args).toContain("pipe:0");
+      expect(args).toContain("/tmp/video.mp4");
     });
 
     it("[REQ-002] should read input in realtime to avoid fast playback", () => {
       const args = buildVideoStreamArgs({
-        sourceUrl: "test-url",
+        inputPath: "/tmp/video.mp4",
         rtpHost: "127.0.0.1",
         rtpPort: 40001,
         payloadType: 96,
@@ -84,7 +84,7 @@ describe("ffmpeg", () => {
 
     it("[REQ-002] should generate timestamps for piped input", () => {
       const args = buildVideoStreamArgs({
-        sourceUrl: "test-url",
+        inputPath: "/tmp/video.mp4",
         rtpHost: "127.0.0.1",
         rtpPort: 40001,
         payloadType: 96,
@@ -96,9 +96,9 @@ describe("ffmpeg", () => {
       expect(args).toContain("+genpts");
     });
 
-    it("[REQ-002] should use copy mode instead of re-encoding (avoids frame drops)", () => {
+    it("[REQ-002] should use VP8 realtime encoding with frequent keyframes", () => {
       const args = buildVideoStreamArgs({
-        sourceUrl: "test-url",
+        inputPath: "/tmp/video.mp4",
         rtpHost: "127.0.0.1",
         rtpPort: 40001,
         payloadType: 96,
@@ -106,32 +106,25 @@ describe("ffmpeg", () => {
         bitrate: "2000k",
       });
 
-      // Must use copy mode — re-encoding 1080p60 causes massive frame drops
+      // Must use VP8 encoding for WebRTC compatibility
       expect(args).toContain("-c:v");
-      expect(args).toContain("copy");
-      // Must NOT have encoding-specific flags
+      expect(args).toContain("libvpx");
+      expect(args).toContain("-deadline");
+      expect(args).toContain("realtime");
+      // Must have frequent keyframes
+      expect(args).toContain("-g");
+      expect(args).toContain("25");
+      // Must disable alt-ref frames for streaming
+      expect(args).toContain("-auto-alt-ref");
+      expect(args).toContain("0");
+      // Must NOT contain H264-specific flags
       expect(args).not.toContain("libx264");
-      expect(args).not.toContain("-preset");
       expect(args).not.toContain("-profile:v");
     });
 
-    it("[REQ-002] should include h264_mp4toannexb bitstream filter for RTP NAL format", () => {
+    it("[REQ-002] should use info loglevel for diagnostics", () => {
       const args = buildVideoStreamArgs({
-        sourceUrl: "test-url",
-        rtpHost: "127.0.0.1",
-        rtpPort: 40001,
-        payloadType: 96,
-        ssrc: 123456,
-        bitrate: "2000k",
-      });
-
-      expect(args).toContain("-bsf:v");
-      expect(args).toContain("h264_mp4toannexb");
-    });
-
-    it("[REQ-026] should use warning loglevel to reduce log spam", () => {
-      const args = buildVideoStreamArgs({
-        sourceUrl: "test-url",
+        inputPath: "/tmp/video.mp4",
         rtpHost: "127.0.0.1",
         rtpPort: 40001,
         payloadType: 96,
@@ -140,7 +133,7 @@ describe("ffmpeg", () => {
       });
 
       expect(args).toContain("-loglevel");
-      expect(args).toContain("warning");
+      expect(args).toContain("info");
     });
   });
 
@@ -149,7 +142,7 @@ describe("ffmpeg", () => {
   describe("buildAudioStreamArgs", () => {
     it("[REQ-002] should produce Opus RTP output args", () => {
       const args = buildAudioStreamArgs({
-        sourceUrl: "test-url",
+        inputPath: "/tmp/audio.webm",
         rtpHost: "127.0.0.1",
         rtpPort: 40002,
         payloadType: 111,
@@ -168,7 +161,7 @@ describe("ffmpeg", () => {
 
     it("[REQ-012] should include volume filter when volume is not 1.0", () => {
       const args = buildAudioStreamArgs({
-        sourceUrl: "test-url",
+        inputPath: "/tmp/audio.webm",
         rtpHost: "127.0.0.1",
         rtpPort: 40002,
         payloadType: 111,
@@ -181,9 +174,9 @@ describe("ffmpeg", () => {
       expect(args.some((a) => a.includes("volume=0.5"))).toBe(true);
     });
 
-    it("[REQ-026] should use pipe:0 for URL input (avoid buffer overflow)", () => {
+    it("[REQ-002] should use inputPath for file input", () => {
       const args = buildAudioStreamArgs({
-        sourceUrl: "test-url",
+        inputPath: "/tmp/audio.webm",
         rtpHost: "127.0.0.1",
         rtpPort: 40002,
         payloadType: 111,
@@ -192,14 +185,13 @@ describe("ffmpeg", () => {
         volume: 1,
       });
 
-      // URL is passed via stdin (pipe:0) to avoid command-line buffer overflow
       expect(args).toContain("-i");
-      expect(args).toContain("pipe:0");
+      expect(args).toContain("/tmp/audio.webm");
     });
 
     it("[REQ-002] should read input in realtime to avoid fast playback", () => {
       const args = buildAudioStreamArgs({
-        sourceUrl: "test-url",
+        inputPath: "/tmp/audio.webm",
         rtpHost: "127.0.0.1",
         rtpPort: 40002,
         payloadType: 111,
@@ -213,7 +205,7 @@ describe("ffmpeg", () => {
 
     it("[REQ-002] should generate timestamps for piped input", () => {
       const args = buildAudioStreamArgs({
-        sourceUrl: "test-url",
+        inputPath: "/tmp/audio.webm",
         rtpHost: "127.0.0.1",
         rtpPort: 40002,
         payloadType: 111,
@@ -228,7 +220,7 @@ describe("ffmpeg", () => {
 
     it("[REQ-002] should include probesize for fragmented MP4 detection", () => {
       const args = buildAudioStreamArgs({
-        sourceUrl: "test-url",
+        inputPath: "/tmp/audio.webm",
         rtpHost: "127.0.0.1",
         rtpPort: 40002,
         payloadType: 111,
@@ -285,6 +277,7 @@ describe("ffmpeg", () => {
         youtubeUrl: "https://www.youtube.com/watch?v=H6P3kJ8nrR8",
         streamType: "video",
         debug: true,
+        outputPath: "/tmp/output.mp4",
       });
 
       expect(cmd).toContain("--verbose");
@@ -298,6 +291,7 @@ describe("ffmpeg", () => {
         youtubeUrl: "https://www.youtube.com/watch?v=H6P3kJ8nrR8",
         streamType: "audio",
         debug: false,
+        outputPath: "/tmp/output.webm",
       });
 
       expect(cmd).toContain("-f");

@@ -23,9 +23,9 @@ export const AUDIO_CODEC = {
   channels: 2,
 } as const;
 
-/** Video codec configuration for Mediasoup (H264) */
+/** Video codec configuration for Mediasoup (VP8) */
 export const VIDEO_CODEC = {
-  mimeType: "video/H264" as const,
+  mimeType: "video/VP8" as const,
   payloadType: 96,
   clockRate: 90000,
 } as const;

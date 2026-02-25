@@ -25,7 +25,7 @@ describe("E2E Smoke", () => {
   it("[REQ-002] should have ffmpeg available", async () => {
     if (!isDocker) {
       const { buildVideoStreamArgs } = await import("../../src/stream/ffmpeg");
-      const args = buildVideoStreamArgs({ sourceUrl: "test", rtpHost: "127.0.0.1", rtpPort: 40000, payloadType: 96, ssrc: 1, bitrate: "2000k" });
+      const args = buildVideoStreamArgs({ inputPath: "/tmp/test.mp4", rtpHost: "127.0.0.1", rtpPort: 40000, payloadType: 96, ssrc: 1, bitrate: "2000k" });
       expect(args.length).toBeGreaterThan(0);
       return;
     }
@@ -66,7 +66,7 @@ describe("E2E Smoke", () => {
     const { buildVideoStreamArgs, buildAudioStreamArgs } = await import("../../src/stream/ffmpeg");
 
     const videoArgs = buildVideoStreamArgs({
-      sourceUrl: "https://example.com/stream.mp4",
+      inputPath: "/tmp/stream.mp4",
       rtpHost: "127.0.0.1",
       rtpPort: 40000,
       payloadType: 96,
@@ -77,7 +77,7 @@ describe("E2E Smoke", () => {
     expect(videoArgs).toContain("rtp");
 
     const audioArgs = buildAudioStreamArgs({
-      sourceUrl: "https://example.com/stream.mp4",
+      inputPath: "/tmp/stream.mp4",
       rtpHost: "127.0.0.1",
       rtpPort: 40001,
       payloadType: 111,
@@ -113,7 +113,6 @@ describe("E2E Smoke", () => {
       query: "test",
       title: "Test Video",
       youtubeUrl: "https://youtube.com/watch?v=test",
-      videoProfileLevelId: "",
       streamUrl: "https://example.com/stream",
       audioUrl: "https://example.com/audio",
       duration: 180,
@@ -153,8 +152,11 @@ describe("E2E Smoke", () => {
       "-fflags", "+genpts",
       "-i", "pipe:0",
       "-an",
-      "-c:v", "copy",
-      "-bsf:v", "h264_mp4toannexb",
+      "-c:v", "libvpx",
+      "-quality", "realtime",
+      "-deadline", "realtime",
+      "-cpu-used", "8",
+      "-auto-alt-ref", "0",
       "-t", "5",
       "-f", "rtp",
       "rtp://127.0.0.1:40000?pkt_size=1200",

@@ -15,7 +15,6 @@ const makeItem = (overrides: Partial<QueueItem> = {}): QueueItem => ({
   query: overrides.query ?? "https://youtube.com/watch?v=test",
   title: overrides.title ?? "Test Video",
   youtubeUrl: overrides.youtubeUrl ?? "https://youtube.com/watch?v=test",
-  videoProfileLevelId: overrides.videoProfileLevelId ?? "",
   streamUrl: overrides.streamUrl ?? "https://stream.example.com/test",
   audioUrl: overrides.audioUrl ?? "https://audio.example.com/test",
   duration: overrides.duration ?? 120,

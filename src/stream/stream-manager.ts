@@ -135,8 +135,8 @@ export class StreamManager {
     transports: TransportResources
   ): Promise<ProducerResources> {
     const { audioTransport, videoTransport, audioSsrc, videoSsrc } = transports;
-    // Use Mediasoup default H.264 High profile, Level 5.1
-    const profileLevelId = "640033";
+    // VP8 codec — simpler than H264, no profile/level negotiation,
+    // self-contained keyframes, universal browser support via WebRTC.
 
     const [audioProducer, videoProducer] = await Promise.all([
       audioTransport.produce({
@@ -148,7 +148,10 @@ export class StreamManager {
               payloadType: AUDIO_CODEC.payloadType,
               clockRate: AUDIO_CODEC.clockRate,
               channels: AUDIO_CODEC.channels,
-              parameters: {},
+              parameters: {
+                "minptime": 10,
+                "useinbandfec": 1,
+              },
               rtcpFeedback: [],
             },
           ],
@@ -163,14 +166,12 @@ export class StreamManager {
               mimeType: VIDEO_CODEC.mimeType,
               payloadType: VIDEO_CODEC.payloadType,
               clockRate: VIDEO_CODEC.clockRate,
-              parameters: {
-                "packetization-mode": 1,
-                // H.264 High profile, Level 5.1 — permissive enough for any YouTube stream.
-                // We use -c:v copy (no re-encoding), so the actual profile matches the source.
-                // YouTube typically sends High profile at various levels (3.1-5.1).
-                "profile-level-id": profileLevelId,
-              },
-              rtcpFeedback: [],
+              parameters: {},
+              rtcpFeedback: [
+                { type: "nack" },
+                { type: "nack", parameter: "pli" },
+                { type: "ccm", parameter: "fir" },
+              ],
             },
           ],
           encodings: [{ ssrc: videoSsrc }],

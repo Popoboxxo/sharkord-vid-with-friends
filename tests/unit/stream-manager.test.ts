@@ -53,21 +53,22 @@ describe("StreamManager", () => {
     expect(producers.videoProducer.kind).toBe("video");
   });
 
-  it("[REQ-002] should use provided H.264 profile-level-id", async () => {
+  it("[REQ-002] should use VP8 codec without profile-level-id", async () => {
     const router = createMockRouter();
     const { ip } = ctx.actions.voice.getListenInfo();
 
     const resources = await streamManager.createTransports(router, ip, undefined);
-    await streamManager.createProducers(resources, "640028");
+    await streamManager.createProducers(resources);
 
     const videoTransport = resources.videoTransport as MockTransport;
     const produceCall = (videoTransport.produceCalls[0] ?? {}) as {
-      rtpParameters?: { codecs?: Array<{ parameters?: Record<string, unknown> }> };
+      rtpParameters?: { codecs?: Array<{ mimeType?: string; parameters?: Record<string, unknown> }> };
     };
-    const parameters = produceCall.rtpParameters?.codecs?.[0]?.parameters;
-    const profileLevelId = parameters ? parameters["profile-level-id"] : undefined;
+    const codec = produceCall.rtpParameters?.codecs?.[0];
 
-    expect(profileLevelId).toBe("640028");
+    // VP8 codec should NOT have profile-level-id
+    expect(codec?.mimeType).toBe("video/VP8");
+    expect(codec?.parameters).toEqual({});
   });
 
   // --- REQ-015: Track channel state ---

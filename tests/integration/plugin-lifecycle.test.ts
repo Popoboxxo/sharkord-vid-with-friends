@@ -38,7 +38,6 @@ const fakeItem = (title: string, index = 0): QueueItem => ({
   query: `test query ${index}`,
   title,
   youtubeUrl: "https://youtube.com/watch?v=test",
-  videoProfileLevelId: "",
   streamUrl: `https://example.com/stream/${index}`,
   audioUrl: `https://example.com/audio/${index}`,
   duration: 180 + index * 30,
