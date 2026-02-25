@@ -94,6 +94,8 @@ export const parseYtDlpOutput = (jsonString: string): ResolvedVideo => {
   // Extract best video and audio URLs from formats (REQ-026)
   let streamUrl = "";
   let audioUrl = "";
+  let videoFormatId = "";
+  let audioFormatId = "";
   
   if (Array.isArray(obj["formats"])) {
     const formats = obj["formats"] as Record<string, unknown>[];
@@ -123,6 +125,7 @@ export const parseYtDlpOutput = (jsonString: string): ResolvedVideo => {
     
     if (videoFormat && typeof videoFormat["url"] === "string") {
       streamUrl = videoFormat["url"];
+      videoFormatId = String(videoFormat["format_id"] || "");
     }
     
     // Find best audio-only format (AAC preferred for reliable decoding)
@@ -136,6 +139,7 @@ export const parseYtDlpOutput = (jsonString: string): ResolvedVideo => {
     
     if (audioFormat && typeof audioFormat["url"] === "string") {
       audioUrl = audioFormat["url"];
+      audioFormatId = String(audioFormat["format_id"] || "");
     }
   }
   
@@ -150,7 +154,9 @@ export const parseYtDlpOutput = (jsonString: string): ResolvedVideo => {
     streamUrl: streamUrl || audioUrl, 
     audioUrl: audioUrl || streamUrl, 
     duration, 
-    thumbnail 
+    thumbnail,
+    videoFormatId,
+    audioFormatId,
   };
 };
 
@@ -206,6 +212,9 @@ export const resolveVideo = async (
   // Point yt-dlp to the ffmpeg binary in the same bin/ directory
   const ffmpegLocation = binDir;
 
+  // REQ-027-A: Phase RESOLVING
+  loggers.log("[Phase] RESOLVING — yt-dlp --dump-json started for:", sourceUrl.substring(0, 80));
+
   // Use JSON mode for full metadata
   const jsonArgs = buildYtDlpArgs({
     ytDlpPath,
@@ -228,6 +237,16 @@ export const resolveVideo = async (
   }
 
   const resolved = parseYtDlpOutput(firstLine);
+
+  // REQ-027-A: Phase RESOLVED
+  loggers.log("[Phase] RESOLVED —", `title: "${resolved.title}", duration: ${resolved.duration}s`);
+
+  // REQ-027-A: Phase FORMAT_SELECTED
+  loggers.log("[Phase] FORMAT_SELECTED —",
+    `videoFormatId: ${resolved.videoFormatId || "none"}, audioFormatId: ${resolved.audioFormatId || "none"},`,
+    `streamUrl: ${resolved.streamUrl ? resolved.streamUrl.length + " chars" : "none"},`,
+    `audioUrl: ${resolved.audioUrl ? resolved.audioUrl.length + " chars" : "none"}`
+  );
 
   // If JSON mode didn't give us a direct stream URL, fall back to -g
   if (!resolved.streamUrl) {

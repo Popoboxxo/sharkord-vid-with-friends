@@ -145,6 +145,33 @@ describe("yt-dlp", () => {
       expect(result.audioUrl).toBe("https://audio.example.com");
     });
 
+    it("[REQ-027-A] should extract videoFormatId and audioFormatId", () => {
+      const json = JSON.stringify({
+        title: "Format ID Test",
+        duration: 120,
+        formats: [
+          { format_id: "251", acodec: "opus", url: "https://audio.example.com" },
+          { format_id: "137", vcodec: "avc1.640028", url: "https://video.example.com", height: 1080 },
+        ],
+      });
+
+      const result = parseYtDlpOutput(json);
+
+      expect(result.videoFormatId).toBe("137");
+      expect(result.audioFormatId).toBe("251");
+    });
+
+    it("[REQ-027-A] should return empty format IDs when no formats available", () => {
+      const json = JSON.stringify({
+        title: "No Formats",
+        url: "https://stream.example.com/video",
+      });
+
+      const result = parseYtDlpOutput(json);
+      expect(result.videoFormatId).toBe("");
+      expect(result.audioFormatId).toBe("");
+    });
+
     it("[REQ-002] should only select H.264 (avc1) video formats, not VP9 or AV1", () => {
       const json = JSON.stringify({
         title: "Codec Test",

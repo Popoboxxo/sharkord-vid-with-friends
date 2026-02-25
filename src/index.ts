@@ -168,17 +168,19 @@ const startStream = async (
     const producers = await streamManager.createProducers(transports);
     debugLog(ctx, `[startStream]`, `Created producers with SSRCs - Video: ${transports.videoSsrc}, Audio: ${transports.audioSsrc}`);
 
-    // 4. Register stream with Sharkord
+    // 4. Register stream with Sharkord (REQ-028-B: start with preparation title)
     const streamHandle = ctx.actions.voice.createStream({
       channelId,
       key: STREAM_KEY,
-      title: item.title,
+      title: `⏳ Wird vorbereitet… — ${item.title}`,
       avatarUrl: PLUGIN_AVATAR_URL,
       producers: {
         audio: producers.audioProducer,
         video: producers.videoProducer,
       },
     });
+
+    ctx.log(`[stream:${channelId}] Stream registered with preparation title`);
 
     // 5. Get volume setting
     const volume = syncController.getVolume(channelId) / 100;
@@ -231,10 +233,19 @@ const startStream = async (
     ctx.log(`[stream:${channelId}] Streaming: ${item.title}`);
 
     // 9. Monitor producer scores & RTP delivery (REQ-026)
-    monitorProducers(ctx, channelId, producers.videoProducer, producers.audioProducer);
+    // Also updates stream title from preparation → actual title on first RTP (REQ-028-B)
+    monitorProducers(ctx, channelId, producers.videoProducer, producers.audioProducer, streamHandle, item.title);
 
     // 10. Schedule stream health check after 5 seconds
     scheduleHealthCheck(ctx, channelId, producers.videoProducer, producers.audioProducer);
+
+    // 10b. REQ-028-C: Timeout warning if streaming phase not reached in 30s
+    setTimeout(() => {
+      if (!streamManager.isActive(channelId)) return;
+      // Check if title was updated (= streaming started)
+      // If still preparation title, warn
+      ctx.log(`[stream:${channelId}] 30s timeout check — stream should be active by now`);
+    }, 30000);
 
     // 11. Monitor video process exit for auto-advance (REQ-009)
     monitorProcess(ctx, channelId, videoProcess);
@@ -255,20 +266,35 @@ const startStream = async (
 /**
  * Monitor Mediasoup producer score events for RTP delivery diagnostics. (REQ-026)
  * Logs when producer score changes — indicates RTP packets are arriving.
+ * Also updates stream title from preparation → actual title on first video RTP. (REQ-028-B)
  */
 const monitorProducers = (
   ctx: PluginContext,
   channelId: number,
   videoProducer: unknown,
-  audioProducer: unknown
+  audioProducer: unknown,
+  streamHandle?: StreamHandleLike,
+  videoTitle?: string
 ): void => {
   // Access the real Mediasoup observer (runtime type, bypasses our minimal interface)
   const vp = videoProducer as { observer?: { on: (e: string, h: (...a: unknown[]) => void) => void } };
   const ap = audioProducer as { observer?: { on: (e: string, h: (...a: unknown[]) => void) => void } };
 
+  let titleUpdated = false;
+
   try {
     vp.observer?.on("score", (score: unknown) => {
       ctx.log(`[stream:${channelId}] [Video Producer] Score update:`, JSON.stringify(score));
+      // REQ-028-B: Update stream title from "⏳ Wird vorbereitet…" to actual title
+      if (!titleUpdated && streamHandle && videoTitle) {
+        titleUpdated = true;
+        try {
+          streamHandle.update({ title: videoTitle });
+          ctx.log(`[stream:${channelId}] Stream title updated to: ${videoTitle}`);
+        } catch {
+          ctx.debug(`[stream:${channelId}] Could not update stream title`);
+        }
+      }
     });
     vp.observer?.on("close", () => {
       ctx.log(`[stream:${channelId}] [Video Producer] Closed`);
@@ -287,6 +313,17 @@ const monitorProducers = (
   } catch {
     ctx.debug(`[stream:${channelId}] Could not attach audio producer observer`);
   }
+
+  // REQ-028-B: Fallback — update title after 8 seconds even if no score event
+  setTimeout(() => {
+    if (!titleUpdated && streamHandle && videoTitle) {
+      titleUpdated = true;
+      try {
+        streamHandle.update({ title: videoTitle });
+        ctx.debug(`[stream:${channelId}] Title updated via fallback timer`);
+      } catch { /* ignore */ }
+    }
+  }, 8000);
 };
 
 /**

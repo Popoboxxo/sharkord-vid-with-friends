@@ -42,6 +42,8 @@ export type ResolvedVideo = {
   audioUrl: string;
   duration: number;
   thumbnail: string;
+  videoFormatId: string;  // yt-dlp format_id for video (e.g., "137")
+  audioFormatId: string;  // yt-dlp format_id for audio (e.g., "251")
 };
 
 /** Current state of a channel's queue */

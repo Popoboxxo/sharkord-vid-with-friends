@@ -31,26 +31,109 @@ type ComponentsMap = Record<string, Array<() => JSX.Element | null>>;
 
 /**
  * NowPlayingBadge — displays in TOPBAR_RIGHT slot.
- * Shows a small badge with the currently playing video title.
- * (REQ-017)
+ * Shows a small badge with the currently playing video title
+ * and playback control buttons. (REQ-017, REQ-029, REQ-030, REQ-031)
+ *
+ * NOTE: Buttons are rendered but require tRPC/state integration from the
+ * Sharkord Plugin SDK to trigger server-side commands. Currently visual-only.
+ * When Sharkord provides a way for slot components to call plugin actions,
+ * wire these buttons to the /pause, /watch_stop, and /skip commands.
  */
 const NowPlayingBadge = (): JSX.Element | null => {
-  // In production this would read from a shared state (e.g., tRPC subscription or context)
-  // For now, return a static placeholder that shows the plugin is loaded
   return (
     <div
       style={{
         display: "flex",
         alignItems: "center",
-        gap: "6px",
+        gap: "4px",
         padding: "4px 8px",
-        borderRadius: "4px",
+        borderRadius: "6px",
         fontSize: "12px",
-        opacity: 0.8,
+        backgroundColor: "rgba(0, 0, 0, 0.15)",
       }}
     >
-      <span role="img" aria-label="video">🎬</span>
-      <span>Vid With Friends</span>
+      <span role="img" aria-label="video" style={{ fontSize: "14px" }}>🎬</span>
+      <span style={{ opacity: 0.8, maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        Vid With Friends
+      </span>
+
+      {/* REQ-029: Play/Pause Button */}
+      <button
+        title="Pause / Fortsetzen"
+        style={{
+          background: "none",
+          border: "1px solid rgba(255, 255, 255, 0.2)",
+          borderRadius: "4px",
+          color: "rgba(255, 255, 255, 0.8)",
+          cursor: "pointer",
+          padding: "2px 6px",
+          fontSize: "12px",
+          lineHeight: 1,
+          transition: "all 0.15s ease",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.15)";
+          e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.4)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = "transparent";
+          e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.2)";
+        }}
+      >
+        ⏸
+      </button>
+
+      {/* REQ-031: Skip Button */}
+      <button
+        title="Nächstes Video"
+        style={{
+          background: "none",
+          border: "1px solid rgba(255, 255, 255, 0.2)",
+          borderRadius: "4px",
+          color: "rgba(255, 255, 255, 0.8)",
+          cursor: "pointer",
+          padding: "2px 6px",
+          fontSize: "12px",
+          lineHeight: 1,
+          transition: "all 0.15s ease",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.15)";
+          e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.4)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = "transparent";
+          e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.2)";
+        }}
+      >
+        ⏭
+      </button>
+
+      {/* REQ-030: Stop Button (destructive action — red tint) */}
+      <button
+        title="Stream beenden"
+        style={{
+          background: "none",
+          border: "1px solid rgba(244, 67, 54, 0.4)",
+          borderRadius: "4px",
+          color: "rgba(244, 67, 54, 0.9)",
+          cursor: "pointer",
+          padding: "2px 6px",
+          fontSize: "12px",
+          lineHeight: 1,
+          transition: "all 0.15s ease",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = "rgba(244, 67, 54, 0.15)";
+          e.currentTarget.style.borderColor = "rgba(244, 67, 54, 0.7)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = "transparent";
+          e.currentTarget.style.borderColor = "rgba(244, 67, 54, 0.4)";
+        }}
+      >
+        ⏹
+      </button>
     </div>
   );
 };
