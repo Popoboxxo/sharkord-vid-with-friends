@@ -13,7 +13,7 @@ import type { ChannelStreamResources, StreamHandleLike } from "./stream/stream-m
 import { SyncController } from "./sync/sync-controller";
 import type { QueueItem } from "./queue/types";
 
-import { buildVideoStreamArgs, buildAudioStreamArgs, spawnFfmpeg } from "./stream/ffmpeg";
+import { spawnFfmpeg } from "./stream/ffmpeg";
 import type { FfmpegLoggers, SpawnedProcess } from "./stream/ffmpeg";
 
 import {
@@ -197,32 +197,36 @@ const startStream = async (
     const rtpHost = ip === "0.0.0.0" ? "127.0.0.1" : ip;
     debugLog(ctx, `[startStream]`, `RTP destination: ${rtpHost} (listen IP: ${ip})`);
 
-    // 6. Spawn video RTP streamer (reads directly from stream URL)
-    const videoArgs = buildVideoStreamArgs({
+    // 6. Spawn video RTP streamer
+    loggers.debug(`[RTP Setup] Video: rtp://${rtpHost}:${transports.videoTransport.tuple.localPort}`);
+    const videoProcess = spawnFfmpeg({
+      streamType: "video",
       sourceUrl: item.streamUrl,
+      youtubeUrl: item.youtubeUrl,
       rtpHost,
       rtpPort: transports.videoTransport.tuple.localPort,
       payloadType: VIDEO_CODEC.payloadType,
       ssrc: transports.videoSsrc,
       bitrate: DEFAULT_SETTINGS.BITRATE_VIDEO,
+      debugEnabled: cacheEnabled,
+      loggers,
     });
 
-    loggers.debug(`[RTP Setup] Video: rtp://${rtpHost}:${transports.videoTransport.tuple.localPort}`);
-    const videoProcess = spawnFfmpeg(videoArgs, loggers, item.streamUrl, item.youtubeUrl, "video", cacheEnabled);
-
-    // 7. Spawn audio RTP streamer (reads from separate audio URL if available)
-    const audioArgs = buildAudioStreamArgs({
-      sourceUrl: item.audioUrl,  // Use separate audio URL resolved by yt-dlp
+    // 7. Spawn audio RTP streamer
+    loggers.debug(`[RTP Setup] Audio: rtp://${rtpHost}:${transports.audioTransport.tuple.localPort}`);
+    const audioProcess = spawnFfmpeg({
+      streamType: "audio",
+      sourceUrl: item.audioUrl,
+      youtubeUrl: item.youtubeUrl,
       rtpHost,
       rtpPort: transports.audioTransport.tuple.localPort,
       payloadType: AUDIO_CODEC.payloadType,
       ssrc: transports.audioSsrc,
       bitrate: DEFAULT_SETTINGS.BITRATE_AUDIO,
       volume,
+      debugEnabled: cacheEnabled,
+      loggers,
     });
-
-    loggers.debug(`[RTP Setup] Audio: rtp://${rtpHost}:${transports.audioTransport.tuple.localPort}`);
-    const audioProcess = spawnFfmpeg(audioArgs, loggers, item.audioUrl, item.youtubeUrl, "audio", cacheEnabled);
 
     // 8. Store all resources for lifecycle tracking
     const resources: ChannelStreamResources = {
