@@ -98,6 +98,39 @@ docker compose -f docker-compose.dev.yml ps
 docker logs sharkord-dev --tail 50
 ```
 
+### Testsystem-Startup-Anzeige
+
+**WICHTIG:** Bei jedem Testsystem-Restart (besonders nach `docker compose down --volumes`) IMMER folgende Anzeige ausgeben:
+
+```
+╔════════════════════════════════════════════════════════════════╗
+║               ✅ DOCKER TESTSYSTEM NEUGESTARTET                ║
+╚════════════════════════════════════════════════════════════════╝
+
+🔐 INITIAL ACCESS TOKEN (FRESH START):
+   <UUID aus Docker Logs extrahieren>
+
+🌐 Sharkord-URL:
+   http://localhost:3000
+
+📋 Wichtiger Hinweis für zukünftige Sessions:
+   ⚠️ Bei jedem 'docker compose down --volumes'
+   ⚠️ WENN alles neu aufgesetzt wird, einen NEUEN Token aus den Logs extrahieren!
+   ⚠️ Der alte Token ist ungültig!
+
+💾 Debug-Cache Ordner (Host):
+   <Absoluter Pfad zum ./debug-cache/>
+
+✅ READY: Bereit zum Testen!
+```
+
+**Workflow:**
+1. Docker stoppt + Volumes löschen: `docker compose -f docker-compose.dev.yml down --volumes`
+2. Warten auf neuen Start: `docker compose -f docker-compose.dev.yml up -d`
+3. Warten ~20 Sekunden auf Sharkord-Startup
+4. Token extrahieren: `docker logs sharkord-dev | grep -E "[0-9a-f]{8}-[0-9a-f]{4}"`
+5. **Obige Anzeige mit aktuellem Token + Pfaden ausgeben**
+
 **NICHT mit "bun test starten** — Das sind nur Unit/Integration Tests ohne vollständigen Sharkord Server.
 
 ## Code-Konventionen
