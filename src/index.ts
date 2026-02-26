@@ -262,6 +262,7 @@ const startStream = async (
         ssrc: transports.videoSsrc,
         bitrate: DEFAULT_SETTINGS.BITRATE_VIDEO,
         debugEnabled: cacheEnabled,
+        waitForDownloadComplete: true,
         loggers,
       }),
       spawnFfmpeg({
@@ -275,6 +276,7 @@ const startStream = async (
         bitrate: DEFAULT_SETTINGS.BITRATE_AUDIO,
         volume,
         debugEnabled: cacheEnabled,
+        waitForDownloadComplete: true,
         loggers,
       }),
     ]);

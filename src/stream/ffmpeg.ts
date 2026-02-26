@@ -75,6 +75,7 @@ export type SpawnFfmpegOptions = {
   bitrate: string;
   volume?: number;  // Only for audio
   debugEnabled?: boolean;
+  waitForDownloadComplete?: boolean;
   loggers: FfmpegLoggers;
   onEnd?: () => void;
 };
@@ -108,6 +109,10 @@ export const normalizeBitrate = (bitrate?: string): string => {
   if (/^\d+$/.test(trimmed)) return trimmed;
   return "192k";
 };
+
+/** Decide if ffmpeg should wait for a full download before starting. */
+export const shouldWaitForDownloadComplete = (streamType: "video" | "audio"): boolean =>
+  streamType === "video";
 
 /** Build yt-dlp download command for downloading to temp file. (REQ-027-B, REQ-027-C) */
 export const buildYtDlpDownloadCmd = (options: YtDlpDownloadOptions & { outputPath: string }): string[] => {
@@ -311,6 +316,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     bitrate,
     volume = 1,
     debugEnabled = false,
+    waitForDownloadComplete,
     loggers,
     onEnd,
   } = options;
@@ -369,6 +375,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     stderr: "pipe",
     stdin: "ignore",
   });
+  const ytDlpExit = ytDlpProc.exited;
 
   loggers.debug(`[${tag}]`, `[yt-dlp] Process started (PID: ${ytDlpProc.pid})`);
 
@@ -398,7 +405,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   })();
 
   // Monitor yt-dlp exit + log final file size
-  ytDlpProc.exited.then(async (code) => {
+  ytDlpExit.then(async (code) => {
     if (code !== 0 && code !== 143) {  // 143 = SIGTERM (expected on cleanup)
       loggers.error(`[${tag}]`, `[yt-dlp] FAILED (exit code ${code}) — download did not complete!`);
     } else if (code === 0) {
@@ -416,6 +423,15 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
 
   // Log RTP summary for diagnostics
   loggers.log(`[${tag}]`, `[RTP Config] PT=${options.payloadType}, SSRC=${options.ssrc}, dest=rtp://${rtpHost}:${rtpPort}`);
+
+  const waitForFullDownload = waitForDownloadComplete ?? shouldWaitForDownloadComplete(streamType);
+  if (waitForFullDownload) {
+    loggers.log(`[${tag}]`, "Waiting for full download before starting ffmpeg...");
+    const code = await ytDlpExit;
+    if (code !== 0 && code !== 143) {
+      throw new Error(`${tag}: yt-dlp failed — exit ${code}`);
+    }
+  }
 
   // ---- AWAIT: Wait for temp file to have enough data ----
   loggers.log(`[${tag}]`, "Waiting for download data...");

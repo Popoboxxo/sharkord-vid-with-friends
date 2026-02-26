@@ -15,6 +15,7 @@ import {
   getFfmpegBinaryName,
   buildYtDlpDownloadCmd,
   buildDebugCacheFileName,
+  shouldWaitForDownloadComplete,
 } from "../../src/stream/ffmpeg";
 
 describe("ffmpeg", () => {
@@ -254,6 +255,16 @@ describe("ffmpeg", () => {
       expect(normalizeBitrate("")).toBe("192k");
       expect(normalizeBitrate(undefined)).toBe("192k");
       expect(normalizeBitrate("  256k  ")).toBe("256k");
+    });
+  });
+
+  describe("shouldWaitForDownloadComplete", () => {
+    it("[REQ-002] should wait for full download by default for video", () => {
+      expect(shouldWaitForDownloadComplete("video")).toBe(true);
+    });
+
+    it("[REQ-002] should allow audio to skip full download by default", () => {
+      expect(shouldWaitForDownloadComplete("audio")).toBe(false);
     });
   });
 
