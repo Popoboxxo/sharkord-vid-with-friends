@@ -6,6 +6,7 @@
  * Referenced by: REQ-002, REQ-003, REQ-015, REQ-016
  */
 import type { SpawnedProcess } from "./ffmpeg";
+import type { HLSServerHandle } from "./hls-server";
 import { AUDIO_CODEC, VIDEO_CODEC } from "../utils/constants";
 
 // ---- Types ----
@@ -69,6 +70,13 @@ export type ChannelStreamResources = {
   router: RouterLike;
 };
 
+/** HLS-specific stream resources (alternative to RTP/Mediasoup) */
+export type HLSChannelStreamResources = {
+  hlsServer: HLSServerHandle;
+  ffmpegProcess: ReturnType<typeof Bun.spawn>;
+  ffmpegKill: () => void;
+};
+
 /** Transports only (before producers are created) */
 export type TransportResources = {
   audioTransport: TransportLike;
@@ -89,6 +97,7 @@ export type ProducerResources = {
 
 export class StreamManager {
   private readonly activeStreams = new Map<number, ChannelStreamResources>();
+  private readonly activeHLSStreams = new Map<number, HLSChannelStreamResources>();
 
   /** Generate a random SSRC value for RTP. (REQ-003) */
   generateSsrc(): number {
@@ -97,7 +106,7 @@ export class StreamManager {
 
   /** Check if a channel has an active stream. */
   isActive(channelId: number): boolean {
-    return this.activeStreams.has(channelId);
+    return this.activeStreams.has(channelId) || this.activeHLSStreams.has(channelId);
   }
 
   /** Register active stream resources for a channel. (REQ-015) */
@@ -105,9 +114,19 @@ export class StreamManager {
     this.activeStreams.set(channelId, resources);
   }
 
+  /** Register active HLS stream resources for a channel. */
+  setActiveHLS(channelId: number, resources: HLSChannelStreamResources): void {
+    this.activeHLSStreams.set(channelId, resources);
+  }
+
   /** Get active stream resources for a channel. */
   getResources(channelId: number): ChannelStreamResources | undefined {
     return this.activeStreams.get(channelId);
+  }
+
+  /** Get active HLS stream resources for a channel. */
+  getHLSResources(channelId: number): HLSChannelStreamResources | undefined {
+    return this.activeHLSStreams.get(channelId);
   }
 
   /**
@@ -224,44 +243,66 @@ export class StreamManager {
    */
   cleanup(channelId: number): void {
     const resources = this.activeStreams.get(channelId);
-    if (!resources) return;
+    if (resources) {
+      // Kill ffmpeg processes
+      resources.videoProcess?.kill();
+      resources.audioProcess?.kill();
 
-    // Kill ffmpeg processes
-    resources.videoProcess?.kill();
-    resources.audioProcess?.kill();
+      // Remove stream from Sharkord
+      try {
+        resources.streamHandle?.remove();
+      } catch {
+        // Ignore errors during cleanup
+      }
 
-    // Remove stream from Sharkord
-    try {
-      resources.streamHandle?.remove();
-    } catch {
-      // Ignore errors during cleanup
+      // Close producers
+      try {
+        resources.audioProducer?.close();
+      } catch {
+        // Ignore
+      }
+      try {
+        resources.videoProducer?.close();
+      } catch {
+        // Ignore
+      }
+
+      // Close transports
+      try {
+        resources.audioTransport?.close();
+      } catch {
+        // Ignore
+      }
+      try {
+        resources.videoTransport?.close();
+      } catch {
+        // Ignore
+      }
+
+      this.activeStreams.delete(channelId);
     }
 
-    // Close producers
-    try {
-      resources.audioProducer?.close();
-    } catch {
-      // Ignore
-    }
-    try {
-      resources.videoProducer?.close();
-    } catch {
-      // Ignore
-    }
+    // Cleanup HLS resources
+    const hlsResources = this.activeHLSStreams.get(channelId);
+    if (hlsResources) {
+      // Kill ffmpeg process
+      try {
+        hlsResources.ffmpegKill();
+      } catch {
+        // Ignore
+      }
 
-    // Close transports
-    try {
-      resources.audioTransport?.close();
-    } catch {
-      // Ignore
-    }
-    try {
-      resources.videoTransport?.close();
-    } catch {
-      // Ignore
-    }
+      // Close HLS server
+      try {
+        hlsResources.hlsServer.close().catch(() => {
+          // Ignore errors during close
+        });
+      } catch {
+        // Ignore
+      }
 
-    this.activeStreams.delete(channelId);
+      this.activeHLSStreams.delete(channelId);
+    }
   }
 
   /**
@@ -270,6 +311,9 @@ export class StreamManager {
    */
   cleanupAll(): void {
     for (const channelId of this.activeStreams.keys()) {
+      this.cleanup(channelId);
+    }
+    for (const channelId of this.activeHLSStreams.keys()) {
       this.cleanup(channelId);
     }
   }

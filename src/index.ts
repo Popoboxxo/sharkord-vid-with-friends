@@ -13,8 +13,10 @@ import type { ChannelStreamResources, StreamHandleLike } from "./stream/stream-m
 import { SyncController } from "./sync/sync-controller";
 import type { QueueItem } from "./queue/types";
 
-import { spawnFfmpeg } from "./stream/ffmpeg";
+import { spawnFfmpegForHLS } from "./stream/ffmpeg";
+import { startHLSServer } from "./stream/hls-server";
 import type { FfmpegLoggers, SpawnedProcess } from "./stream/ffmpeg";
+import type { HLSServerHandle } from "./stream/hls-server";
 
 import {
   STREAM_KEY,
@@ -36,6 +38,7 @@ import { registerVolumeCommand } from "./commands/volume";
 import { registerDebugCacheCommand } from "./commands/debug_cache";
 
 import path from "path";
+import { mkdirSync } from "fs";
 
 // ---- Plugin-level singletons (initialized in onLoad) ----
 
@@ -122,13 +125,7 @@ const startStream = async (
   item: QueueItem
 ): Promise<void> => {
   try {
-    // Safe settings access - might not be available in callback context
     const debugMode = ctx.settings?.get ? (ctx.settings.get<boolean>("debugMode") ?? false) : false;
-    
-    // REQ-032: Cache is ALWAYS enabled (independent of debugMode setting)
-    // This allows download verification via /debug_cache even with debug output disabled
-    const cacheEnabled = true;
-    
     const loggers: FfmpegLoggers = {
       log: (...m) => ctx.log(`[stream:${channelId}]`, ...m),
       error: (...m) => ctx.error(`[stream:${channelId}]`, ...m),
@@ -141,189 +138,89 @@ const startStream = async (
       },
     };
 
-    debugLog(ctx, `[startStream]`, `Starting stream for channel ${channelId}, video: ${item.title}`);
-
-    // PRE-FLIGHT CHECKS (REQ-026)
-    const urlLengthLimit = 2048;  // Typical buffer for statically-compiled ffmpeg
-    if (item.streamUrl.length > urlLengthLimit) {
-      loggers.error(`[Pre-flight] Video URL exceeds ${urlLengthLimit} chars (${item.streamUrl.length})`);
-      loggers.error(`[Pre-flight] This may cause segfault in statically-compiled ffmpeg builds`);
-    }
-    if (item.audioUrl.length > urlLengthLimit) {
-      loggers.error(`[Pre-flight] Audio URL exceeds ${urlLengthLimit} chars (${item.audioUrl.length})`);
-      loggers.error(`[Pre-flight] This may cause segfault in statically-compiled ffmpeg builds`);
-    }
+    ctx.log(`[stream:${channelId}] Starting HLS stream: ${item.title}`);
 
     // 1. Clean up any existing stream in this channel
     streamManager.cleanup(channelId);
-    debugLog(ctx, `[startStream]`, `Cleaned up old stream resources`);
 
-    // 2. Get Mediasoup router and listen info
-    const router = ctx.actions.voice.getRouter(channelId);
+    // 2. Get listen info for HLS server
     const { ip, announcedAddress } = await ctx.actions.voice.getListenInfo();
-    debugLog(ctx, `[startStream]`, `Mediasoup listen: ${ip} (announced: ${announcedAddress || 'none'})`);
+    const hlsHostname = ip === "0.0.0.0" ? "127.0.0.1" : ip;
+    const hlsPort = 3001 + channelId;  // Dynamic port per channel to avoid collisions
 
-    // === DIAGNOSTIC: Log Router RTP Capabilities ===
+    // 3. Create HLS content directory
+    const hlsCacheDir = path.join(
+      process.env.HOME || process.env.USERPROFILE || "/tmp",
+      ".sharkord",
+      "hls-cache",
+      `channel-${channelId}`
+    );
+
     try {
-      const routerAny = router as Record<string, unknown>;
-      const rtpCaps = routerAny.rtpCapabilities as { codecs?: unknown[] } | undefined;
-      if (rtpCaps?.codecs) {
-        ctx.log(`[stream:${channelId}] [Router Capabilities] ${rtpCaps.codecs.length} codecs supported:`);
-        for (const codec of rtpCaps.codecs) {
-          const c = codec as Record<string, unknown>;
-          ctx.log(`[stream:${channelId}] [Router Codec] ${c.mimeType} PT=${c.preferredPayloadType} clock=${c.clockRate} params=${JSON.stringify(c.parameters)}`);
+      mkdirSync(hlsCacheDir, { recursive: true });
+    } catch {
+      // Ignore if mkdir fails
+    }
+
+    // 4. Start HLS HTTP server
+    const hlsServer: HLSServerHandle = await startHLSServer({
+      port: hlsPort,
+      contentDir: hlsCacheDir,
+      hostname: hlsHostname,
+    });
+
+    ctx.log(`[stream:${channelId}] HLS server started: ${hlsServer.baseUrl}`);
+
+    // 5. Get volume setting
+    const volume = syncController.getVolume(channelId);  // Already 0-100
+
+    // 6. Spawn ffmpeg with HLS output
+    const ffmpegProc = await spawnFfmpegForHLS({
+      videoUrl: item.streamUrl,
+      audioUrl: item.audioUrl,
+      outputDir: hlsCacheDir,
+      playlistName: "stream.m3u8",
+      segmentDuration: 2,
+      segmentCount: 6,
+      videoBitrate: DEFAULT_SETTINGS.BITRATE_VIDEO,
+      audioBitrate: DEFAULT_SETTINGS.BITRATE_AUDIO,
+      volume,
+      waitForDownloadComplete: true,
+      loggers,
+      onEnd: async () => {
+        ctx.log(`[stream:${channelId}] ffmpeg ended, checking auto-advance`);
+        try {
+          await syncController.handleProcessExit(channelId);
+        } catch (e) {
+          ctx.error(`[stream:${channelId}] Error handling process exit:`, e);
         }
-      } else {
-        ctx.log(`[stream:${channelId}] [Router] No rtpCapabilities found (keys: ${Object.keys(routerAny).join(", ")})`);
-      }
-    } catch (err) {
-      ctx.debug(`[stream:${channelId}] [Router] Could not read capabilities: ${err}`);
-    }
-    // 3. Create transports + producers
-    const transports = await streamManager.createTransports(
-      router as never,
-      ip,
-      announcedAddress
-    );
-    debugLog(ctx, `[startStream]`, `Created transports - Video port: ${transports.videoTransport.tuple.localPort}, Audio port: ${transports.audioTransport.tuple.localPort}`);
-
-    const producers = await streamManager.createProducers(
-      router as never,
-      transports
-    );
-    debugLog(ctx, `[startStream]`, `Created producers with SSRCs - Video: ${transports.videoSsrc}, Audio: ${transports.audioSsrc}`);
-
-    // === DIAGNOSTIC: Log Producer details ===
-    try {
-      const vp = producers.videoProducer as Record<string, unknown>;
-      const ap = producers.audioProducer as Record<string, unknown>;
-      ctx.log(`[stream:${channelId}] [Video Producer] id=${vp.id}, kind=${vp.kind}, type=${vp.type}, paused=${vp.paused}`);
-      ctx.log(`[stream:${channelId}] [Audio Producer] id=${ap.id}, kind=${ap.kind}, type=${ap.type}, paused=${ap.paused}`);
-      
-      // Log the Producer's actual rtpParameters (what Mediasoup accepted)
-      if (vp.rtpParameters) {
-        ctx.log(`[stream:${channelId}] [Video Producer RTP] ${JSON.stringify(vp.rtpParameters)}`);
-      }
-      if (ap.rtpParameters) {
-        ctx.log(`[stream:${channelId}] [Audio Producer RTP] ${JSON.stringify(ap.rtpParameters)}`);
-      }
-    } catch (err) {
-      ctx.debug(`[stream:${channelId}] Could not log producer details: ${err}`);
-    }
-
-    // Log Mediasoup codec configuration
-    ctx.log(`[stream:${channelId}] [Mediasoup Config] Video: ${VIDEO_CODEC.mimeType}, PT=${producers.videoPayloadType}, clock=${VIDEO_CODEC.clockRate}, SSRC=${transports.videoSsrc}`);
-    ctx.log(`[stream:${channelId}] [Mediasoup Config] Audio: ${AUDIO_CODEC.mimeType}, PT=${producers.audioPayloadType}, clock=${AUDIO_CODEC.clockRate}, ch=${AUDIO_CODEC.channels}, SSRC=${transports.audioSsrc}`);
-    ctx.log(`[stream:${channelId}] [Transport] Video port=${transports.videoTransport.tuple.localPort}, Audio port=${transports.audioTransport.tuple.localPort}`);
-    ctx.log(`[stream:${channelId}] [Transport] Video transport id=${transports.videoTransport.id}, Audio transport id=${transports.audioTransport.id}`);
-
-    // 4. Register stream with Sharkord (REQ-028-B: start with preparation title)
-    const streamHandle = ctx.actions.voice.createStream({
-      channelId,
-      key: STREAM_KEY,
-      title: `⏳ Wird vorbereitet… — ${item.title}`,
-      avatarUrl: PLUGIN_AVATAR_URL,
-      producers: {
-        audio: producers.audioProducer,
-        video: producers.videoProducer,
       },
     });
 
-    ctx.log(`[stream:${channelId}] Stream registered with preparation title`);
-
-    // 4b. CRITICAL: Wait for client to set up consumer transport (ICE + DTLS handshake).
-    // createStream() triggers onNewProducer events → client calls voice.consume → connectConsumerTransport.
-    // Without this delay, ffmpeg may send the first keyframe BEFORE the consumer transport is connected,
-    // causing the keyframe to be lost and resulting in a permanent black screen.
-    // The 2-second delay gives the client sufficient time for the full DTLS handshake.
-    ctx.log(`[stream:${channelId}] Waiting 2s for client consumer transport setup...`);
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    ctx.log(`[stream:${channelId}] Consumer transport setup window complete, starting ffmpeg`);
-
-    // 5. Get volume setting
-    const volume = syncController.getVolume(channelId) / 100;
-
-    // REQ-026: If Mediasoup listens on 0.0.0.0, ffmpeg must send to 127.0.0.1
-    const rtpHost = ip === "0.0.0.0" ? "127.0.0.1" : ip;
-    debugLog(ctx, `[startStream]`, `RTP destination: ${rtpHost} (listen IP: ${ip})`);
-
-    // 6+7. Spawn video & audio RTP streamers IN PARALLEL for sync
-    loggers.debug(`[RTP Setup] Video: rtp://${rtpHost}:${transports.videoTransport.tuple.localPort}`);
-    loggers.debug(`[RTP Setup] Audio: rtp://${rtpHost}:${transports.audioTransport.tuple.localPort}`);
-    
-    const [videoProcess, audioProcess] = await Promise.all([
-      spawnFfmpeg({
-        streamType: "video",
-        sourceUrl: item.streamUrl,
-        youtubeUrl: item.youtubeUrl,
-        rtpHost,
-        rtpPort: transports.videoTransport.tuple.localPort,
-        payloadType: producers.videoPayloadType,
-        ssrc: transports.videoSsrc,
-        bitrate: DEFAULT_SETTINGS.BITRATE_VIDEO,
-        debugEnabled: cacheEnabled,
-        waitForDownloadComplete: true,
-        loggers,
-      }),
-      spawnFfmpeg({
-        streamType: "audio",
-        sourceUrl: item.audioUrl,
-        youtubeUrl: item.youtubeUrl,
-        rtpHost,
-        rtpPort: transports.audioTransport.tuple.localPort,
-        payloadType: producers.audioPayloadType,
-        ssrc: transports.audioSsrc,
-        bitrate: DEFAULT_SETTINGS.BITRATE_AUDIO,
-        volume,
-        debugEnabled: cacheEnabled,
-        waitForDownloadComplete: true,
-        loggers,
-      }),
-    ]);
-
-    // 8. Store all resources for lifecycle tracking
-    const resources: ChannelStreamResources = {
-      audioTransport: transports.audioTransport,
-      videoTransport: transports.videoTransport,
-      audioProducer: producers.audioProducer,
-      videoProducer: producers.videoProducer,
-      videoProcess,
-      audioProcess,
-      streamHandle,
-      router: router as never,
+    // 7. Store stream resources
+    const resources = {
+      hlsServer,
+      ffmpegProcess: ffmpegProc.process,
+      ffmpegKill: ffmpegProc.kill,
     };
 
-    streamManager.setActive(channelId, resources);
+    streamManager.setActiveHLS(channelId, resources);
 
+    // 8. Announce stream via log (client-side logic will read this)
+    const playlistUrl = `${hlsServer.baseUrl}/stream.m3u8`;
+    ctx.log(`[stream:${channelId}] 🎬 HLS Playlist ready: ${playlistUrl}`);
     ctx.log(`[stream:${channelId}] Streaming: ${item.title}`);
 
-    // 9. Monitor producer scores & RTP delivery (REQ-026)
-    // Also updates stream title from preparation → actual title on first RTP (REQ-028-B)
-    monitorProducers(ctx, channelId, producers.videoProducer, producers.audioProducer, streamHandle, item.title);
-
-    // 10. Schedule stream health check after 5 seconds
-    scheduleHealthCheck(ctx, channelId, producers.videoProducer, producers.audioProducer);
-
-    // 10b. REQ-028-C: Timeout warning if streaming phase not reached in 30s
-    setTimeout(() => {
-      if (!streamManager.isActive(channelId)) return;
-      // Check if title was updated (= streaming started)
-      // If still preparation title, warn
-      ctx.log(`[stream:${channelId}] 30s timeout check — stream should be active by now`);
-    }, 30000);
-
-    // 11. Monitor video process exit for auto-advance (REQ-009)
-    monitorProcess(ctx, channelId, videoProcess);
+    // 9. Monitor ffmpeg process for auto-advance (REQ-009)
+    monitorProcessForAutoAdvance(ctx, channelId, ffmpegProc.process);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    const errorStack = error instanceof Error ? error.stack : undefined;
     ctx.error(`[startStream] FATAL ERROR for channel ${channelId}:`, errorMsg);
-    if (errorStack) ctx.error(`[startStream] Stack:`, errorStack);
-    
+
     // Cleanup on error
     streamManager.cleanup(channelId);
     syncController.stop(channelId);
-    
+
     throw new Error(`Stream startup failed: ${errorMsg}`);
   }
 };
@@ -501,6 +398,34 @@ const monitorProcess = (
     })
     .catch((err: unknown) => {
       ctx.error(`[stream:${channelId}] ffmpeg process error:`, err);
+    });
+};
+
+/**
+ * Monitor HLS ffmpeg process for auto-advance (REQ-009, HLS variant)
+ * Similar to monitorProcess but for HLS streaming
+ */
+const monitorProcessForAutoAdvance = (
+  ctx: PluginContext,
+  channelId: number,
+  bunProcess: ReturnType<typeof Bun.spawn>
+): void => {
+  bunProcess.exited
+    .then(async () => {
+      ctx.log(`[stream:${channelId}] HLS ffmpeg process exited, checking auto-advance`);
+
+      // Cleanup the current stream resources (including HLS server)
+      streamManager.cleanup(channelId);
+
+      // Trigger auto-advance through SyncController
+      try {
+        await syncController.onVideoEnded(channelId);
+      } catch (err) {
+        ctx.error(`[stream:${channelId}] Error during auto-advance:`, err);
+      }
+    })
+    .catch((err: unknown) => {
+      ctx.error(`[stream:${channelId}] HLS ffmpeg process error:`, err);
     });
 };
 

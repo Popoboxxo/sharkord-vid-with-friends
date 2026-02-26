@@ -631,3 +631,161 @@ export const testFfmpegBinary = async (loggers?: FfmpegLoggers): Promise<string>
     throw new Error(`ffmpeg binary not available or not functional: ${msg}`);
   }
 };
+
+// ---- HLS Streaming (Alternative to RTP) ----
+
+/**
+ * Options for spawning ffmpeg with HLS output.
+ * Combines video and audio input streams into a single HLS manifest.
+ */
+export type SpawnFfmpegForHLSOptions = {
+  videoUrl: string;
+  audioUrl: string;
+  outputDir: string;  // Directory where .m3u8 and .ts files are written
+  playlistName?: string;  // Default: "stream.m3u8"
+  segmentDuration?: number;  // HLS segment duration (default: 2s)
+  segmentCount?: number;  // Number of segments in playlist (default: 6)
+  videoBitrate: string;  // e.g., "2000k"
+  audioBitrate: string;  // e.g., "128k"
+  volume?: number;  // Audio volume 0-100 (default: 50)
+  waitForDownloadComplete?: boolean;
+  loggers: FfmpegLoggers;
+  onEnd?: () => void;
+};
+
+/**
+ * Spawn ffmpeg process for HLS streaming.
+ *
+ * Combines video and audio inputs into a single HLS stream.
+ * Generates:
+ * - stream.m3u8 (playlist manifest)
+ * - stream0.ts, stream1.ts, ... (video segments)
+ *
+ * @param options Configuration for HLS streaming
+ * @returns Promise<SpawnedProcess> with kill() method
+ * @throws Error if ffmpeg binary not found or spawn fails
+ *
+ * Referenced by: REQ-002, REQ-003 (HLS variant)
+ */
+export const spawnFfmpegForHLS = async (
+  options: SpawnFfmpegForHLSOptions
+): Promise<SpawnedProcess> => {
+  const tag = `[HLS]`;
+  const {
+    videoUrl,
+    audioUrl,
+    outputDir,
+    playlistName = "stream.m3u8",
+    segmentDuration = 2,
+    segmentCount = 6,
+    videoBitrate,
+    audioBitrate,
+    volume = 50,
+    waitForDownloadComplete = false,
+    loggers,
+    onEnd,
+  } = options;
+
+  const ffmpegPath = getFfmpegPath();
+  const normVolume = normalizeVolume(volume);
+
+  // ffmpeg HLS command:
+  // - Input: video URL (http)
+  // - Input: audio URL (http)
+  // - Output: HLS with VP8 video + Opus audio
+  // - Segment: 2s chunks, 6 segments in playlist
+  const ffmpegCmd = [
+    ffmpegPath,
+    "-hide_banner",
+    "-loglevel", "info",
+    "-re",
+    "-i", videoUrl,
+    "-re",
+    "-i", audioUrl,
+    // Video codec: VP8 with realtime settings (same as RTP mode)
+    "-c:v", "libvpx",
+    "-quality", "realtime",
+    "-deadline", "realtime",
+    "-cpu-used", "8",
+    `-b:v`, videoBitrate,
+    `-maxrate`, videoBitrate,
+    "-bufsize", "2M",
+    "-g", "25",
+    "-keyint_min", "25",
+    "-auto-alt-ref", "0",
+    "-error-resilient", "1",
+    // Audio codec: Opus (same as RTP mode)
+    "-c:a", "libopus",
+    "-ar", "48000",
+    "-ac", "2",
+    `-b:a`, audioBitrate,
+    "-af", `volume=${normVolume}`,
+    "-application", "audio",
+    // HLS output
+    "-f", "hls",
+    `-hls_time`, String(segmentDuration),
+    `-hls_list_size`, String(segmentCount),
+    `-hls_flags`, "delete_segments",
+    join(outputDir, playlistName),
+  ];
+
+  loggers.debug?.(tag, "[FFmpeg cmd]", ffmpegCmd.join(" "));
+
+  return new Promise((resolve, reject) => {
+    try {
+      const proc = Bun.spawn({
+        cmd: ffmpegCmd,
+        stdout: "pipe",
+        stderr: "pipe",
+        stdin: "ignore",
+      });
+
+      loggers.log?.(tag, `Process started (PID: ${proc.pid})`);
+
+      // Log stderr in background
+      const stderrReader = proc.stderr!.getReader();
+      const decoder = new TextDecoder();
+
+      (async () => {
+        while (true) {
+          const { done, value } = await stderrReader.read();
+          if (done) {
+            loggers.debug?.(tag, "[FFmpeg] Stderr stream closed");
+            break;
+          }
+
+          const text = decoder.decode(value, { stream: true });
+          const lines = text.split("\n").filter(Boolean);
+          for (const line of lines) {
+            if (line.match(/Progress|frame=|time=/)) {
+              loggers.debug?.(tag, `[FFmpeg Progress]`, line);
+            } else if (line.match(/error|Error/i)) {
+              loggers.error?.(tag, `[FFmpeg]`, line);
+            } else {
+              loggers.debug?.(tag, `[FFmpeg]`, line);
+            }
+          }
+        }
+      })();
+
+      // Monitor process exit
+      (async () => {
+        const code = await proc.exited;
+        loggers.log?.(tag, `[FFmpeg] Exited with code ${code}`);
+        onEnd?.();
+      })();
+
+      resolve({
+        process: proc,
+        kill: () => {
+          loggers.log?.(tag, "[Kill] SIGTERM sent to ffmpeg");
+          proc.kill();
+        },
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      loggers.error?.(tag, "Failed to spawn ffmpeg:", msg);
+      reject(new Error(`${tag}: Failed to spawn ffmpeg: ${msg}`));
+    }
+  });
+};
