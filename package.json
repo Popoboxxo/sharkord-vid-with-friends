@@ -3,9 +3,12 @@
   "version": "0.0.1",
   "module": "src/index.ts",
   "sharkord": {
-    "entry": "index.js",
-    "author": "Watch Party Team",
-    "homepage": "https://github.com/your-org/sharkord-vid-with-friends",
+    "entry": {
+      "server": "index.js",
+      "client": "index.js"
+    },
+    "author": "Vid with Friends Team",
+    "homepage": "https://github.com/popoboxxo/sharkord-vid-with-friends",
     "description": "A plugin that allows users to watch YouTube videos together in sync within Sharkord voice channels",
     "logo": "https://i.imgur.com/placeholder.png"
   },
