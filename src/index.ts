@@ -18,6 +18,8 @@ import { startHLSServer } from "./stream/hls-server";
 import type { FfmpegLoggers, SpawnedProcess } from "./stream/ffmpeg";
 import type { HLSServerHandle } from "./stream/hls-server";
 
+import * as path from "path";
+
 import {
   STREAM_KEY,
   PLUGIN_NAME,
@@ -37,7 +39,6 @@ import { registerPauseCommand } from "./commands/pause";
 import { registerVolumeCommand } from "./commands/volume";
 import { registerDebugCacheCommand } from "./commands/debug_cache";
 
-import path from "path";
 import { mkdirSync } from "fs";
 
 // ---- Plugin-level singletons (initialized in onLoad) ----
@@ -145,7 +146,7 @@ const startStream = async (
 
     // 2. Get listen info for HLS server
     const { ip, announcedAddress } = await ctx.actions.voice.getListenInfo();
-    const hlsHostname = ip === "0.0.0.0" ? "127.0.0.1" : ip;
+    const hlsHostname = "0.0.0.0";
     const hlsPort = 3001 + channelId;  // Dynamic port per channel to avoid collisions
 
     // 3. Create HLS content directory

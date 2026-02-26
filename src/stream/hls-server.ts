@@ -60,7 +60,9 @@ export const startHLSServer = async (
     throw new Error(`HLS content directory does not exist: ${contentDir}`);
   }
 
-  const baseUrl = `http://${hostname}:${port}`;
+  // For 0.0.0.0, use localhost in the URL
+  const displayHostname = hostname === "0.0.0.0" ? "localhost" : hostname;
+  const baseUrl = `http://${displayHostname}:${port}`;
 
   return new Promise((resolve, reject) => {
     const server = Bun.serve({
