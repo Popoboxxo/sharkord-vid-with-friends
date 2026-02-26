@@ -188,6 +188,7 @@ const startStream = async (
     debugLog(ctx, `[startStream]`, `Created transports - Video port: ${transports.videoTransport.tuple.localPort}, Audio port: ${transports.audioTransport.tuple.localPort}`);
 
     const producers = await streamManager.createProducers(
+      router as never,
       transports
     );
     debugLog(ctx, `[startStream]`, `Created producers with SSRCs - Video: ${transports.videoSsrc}, Audio: ${transports.audioSsrc}`);
@@ -211,8 +212,8 @@ const startStream = async (
     }
 
     // Log Mediasoup codec configuration
-    ctx.log(`[stream:${channelId}] [Mediasoup Config] Video: ${VIDEO_CODEC.mimeType}, PT=${VIDEO_CODEC.payloadType}, clock=${VIDEO_CODEC.clockRate}, SSRC=${transports.videoSsrc}`);
-    ctx.log(`[stream:${channelId}] [Mediasoup Config] Audio: ${AUDIO_CODEC.mimeType}, PT=${AUDIO_CODEC.payloadType}, clock=${AUDIO_CODEC.clockRate}, ch=${AUDIO_CODEC.channels}, SSRC=${transports.audioSsrc}`);
+    ctx.log(`[stream:${channelId}] [Mediasoup Config] Video: ${VIDEO_CODEC.mimeType}, PT=${producers.videoPayloadType}, clock=${VIDEO_CODEC.clockRate}, SSRC=${transports.videoSsrc}`);
+    ctx.log(`[stream:${channelId}] [Mediasoup Config] Audio: ${AUDIO_CODEC.mimeType}, PT=${producers.audioPayloadType}, clock=${AUDIO_CODEC.clockRate}, ch=${AUDIO_CODEC.channels}, SSRC=${transports.audioSsrc}`);
     ctx.log(`[stream:${channelId}] [Transport] Video port=${transports.videoTransport.tuple.localPort}, Audio port=${transports.audioTransport.tuple.localPort}`);
     ctx.log(`[stream:${channelId}] [Transport] Video transport id=${transports.videoTransport.id}, Audio transport id=${transports.audioTransport.id}`);
 
@@ -257,7 +258,7 @@ const startStream = async (
         youtubeUrl: item.youtubeUrl,
         rtpHost,
         rtpPort: transports.videoTransport.tuple.localPort,
-        payloadType: VIDEO_CODEC.payloadType,
+        payloadType: producers.videoPayloadType,
         ssrc: transports.videoSsrc,
         bitrate: DEFAULT_SETTINGS.BITRATE_VIDEO,
         debugEnabled: cacheEnabled,
@@ -269,7 +270,7 @@ const startStream = async (
         youtubeUrl: item.youtubeUrl,
         rtpHost,
         rtpPort: transports.audioTransport.tuple.localPort,
-        payloadType: AUDIO_CODEC.payloadType,
+        payloadType: producers.audioPayloadType,
         ssrc: transports.audioSsrc,
         bitrate: DEFAULT_SETTINGS.BITRATE_AUDIO,
         volume,

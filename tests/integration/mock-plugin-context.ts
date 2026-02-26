@@ -96,6 +96,15 @@ export type MockRouter = {
   createPlainTransport: (options: unknown) => Promise<MockTransport>;
   on: (event: string, handler: () => void) => void;
   off: (event: string, handler: () => void) => void;
+  rtpCapabilities: {
+    codecs: Array<{
+      mimeType: string;
+      preferredPayloadType: number;
+      clockRate: number;
+      channels?: number;
+      parameters?: Record<string, unknown>;
+    }>;
+  };
 };
 
 // ---- Mock Implementations ----
@@ -147,11 +156,30 @@ export const createMockTransport = (): MockTransport => {
   };
 };
 
-export const createMockRouter = (): MockRouter => {
+export const createMockRouter = (
+  rtpCapabilities: MockRouter["rtpCapabilities"] = {
+    codecs: [
+      {
+        mimeType: "video/VP8",
+        preferredPayloadType: 96,
+        clockRate: 90000,
+        parameters: {},
+      },
+      {
+        mimeType: "audio/opus",
+        preferredPayloadType: 111,
+        clockRate: 48000,
+        channels: 2,
+        parameters: { "minptime": 10, "useinbandfec": 1 },
+      },
+    ],
+  }
+): MockRouter => {
   const handlers = new Map<string, Set<() => void>>();
   return {
     id: nextId(),
     closed: false,
+    rtpCapabilities,
     close() {
       this.closed = true;
       const closeHandlers = handlers.get("@close");

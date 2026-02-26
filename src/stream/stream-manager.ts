@@ -39,6 +39,15 @@ export type RouterLike = {
   createPlainTransport: (options: unknown) => Promise<TransportLike>;
   on: (event: string, handler: () => void) => void;
   off: (event: string, handler: () => void) => void;
+  rtpCapabilities?: {
+    codecs?: Array<{
+      mimeType?: string;
+      preferredPayloadType?: number;
+      clockRate?: number;
+      channels?: number;
+      parameters?: Record<string, unknown>;
+    }>;
+  };
 };
 
 /** External stream handle returned by createStream */
@@ -72,6 +81,8 @@ export type TransportResources = {
 export type ProducerResources = {
   audioProducer: ProducerLike;
   videoProducer: ProducerLike;
+  audioPayloadType: number;
+  videoPayloadType: number;
 };
 
 // ---- StreamManager ----
@@ -132,11 +143,22 @@ export class StreamManager {
    * Create audio and video producers on the transports. (REQ-002)
    */
   async createProducers(
+    router: RouterLike,
     transports: TransportResources
   ): Promise<ProducerResources> {
     const { audioTransport, videoTransport, audioSsrc, videoSsrc } = transports;
     // VP8 codec — simpler than H264, no profile/level negotiation,
     // self-contained keyframes, universal browser support via WebRTC.
+    const audioPayloadType = this.getPayloadTypeFromRouter(
+      router,
+      AUDIO_CODEC.mimeType,
+      AUDIO_CODEC.payloadType
+    );
+    const videoPayloadType = this.getPayloadTypeFromRouter(
+      router,
+      VIDEO_CODEC.mimeType,
+      VIDEO_CODEC.payloadType
+    );
 
     const [audioProducer, videoProducer] = await Promise.all([
       audioTransport.produce({
@@ -145,7 +167,7 @@ export class StreamManager {
           codecs: [
             {
               mimeType: AUDIO_CODEC.mimeType,
-              payloadType: AUDIO_CODEC.payloadType,
+              payloadType: audioPayloadType,
               clockRate: AUDIO_CODEC.clockRate,
               channels: AUDIO_CODEC.channels,
               parameters: {
@@ -164,7 +186,7 @@ export class StreamManager {
           codecs: [
             {
               mimeType: VIDEO_CODEC.mimeType,
-              payloadType: VIDEO_CODEC.payloadType,
+              payloadType: videoPayloadType,
               clockRate: VIDEO_CODEC.clockRate,
               parameters: {},
               rtcpFeedback: [
@@ -179,7 +201,21 @@ export class StreamManager {
       }),
     ]);
 
-    return { audioProducer, videoProducer };
+    return { audioProducer, videoProducer, audioPayloadType, videoPayloadType };
+  }
+
+  private getPayloadTypeFromRouter(
+    router: RouterLike,
+    mimeType: string,
+    fallback: number
+  ): number {
+    const codecs = router.rtpCapabilities?.codecs ?? [];
+    const match = codecs.find(
+      (codec) => codec.mimeType?.toLowerCase() === mimeType.toLowerCase()
+    );
+
+    if (match?.preferredPayloadType === undefined) return fallback;
+    return match.preferredPayloadType;
   }
 
   /**

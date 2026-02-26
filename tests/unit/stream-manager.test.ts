@@ -45,7 +45,7 @@ describe("StreamManager", () => {
     const { ip } = ctx.actions.voice.getListenInfo();
 
     const resources = await streamManager.createTransports(router, ip, undefined);
-    const producers = await streamManager.createProducers(resources);
+    const producers = await streamManager.createProducers(router, resources);
 
     expect(producers.audioProducer).toBeTruthy();
     expect(producers.videoProducer).toBeTruthy();
@@ -58,7 +58,7 @@ describe("StreamManager", () => {
     const { ip } = ctx.actions.voice.getListenInfo();
 
     const resources = await streamManager.createTransports(router, ip, undefined);
-    await streamManager.createProducers(resources);
+    await streamManager.createProducers(router, resources);
 
     const videoTransport = resources.videoTransport as MockTransport;
     const produceCall = (videoTransport.produceCalls[0] ?? {}) as {
@@ -90,7 +90,7 @@ describe("StreamManager", () => {
     const { ip } = ctx.actions.voice.getListenInfo();
 
     const resources = await streamManager.createTransports(router, ip, undefined);
-    const producers = await streamManager.createProducers(resources);
+    const producers = await streamManager.createProducers(router, resources);
 
     streamManager.setActive(channelId, {
       ...resources,
@@ -120,7 +120,7 @@ describe("StreamManager", () => {
     for (const chId of [1, 2, 3]) {
       const router = createMockRouter();
       const resources = await streamManager.createTransports(router, "127.0.0.1", undefined);
-      const producers = await streamManager.createProducers(resources);
+      const producers = await streamManager.createProducers(router, resources);
       streamManager.setActive(chId, {
         ...resources,
         ...producers,
@@ -151,5 +151,43 @@ describe("StreamManager", () => {
     expect(ssrc1).toBeGreaterThan(0);
     expect(ssrc2).toBeGreaterThan(0);
     expect(ssrc1).not.toBe(ssrc2);
+  });
+
+  it("[REQ-002] should prefer router payload types when available", async () => {
+    const router = createMockRouter({
+      codecs: [
+        {
+          mimeType: "video/VP8",
+          preferredPayloadType: 102,
+          clockRate: 90000,
+          parameters: {},
+        },
+        {
+          mimeType: "audio/opus",
+          preferredPayloadType: 110,
+          clockRate: 48000,
+          channels: 2,
+          parameters: { "minptime": 10, "useinbandfec": 1 },
+        },
+      ],
+    });
+    const { ip } = ctx.actions.voice.getListenInfo();
+
+    const resources = await streamManager.createTransports(router, ip, undefined);
+    const producers = await streamManager.createProducers(router, resources);
+
+    const videoTransport = resources.videoTransport as MockTransport;
+    const audioTransport = resources.audioTransport as MockTransport;
+    const videoCall = (videoTransport.produceCalls[0] ?? {}) as {
+      rtpParameters?: { codecs?: Array<{ payloadType?: number }> };
+    };
+    const audioCall = (audioTransport.produceCalls[0] ?? {}) as {
+      rtpParameters?: { codecs?: Array<{ payloadType?: number }> };
+    };
+
+    expect(videoCall.rtpParameters?.codecs?.[0]?.payloadType).toBe(102);
+    expect(audioCall.rtpParameters?.codecs?.[0]?.payloadType).toBe(110);
+    expect(producers.videoPayloadType).toBe(102);
+    expect(producers.audioPayloadType).toBe(110);
   });
 });
