@@ -57,7 +57,7 @@ services:
       - SHARKORD_PORT=3000
       - SHARKORD_DEBUG=true
       # Announced address for WebRTC (use your LAN IP if clients connect from other machines)
-      - SHARKORD_WEBRTC_ANNOUNCED_ADDRESS=127.0.0.1
+      - SHARKORD_WEBRTC_ANNOUNCED_ADDRESS=192.168.192.1
     volumes:
       # Persist Sharkord data (DB, settings) between restarts
       - sharkord-data:/root/.config/sharkord

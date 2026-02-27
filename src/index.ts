@@ -32,6 +32,7 @@ import { registerNowPlayingCommand } from "./commands/nowplaying";
 import { registerPauseCommand } from "./commands/pause";
 import { registerVolumeCommand } from "./commands/volume";
 import { registerDebugCacheCommand } from "./commands/debug_cache";
+import { components as pluginComponents } from "./ui/components";
 
 // ---- Plugin-level singletons (initialized in onLoad) ----
 
@@ -139,7 +140,8 @@ const startStream = async (
     // 2. Get Mediasoup router and listen info
     const router = ctx.actions.voice.getRouter(channelId) as unknown;
     const { ip, announcedAddress } = await ctx.actions.voice.getListenInfo();
-    const rtpTargetHost = announcedAddress || (ip === "0.0.0.0" ? "127.0.0.1" : ip);
+    // RTP target is always local (ffmpeg runs in same container as Mediasoup)
+    const rtpTargetHost = ip === "0.0.0.0" ? "127.0.0.1" : ip;
 
     if (!router) {
       throw new Error(`No Mediasoup router available for channel ${channelId}`);
@@ -623,6 +625,15 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
   registerPauseCommand(ctx as never, syncController, streamManager);
   registerVolumeCommand(ctx as never, syncController);
   registerDebugCacheCommand(ctx as never);
+
+  // 4b. Register UI components explicitly when runtime API is available (REQ-017)
+  // Some Sharkord runtimes expose only static component export wiring.
+  const uiApi = (ctx as { ui?: { registerComponents?: (components: unknown) => void } }).ui;
+  if (typeof uiApi?.registerComponents === "function") {
+    uiApi.registerComponents(pluginComponents);
+  } else {
+    ctx.debug(`[${PLUGIN_NAME}] Runtime has no ctx.ui.registerComponents(); using exported components fallback.`);
+  }
 
   // 5. Listen for voice channel close events (REQ-016)
   ctx.events.on("voice:runtime_closed", handleVoiceRuntimeClosed(ctx));
