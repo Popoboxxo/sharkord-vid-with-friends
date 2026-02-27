@@ -4,6 +4,12 @@
  * Referenced by: REQ-013
  */
 import type { SyncController } from "../sync/sync-controller";
+
+type StreamControlLike = {
+  pauseChannelStream: (channelId: number) => boolean;
+  resumeChannelStream: (channelId: number) => boolean;
+};
+
 type PluginContextLike = {
   commands: {
     register: <TArgs = void>(command: {
@@ -17,7 +23,8 @@ type PluginContextLike = {
 
 export const registerPauseCommand = (
   ctx: PluginContextLike,
-  syncController: SyncController
+  syncController: SyncController,
+  streamControl: StreamControlLike
 ): void => {
   ctx.commands.register({
     name: "pause",
@@ -33,9 +40,22 @@ export const registerPauseCommand = (
       }
 
       const currentlyPaused = syncController.isPaused(channelId);
-      syncController.setPaused(channelId, !currentlyPaused);
+      if (currentlyPaused) {
+        const resumed = streamControl.resumeChannelStream(channelId);
+        if (!resumed) {
+          throw new Error("Could not resume stream: no active stream resources found.");
+        }
+        syncController.setPaused(channelId, false);
+        return "Resumed playback.";
+      }
 
-      return currentlyPaused ? "Resumed playback." : "Paused playback.";
+      const paused = streamControl.pauseChannelStream(channelId);
+      if (!paused) {
+        throw new Error("Could not pause stream: no active stream resources found.");
+      }
+
+      syncController.setPaused(channelId, true);
+      return "Paused playback.";
     },
   });
 };

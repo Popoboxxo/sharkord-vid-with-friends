@@ -16,15 +16,11 @@ import type { QueueItem } from "./queue/types";
 import { spawnFfmpeg } from "./stream/ffmpeg";
 import type { FfmpegLoggers, SpawnedProcess } from "./stream/ffmpeg";
 
-import * as path from "path";
-
 import {
   STREAM_KEY,
   PLUGIN_NAME,
   PLUGIN_AVATAR_URL,
   DEFAULT_SETTINGS,
-  AUDIO_CODEC,
-  VIDEO_CODEC,
 } from "./utils/constants";
 
 import { registerPlayCommand } from "./commands/play";
@@ -36,8 +32,6 @@ import { registerNowPlayingCommand } from "./commands/nowplaying";
 import { registerPauseCommand } from "./commands/pause";
 import { registerVolumeCommand } from "./commands/volume";
 import { registerDebugCacheCommand } from "./commands/debug_cache";
-
-import { mkdirSync } from "fs";
 
 // ---- Plugin-level singletons (initialized in onLoad) ----
 
@@ -145,6 +139,7 @@ const startStream = async (
     // 2. Get Mediasoup router and listen info
     const router = ctx.actions.voice.getRouter(channelId) as unknown;
     const { ip, announcedAddress } = await ctx.actions.voice.getListenInfo();
+    const rtpTargetHost = announcedAddress || (ip === "0.0.0.0" ? "127.0.0.1" : ip);
 
     if (!router) {
       throw new Error(`No Mediasoup router available for channel ${channelId}`);
@@ -158,7 +153,7 @@ const startStream = async (
       enableSrtp: false,
     };
 
-    ctx.debug(`[stream:${channelId}] Creating Mediasoup transports on ${ip}...`);
+    ctx.debug(`[stream:${channelId}] Creating Mediasoup transports on ${ip} (RTP target: ${rtpTargetHost})...`);
 
     const audioTransport = (await (router as any).createPlainTransport(transportOptions)) as any;
     const videoTransport = (await (router as any).createPlainTransport(transportOptions)) as any;
@@ -218,7 +213,7 @@ const startStream = async (
       streamType: "video",
       sourceUrl: item.streamUrl,
       youtubeUrl: item.youtubeUrl,
-      rtpHost: ip,
+      rtpHost: rtpTargetHost,
       rtpPort: (videoTransport as any).tuple?.localPort,
       payloadType: 96,
       ssrc: (videoProducer as any).rtpParameters?.encodings?.[0]?.ssrc || 1,
@@ -235,7 +230,7 @@ const startStream = async (
       streamType: "audio",
       sourceUrl: item.audioUrl,
       youtubeUrl: item.youtubeUrl,
-      rtpHost: ip,
+      rtpHost: rtpTargetHost,
       rtpPort: (audioTransport as any).tuple?.localPort,
       payloadType: 111,
       ssrc: (audioProducer as any).rtpParameters?.encodings?.[0]?.ssrc || 1,
@@ -281,8 +276,13 @@ const startStream = async (
 
     streamManager.setActive(channelId, resources);
 
-    // 9. Monitor ffmpeg processes for auto-advance (REQ-009)
-    monitorProcess(ctx, channelId, ffmpegVideoProc);
+    // Monitor producer score/statistics to verify RTP delivery in runtime logs
+    monitorProducers(ctx, channelId, videoProducer, audioProducer, streamHandle, item.title);
+    scheduleHealthCheck(ctx, channelId, videoProducer, audioProducer);
+
+    // Auto-advance is handled by the audio ffmpeg onEnd callback.
+    // Monitoring only the video process can cause premature cleanup when
+    // video exits earlier than audio (e.g., temporary decode/input issues).
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     ctx.error(`[startStream] FATAL ERROR for channel ${channelId}:`, errorMsg);
@@ -620,7 +620,7 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
   registerRemoveCommand(ctx as never, queueManager);
   registerStopCommand(ctx as never, syncController);
   registerNowPlayingCommand(ctx as never, queueManager);
-  registerPauseCommand(ctx as never, syncController);
+  registerPauseCommand(ctx as never, syncController, streamManager);
   registerVolumeCommand(ctx as never, syncController);
   registerDebugCacheCommand(ctx as never);
 

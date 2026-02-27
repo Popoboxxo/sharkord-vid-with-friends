@@ -48,6 +48,9 @@ describe("Commands", () => {
   let ctx: MockPluginContext;
   let queueManager: QueueManager;
   let syncController: SyncController;
+  let streamControl: { pauseChannelStream: (channelId: number) => boolean; resumeChannelStream: (channelId: number) => boolean };
+  let pausedChannelId: number | null;
+  let resumedChannelId: number | null;
   const channelId = 42;
 
   // Mock the actual stream starting (we don't need ffmpeg for command tests)
@@ -57,6 +60,18 @@ describe("Commands", () => {
     ctx = createMockPluginContext();
     queueManager = new QueueManager();
     syncController = new SyncController(queueManager, mockStartStream);
+    pausedChannelId = null;
+    resumedChannelId = null;
+    streamControl = {
+      pauseChannelStream: (id: number) => {
+        pausedChannelId = id;
+        return true;
+      },
+      resumeChannelStream: (id: number) => {
+        resumedChannelId = id;
+        return true;
+      },
+    };
   });
 
   // --- REQ-001: /watch command ---
@@ -214,21 +229,23 @@ describe("Commands", () => {
 
   describe("/pause", () => {
     it("[REQ-013] should register the pause command", () => {
-      registerPauseCommand(ctx as never, syncController);
+      registerPauseCommand(ctx as never, syncController, streamControl);
       expect(ctx.commands.registered.has("pause")).toBe(true);
     });
 
     it("[REQ-013] should toggle pause state", async () => {
-      registerPauseCommand(ctx as never, syncController);
+      registerPauseCommand(ctx as never, syncController, streamControl);
       syncController.setPlaying(channelId, true);
 
       const invoker = makeInvoker();
 
       await ctx.commands.execute("pause", invoker, {});
       expect(syncController.isPaused(channelId)).toBe(true);
+      expect(pausedChannelId).toBe(channelId);
 
       await ctx.commands.execute("pause", invoker, {});
       expect(syncController.isPaused(channelId)).toBe(false);
+      expect(resumedChannelId).toBe(channelId);
     });
   });
 
