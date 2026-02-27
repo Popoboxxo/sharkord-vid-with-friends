@@ -26,6 +26,8 @@ export type ProducerLike = {
   kind: "audio" | "video";
   closed: boolean;
   close: () => void;
+  pause?: () => void;
+  resume?: () => void;
   observer: {
     on: (event: string, handler: () => void) => void;
     off: (event: string, handler: () => void) => void;
@@ -75,6 +77,7 @@ export type HLSChannelStreamResources = {
   hlsServer: HLSServerHandle;
   ffmpegProcess: ReturnType<typeof Bun.spawn>;
   ffmpegKill: () => void;
+  streamHandle?: StreamHandleLike;  // Optional: registered with Sharkord
 };
 
 /** Transports only (before producers are created) */
@@ -127,6 +130,60 @@ export class StreamManager {
   /** Get active HLS stream resources for a channel. */
   getHLSResources(channelId: number): HLSChannelStreamResources | undefined {
     return this.activeHLSStreams.get(channelId);
+  }
+
+  /** Pause active RTP stream for a channel (REQ-013). */
+  pauseChannelStream(channelId: number): boolean {
+    const resources = this.activeStreams.get(channelId);
+    if (!resources) return false;
+
+    try {
+      resources.audioProducer.pause?.();
+      resources.videoProducer.pause?.();
+    } catch {
+      // ignore producer pause failures
+    }
+
+    try {
+      resources.videoProcess?.process.kill("SIGSTOP");
+    } catch {
+      // ignore process signal failures
+    }
+
+    try {
+      resources.audioProcess?.process.kill("SIGSTOP");
+    } catch {
+      // ignore process signal failures
+    }
+
+    return true;
+  }
+
+  /** Resume paused RTP stream for a channel (REQ-013). */
+  resumeChannelStream(channelId: number): boolean {
+    const resources = this.activeStreams.get(channelId);
+    if (!resources) return false;
+
+    try {
+      resources.audioProducer.resume?.();
+      resources.videoProducer.resume?.();
+    } catch {
+      // ignore producer resume failures
+    }
+
+    try {
+      resources.videoProcess?.process.kill("SIGCONT");
+    } catch {
+      // ignore process signal failures
+    }
+
+    try {
+      resources.audioProcess?.process.kill("SIGCONT");
+    } catch {
+      // ignore process signal failures
+    }
+
+    return true;
   }
 
   /**
@@ -285,6 +342,13 @@ export class StreamManager {
     // Cleanup HLS resources
     const hlsResources = this.activeHLSStreams.get(channelId);
     if (hlsResources) {
+      // Remove stream from Sharkord
+      try {
+        hlsResources.streamHandle?.remove();
+      } catch {
+        // Ignore
+      }
+
       // Kill ffmpeg process
       try {
         hlsResources.ffmpegKill();

@@ -10,6 +10,8 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import type { JSX } from "react";
+
 // ---- Types ----
 
 /** Minimal props passed to plugin slot components by Sharkord */
@@ -72,12 +74,14 @@ const NowPlayingBadge = (): JSX.Element | null => {
           transition: "all 0.15s ease",
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.15)";
-          e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.4)";
+          const target = e.currentTarget as any;
+          target.style.backgroundColor = "rgba(255, 255, 255, 0.15)";
+          target.style.borderColor = "rgba(255, 255, 255, 0.4)";
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = "transparent";
-          e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.2)";
+          const target = e.currentTarget as any;
+          target.style.backgroundColor = "transparent";
+          target.style.borderColor = "rgba(255, 255, 255, 0.2)";
         }}
       >
         ⏸
@@ -98,12 +102,14 @@ const NowPlayingBadge = (): JSX.Element | null => {
           transition: "all 0.15s ease",
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.15)";
-          e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.4)";
+          const target = e.currentTarget as any;
+          target.style.backgroundColor = "rgba(255, 255, 255, 0.15)";
+          target.style.borderColor = "rgba(255, 255, 255, 0.4)";
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = "transparent";
-          e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.2)";
+          const target = e.currentTarget as any;
+          target.style.backgroundColor = "transparent";
+          target.style.borderColor = "rgba(255, 255, 255, 0.2)";
         }}
       >
         ⏭
@@ -124,12 +130,14 @@ const NowPlayingBadge = (): JSX.Element | null => {
           transition: "all 0.15s ease",
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = "rgba(244, 67, 54, 0.15)";
-          e.currentTarget.style.borderColor = "rgba(244, 67, 54, 0.7)";
+          const target = e.currentTarget as any;
+          target.style.backgroundColor = "rgba(244, 67, 54, 0.15)";
+          target.style.borderColor = "rgba(244, 67, 54, 0.7)";
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = "transparent";
-          e.currentTarget.style.borderColor = "rgba(244, 67, 54, 0.4)";
+          const target = e.currentTarget as any;
+          target.style.backgroundColor = "transparent";
+          target.style.borderColor = "rgba(244, 67, 54, 0.4)";
         }}
       >
         ⏹
@@ -505,10 +513,12 @@ const SettingsPanel = (): JSX.Element | null => {
             transition: "all 0.2s ease",
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = "rgba(66, 133, 244, 1)";
+            const target = e.currentTarget as any;
+            target.style.backgroundColor = "rgba(66, 133, 244, 1)";
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = "rgba(66, 133, 244, 0.8)";
+            const target = e.currentTarget as any;
+            target.style.backgroundColor = "rgba(66, 133, 244, 0.8)";
           }}
         >
           💾 Einstellungen speichern

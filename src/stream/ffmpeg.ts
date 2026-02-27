@@ -170,7 +170,7 @@ export const buildTempFilePath = (videoId: string, streamType: "video" | "audio"
 
 const extractYouTubeId = (url: string): string => {
   const match = url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-  return match ? match[1] : "";
+  return match?.[1] ?? "";
 };
 
 const getDebugCacheDir = (): string => {
@@ -654,26 +654,31 @@ export type SpawnFfmpegForHLSOptions = {
 };
 
 /**
- * Spawn ffmpeg process for HLS streaming.
+ * Spawn ffmpeg process for HLS streaming WITH TEMP FILES.
+ *
+ * This version downloads video+audio to temp files first (via yt-dlp),
+ * then feeds them to ffmpeg. This avoids URL-length and HTTP-header issues
+ * that cause Exit Code 139 with statically-compiled ffmpeg.
  *
  * Combines video and audio inputs into a single HLS stream.
  * Generates:
  * - stream.m3u8 (playlist manifest)
  * - stream0.ts, stream1.ts, ... (video segments)
  *
- * @param options Configuration for HLS streaming
+ * @param options Configuration for HLS streaming (MUST include youtubeUrl now)
  * @returns Promise<SpawnedProcess> with kill() method
  * @throws Error if ffmpeg binary not found or spawn fails
  *
  * Referenced by: REQ-002, REQ-003 (HLS variant)
  */
 export const spawnFfmpegForHLS = async (
-  options: SpawnFfmpegForHLSOptions
+  options: SpawnFfmpegForHLSOptions & { youtubeUrl?: string }
 ): Promise<SpawnedProcess> => {
   const tag = `[HLS]`;
   const {
     videoUrl,
     audioUrl,
+    youtubeUrl,
     outputDir,
     playlistName = "stream.m3u8",
     segmentDuration = 2,
@@ -687,105 +692,200 @@ export const spawnFfmpegForHLS = async (
   } = options;
 
   const ffmpegPath = getFfmpegPath();
+  const binDir = path.dirname(ffmpegPath);
+  const ytDlpPath = path.join(binDir, "yt-dlp");
+  const cookiesPath = path.join(binDir, "cookies.txt");
   const normVolume = normalizeVolume(volume);
 
-  // ffmpeg HLS command:
-  // - Input: video URL (http)
-  // - Input: audio URL (http)
-  // - Output: HLS with passthrough codecs (copy for stability)
-  // - Segment: 2s chunks, 6 segments in playlist
-  
-  const outputPath = path.join(outputDir, playlistName);
-  
-  loggers.log?.(tag, "[FFmpeg] Starting HLS spawn...");
-  loggers.log?.(tag, `[FFmpeg] Binary: ${ffmpegPath}`);
-  loggers.log?.(tag, `[FFmpeg] Video URL length: ${videoUrl.length} chars`);
-  loggers.log?.(tag, `[FFmpeg] Audio URL length: ${audioUrl.length} chars`);
-  loggers.log?.(tag, `[FFmpeg] Output dir: ${outputDir}`);
-  loggers.log?.(tag, `[FFmpeg] Output path: ${outputPath}`);
+  loggers.log?.(tag, "[Starting HLS with temp-file method]");
+  loggers.log?.(tag, `Binary: ${ffmpegPath}`);
+  loggers.log?.(tag, `Output dir: ${outputDir}`);
 
-  return new Promise((resolve, reject) => {
+  // 1. Generate temp file paths
+  const videoId = extractYouTubeId(youtubeUrl || videoUrl);
+  const tempVideoFile = buildTempFilePath(videoId, "video");
+  const tempAudioFile = buildTempFilePath(videoId, "audio");
+
+  const cacheDir = path.dirname(tempVideoFile);
+  mkdirSync(cacheDir, { recursive: true });
+
+  loggers.log?.(tag, `Temp video: ${path.basename(tempVideoFile)}`);
+  loggers.log?.(tag, `Temp audio: ${path.basename(tempAudioFile)}`);
+
+  // 2. Build yt-dlp commands for video + audio
+  const ytDlpVideoCmd = buildYtDlpDownloadCmd({
+    ytDlpPath,
+    ffmpegLocation: binDir,
+    sourceUrl: videoUrl,
+    youtubeUrl,
+    streamType: "video",
+    cookiesPath: existsSync(cookiesPath) ? cookiesPath : undefined,
+    debug: false,
+    outputPath: tempVideoFile,
+  });
+
+  const ytDlpAudioCmd = buildYtDlpDownloadCmd({
+    ytDlpPath,
+    ffmpegLocation: binDir,
+    sourceUrl: audioUrl,
+    youtubeUrl,
+    streamType: "audio",
+    cookiesPath: existsSync(cookiesPath) ? cookiesPath : undefined,
+    debug: false,
+    outputPath: tempAudioFile,
+  });
+
+  loggers.log?.(tag, "[Phase 1/3] Starting yt-dlp downloads (video + audio)...");
+
+  // 3. Spawn both yt-dlp processes
+  const ytDlpVideo = Bun.spawn({
+    cmd: ytDlpVideoCmd,
+    stdout: "ignore",
+    stderr: "pipe",
+    stdin: "ignore",
+  });
+
+  const ytDlpAudio = Bun.spawn({
+    cmd: ytDlpAudioCmd,
+    stdout: "ignore",
+    stderr: "pipe",
+    stdin: "ignore",
+  });
+
+  loggers.log?.(tag, `yt-dlp video PID: ${ytDlpVideo.pid}`);
+  loggers.log?.(tag, `yt-dlp audio PID: ${ytDlpAudio.pid}`);
+
+  // Monitor yt-dlp stderr (minimal logging)
+  const monitorYtDlpStderr = async (proc: ReturnType<typeof Bun.spawn>, label: string) => {
+    if (!proc.stderr) return;
+    const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
+    const decoder = new TextDecoder();
     try {
-      if (!existsSync(ffmpegPath)) {
-        throw new Error(`FFmpeg binary not found at: ${ffmpegPath}`);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value, { stream: true });
+        if (text.includes("ERROR") || text.includes("WARNING")) {
+          loggers.debug?.(tag, `[yt-dlp ${label}]`, text.trim());
+        }
       }
-      loggers.log?.(tag, "[FFmpeg] Binary file exists ✓");
-      loggers.log?.(tag, "[FFmpeg] Starting HLS spawn with User-Agent headers");
+    } catch { /* ignore */ }
+  };
 
-      const ffmpegCmd = [
-        ffmpegPath,
-        "-hide_banner",
-        "-loglevel", "verbose",
-        "-headers", "User-Agent: Mozilla/5.0",
-        "-i", videoUrl,
-        "-headers", "User-Agent: Mozilla/5.0",
-        "-i", audioUrl,
-        "-c:v", "copy",
-        "-c:a", "copy",
-        "-f", "hls",
-        "-hls_time", String(segmentDuration),
-        "-hls_list_size", String(segmentCount),
-        "-hls_flags", "delete_segments",
-        path.join(outputDir, playlistName),
-      ];
+  monitorYtDlpStderr(ytDlpVideo, "video");
+  monitorYtDlpStderr(ytDlpAudio, "audio");
 
-      const proc = Bun.spawn({
-        cmd: ffmpegCmd,
-        stdout: "pipe",
-        stderr: "pipe",
-        stdin: "ignore",
-      });
+  // 4. Wait for both temp files to have data
+  loggers.log?.(tag, "[Phase 2/3] Waiting for download data...");
+  let videoReady = false;
+  let audioReady = false;
 
-      loggers.log?.(tag, `[FFmpeg] Process spawned (PID: ${proc.pid})`);
+  for (let i = 0; i < 300; i++) {  // 30s max wait
+    if (!videoReady && existsSync(tempVideoFile)) {
+      const size = Bun.file(tempVideoFile).size;
+      if (size > 10000) {
+        videoReady = true;
+        loggers.log?.(tag, `✓ Video file ready (${Math.round(size / 1024)} KB)`);
+      }
+    }
+    if (!audioReady && existsSync(tempAudioFile)) {
+      const size = Bun.file(tempAudioFile).size;
+      if (size > 10000) {
+        audioReady = true;
+        loggers.log?.(tag, `✓ Audio file ready (${Math.round(size / 1024)} KB)`);
+      }
+    }
+    if (videoReady && audioReady) break;
+    await new Promise<void>(r => setTimeout(r, 100));
+  }
 
-      let allOutput = "";
-      const decoder = new TextDecoder();
+  if (!videoReady || !audioReady) {
+    loggers.error?.(tag, "Download timeout — files not ready after 30s");
+    try { ytDlpVideo.kill("SIGTERM"); } catch { /* */ }
+    try { ytDlpAudio.kill("SIGTERM"); } catch { /* */ }
+    throw new Error(`${tag}: Download failed — temp files not ready`);
+  }
 
-      // Read both streams
-      (async () => {
-        const readers = [
-          { stream: proc.stdout, name: "STDOUT" },
-          { stream: proc.stderr, name: "STDERR" },
-        ];
+  // 5. Spawn ffmpeg with temp files
+  loggers.log?.(tag, "[Phase 3/3] Starting ffmpeg HLS encoding...");
 
-        for (const { stream, name } of readers) {
-          if (!stream) continue;
-          const reader = stream.getReader();
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              const text = decoder.decode(value, { stream: true });
-              allOutput += text;
-              loggers.log?.(tag, `[${name}]`, text);
-            }
-          } catch (err) {
-            loggers.error?.(tag, `[${name}] reader error`, err);
+  const outputPath = path.join(outputDir, playlistName);
+  const ffmpegCmd = [
+    ffmpegPath,
+    "-hide_banner",
+    "-loglevel", "info",
+    "-re",  // Read at native frame rate (important for HLS streaming)
+    "-i", tempVideoFile,
+    "-i", tempAudioFile,
+    "-c:v", "copy",  // Copy video codec (no re-encoding)
+    "-c:a", "copy",  // Copy audio codec (no re-encoding)
+    "-f", "hls",
+    "-hls_time", String(segmentDuration),
+    "-hls_list_size", String(segmentCount),
+    "-hls_flags", "delete_segments",
+    outputPath,
+  ];
+
+  if (!existsSync(ffmpegPath)) {
+    throw new Error(`FFmpeg binary not found at: ${ffmpegPath}`);
+  }
+
+  const proc = Bun.spawn({
+    cmd: ffmpegCmd,
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: "ignore",
+  });
+
+  loggers.log?.(tag, `[FFmpeg] Process started (PID: ${proc.pid})`);
+
+  // Forward ffmpeg stderr
+  (async () => {
+    if (!proc.stderr) return;
+    const reader = proc.stderr.getReader();
+    const decoder = new TextDecoder();
+    let lineBuffer = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          if (lineBuffer.trim()) loggers.debug?.(tag, "[FFmpeg]", lineBuffer.trim());
+          break;
+        }
+        lineBuffer += decoder.decode(value, { stream: true });
+        const lines = lineBuffer.split("\n");
+        for (let i = 0; i < lines.length - 1; i++) {
+          const line = lines[i]!.trim();
+          if (line && (line.includes("Input") || line.includes("Output") || line.includes("Stream") || line.includes("error"))) {
+            loggers.log?.(tag, "[FFmpeg]", line);
+          } else if (line) {
+            loggers.debug?.(tag, "[FFmpeg]", line);
           }
         }
-      })();
+        lineBuffer = lines[lines.length - 1] ?? "";
+      }
+    } catch { /* ignore */ }
+  })();
 
-      // Wait for exit and log all output
-      proc.exited.then((code) => {
-        loggers.log?.(tag, "=".repeat(60));
-        loggers.log?.(tag, `[FFmpeg] PROCESS EXITED WITH CODE: ${code}`);
-        loggers.log?.(tag, "[FFmpeg] COMPLETE OUTPUT:");
-        loggers.log?.(tag, allOutput || "(no output)");
-        loggers.log?.(tag, "=".repeat(60));
-        onEnd?.();
-      });
-
-      resolve({
-        process: proc,
-        kill: () => {
-          loggers.log?.(tag, "[FFmpeg] Kill signal sent");
-          proc.kill();
-        },
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      loggers.error?.(tag, "[FFmpeg SPAWN FAILED]", msg);
-      reject(new Error(`${tag}: Failed to spawn ffmpeg: ${msg}`));
+  // Monitor exit
+  const ytDlpProcesses = [ytDlpVideo, ytDlpAudio];
+  proc.exited.then(async (code) => {
+    loggers.log?.(tag, `[FFmpeg] Exited with code ${code}`);
+    // Kill yt-dlp processes if still running
+    for (const p of ytDlpProcesses) {
+      try { p.kill("SIGTERM"); } catch { /* */ }
     }
+    onEnd?.();
   });
+
+  return {
+    process: proc,
+    kill: () => {
+      loggers.log?.(tag, "[Kill] Stopping ffmpeg + yt-dlp processes");
+      try { proc.kill("SIGTERM"); } catch { /* */ }
+      for (const p of ytDlpProcesses) {
+        try { p.kill("SIGTERM"); } catch { /* */ }
+      }
+    },
+  };
 };
