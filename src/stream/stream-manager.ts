@@ -215,8 +215,7 @@ export class StreamManager {
     transports: TransportResources
   ): Promise<ProducerResources> {
     const { audioTransport, videoTransport, audioSsrc, videoSsrc } = transports;
-    // VP8 codec — simpler than H264, no profile/level negotiation,
-    // self-contained keyframes, universal browser support via WebRTC.
+    // H264 codec configuration for RTP streaming via Mediasoup (REQ-002).
     const audioPayloadType = this.getPayloadTypeFromRouter(
       router,
       AUDIO_CODEC.mimeType,
@@ -256,7 +255,11 @@ export class StreamManager {
               mimeType: VIDEO_CODEC.mimeType,
               payloadType: videoPayloadType,
               clockRate: VIDEO_CODEC.clockRate,
-              parameters: {},
+              parameters: {
+                "packetization-mode": 1,
+                "level-asymmetry-allowed": 1,
+                "profile-level-id": "42e01f",
+              },
               rtcpFeedback: [
                 { type: "nack" },
                 { type: "nack", parameter: "pli" },

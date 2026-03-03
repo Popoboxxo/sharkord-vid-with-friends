@@ -210,7 +210,7 @@ describe("SyncController", () => {
     expect(syncController.getVolume(channelId)).toBe(0);
   });
 
-  it("should default volume to 50", () => {
-    expect(syncController.getVolume(channelId)).toBe(50);
+  it("should default volume to 75", () => {
+    expect(syncController.getVolume(channelId)).toBe(75);
   });
 });

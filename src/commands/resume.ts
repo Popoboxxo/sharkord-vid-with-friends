@@ -1,12 +1,11 @@
 /**
- * /pause — Toggle pause/resume of the current stream.
+ * /resume — Resume a paused stream.
  *
- * Referenced by: REQ-013
+ * Referenced by: REQ-034
  */
 import type { SyncController } from "../sync/sync-controller";
 
 type StreamControlLike = {
-  pauseChannelStream: (channelId: number) => boolean;
   resumeChannelStream: (channelId: number) => boolean;
   isActive?: (channelId: number) => boolean;
 };
@@ -22,18 +21,18 @@ type PluginContextLike = {
   };
 };
 
-export const registerPauseCommand = (
+export const registerResumeCommand = (
   ctx: PluginContextLike,
   syncController: SyncController,
   streamControl?: StreamControlLike
 ): void => {
   ctx.commands.register({
-    name: "pause",
-    description: "Pause or resume the current video",
+    name: "resume",
+    description: "Resume a paused video",
     executes: async (invoker) => {
       const channelId = invoker.currentVoiceChannelId;
       if (!channelId) {
-        throw new Error("You must be in a voice channel to pause.");
+        throw new Error("You must be in a voice channel to resume.");
       }
 
       const isPlaying = syncController.isPlaying(channelId);
@@ -42,23 +41,17 @@ export const registerPauseCommand = (
         return "Nothing is currently playing.";
       }
 
-      const currentlyPaused = syncController.isPaused(channelId);
-      if (currentlyPaused) {
-        const resumed = streamControl?.resumeChannelStream(channelId) ?? true;
-        if (!resumed) {
-          throw new Error("Could not resume stream: no active stream resources found.");
-        }
-        syncController.setPaused(channelId, false);
-        return "Resumed playback.";
+      if (!syncController.isPaused(channelId)) {
+        return "No paused video to resume.";
       }
 
-      const paused = streamControl?.pauseChannelStream(channelId) ?? true;
-      if (!paused) {
-        throw new Error("Could not pause stream: no active stream resources found.");
+      const resumed = streamControl?.resumeChannelStream(channelId) ?? true;
+      if (!resumed) {
+        throw new Error("Could not resume stream: no active stream resources found.");
       }
 
-      syncController.setPaused(channelId, true);
-      return "Paused playback.";
+      syncController.setPaused(channelId, false);
+      return "Resumed playback.";
     },
   });
 };

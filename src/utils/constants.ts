@@ -9,9 +9,9 @@ export const STREAM_KEY = "vid-with-friends";
 
 /** Default plugin settings */
 export const DEFAULT_SETTINGS = {
-  BITRATE_VIDEO: "2000k",
-  BITRATE_AUDIO: "256k",  // REQ-011: Erhöht auf 256k für bessere Soundqualität (von 128k)
-  DEFAULT_VOLUME: 50,
+  BITRATE_VIDEO: 3000,
+  BITRATE_AUDIO: 128,
+  DEFAULT_VOLUME: 75,
   SYNC_MODE: "server" as const, // "server" | "client"
 } as const;
 
@@ -25,7 +25,7 @@ export const AUDIO_CODEC = {
 
 /** Video codec configuration for Mediasoup (VP8) */
 export const VIDEO_CODEC = {
-  mimeType: "video/VP8" as const,
+  mimeType: "video/H264" as const,
   payloadType: 96,
   clockRate: 90000,
 } as const;

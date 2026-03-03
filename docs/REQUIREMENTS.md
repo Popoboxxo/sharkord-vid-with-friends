@@ -24,6 +24,8 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 | REQ-011 | Aktuell laufendes Video kann abgefragt werden (`/nowplaying`) | Must |
 | REQ-012 | Lautstärke kann angepasst werden (`/volume <0-100>`) — wirkt ab nächstem Video | Should |
 | REQ-013 | Stream kann pausiert und fortgesetzt werden (`/pause`) | Should |
+| REQ-034 | Pausierter Stream kann explizit fortgesetzt werden (`/resume`). Wenn kein pausiertes Video vorhanden ist, liefert der Command eine klare Rückmeldung | Must |
+| REQ-035 | Pro Voice-Channel darf nur **ein** aktives Video laufen. Ein weiterer Startversuch (`/watch`) während aktiver Wiedergabe wird abgewiesen | Must |
 
 ### Warteschlange (Queue)
 

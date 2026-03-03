@@ -196,22 +196,8 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
   const { inputPath, rtpHost, rtpPort, payloadType, ssrc, bitrate } = options;
   const bitrateNorm = normalizeBitrate(bitrate);
 
-  // Re-encode to VP8 with frequent keyframes for WebRTC streaming.
-  //
-  // WHY VP8 INSTEAD OF H264?
-  // H264 over PlainTransport has a fundamental keyframe problem:
-  // 1. ffmpeg sends IDR only at the start of the stream
-  // 2. If a Mediasoup consumer connects AFTER the IDR, it can't decode
-  // 3. PlainTransport + comedia → ffmpeg ignores RTCP (PLI/FIR) → no new IDR
-  // 4. Result: consumer stays paused → black screen forever
-  //
-  // VP8 advantages:
-  // - No SPS/PPS negotiation (simpler than H264)
-  // - Self-contained keyframes (no decoder state dependency)
-  // - Universal browser support via WebRTC
-  // - Frequent keyframes with low overhead (-auto-alt-ref 0)
-  //
-  // Using realtime preset with max speed for Docker CPU constraints.
+  // Re-encode to H264 for Mediasoup RTP streaming (REQ-002).
+  // Frequent keyframes improve startup for late joiners.
   return [
     "-hide_banner",
     "-loglevel", "info",
@@ -223,22 +209,19 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
     "-i", inputPath,
     // Drop audio (separate audio stream handles this)
     "-an",
-    // VP8 encoding with realtime settings
-    "-c:v", "libvpx",
-    "-quality", "realtime",
-    "-deadline", "realtime",
-    "-cpu-used", "8",
+    // H264 encoding profile for broad decoder compatibility
+    "-c:v", "libx264",
+    "-preset", "veryfast",
+    "-tune", "zerolatency",
+    "-profile:v", "baseline",
+    "-pix_fmt", "yuv420p",
     "-b:v", bitrateNorm,
     "-maxrate", bitrateNorm,
     "-bufsize", "2M",
     // Keyframe every 1 second (at 25fps = every 25 frames)
-    // Frequent keyframes ensure any late-joining consumer can start within 1s
     "-g", "25",
     "-keyint_min", "25",
-    // Disable alternate reference frames (required for RTP streaming)
-    "-auto-alt-ref", "0",
-    // Error resilience for packet loss
-    "-error-resilient", "1",
+    "-x264-params", "nal-hrd=cbr:force-cfr=1",
     // RTP output
     "-payload_type", String(payloadType),
     "-ssrc", String(ssrc),
@@ -284,6 +267,8 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
     "-ar", "48000",
     "-ac", "2",
     "-b:a", bitrateNorm,
+    "-vbr", "off",
+    "-frame_duration", "20",
     "-application", "audio",
     // RTP output
     "-payload_type", String(payloadType),

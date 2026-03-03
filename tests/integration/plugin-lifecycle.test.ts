@@ -249,7 +249,7 @@ describe("Integration: Queue + SyncController + Commands", () => {
     queueManager.clear(CHANNEL_ID);
 
     expect(syncController.isPlaying(CHANNEL_ID)).toBe(false);
-    expect(syncController.getVolume(CHANNEL_ID)).toBe(50); // back to default
+    expect(syncController.getVolume(CHANNEL_ID)).toBe(75); // back to default
     expect(queueManager.getState(CHANNEL_ID).size).toBe(0);
   });
 

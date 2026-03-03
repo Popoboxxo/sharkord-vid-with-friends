@@ -50,16 +50,17 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
     1. `streamManager.cleanup(channelId)`
     2. `ctx.actions.voice.getRouter(channelId)` + `getListenInfo()`
     3. `createPlainTransport(...)` für Audio+Video
-    4. `transport.produce(...)` für Audio (Opus/PT111) + Video (VP8/PT96)
-    5. Settings lesen (`videoBitrate`, `audioBitrate`) + Volume aus `syncController`
-    6. `spawnFfmpeg(...)` Video + Audio
-    7. `ctx.actions.voice.createStream(...)`
-    8. Ressourcen via `streamManager.setActive(...)`
-    9. Producer-Monitoring + Health-Check
+    4. `transport.produce(...)` für Audio (Opus/PT111) + Video (H264/PT96)
+    5. Settings lesen (`videoBitrate`, `audioBitrate`) + Volume aus `syncController` (0..100)
+    6. Audio-Volume via `normalizeVolume(...)` auf 0..1 für ffmpeg normalisieren
+    7. `spawnFfmpeg(...)` Video + Audio
+    8. `ctx.actions.voice.createStream(...)`
+    9. Ressourcen via `streamManager.setActive(...)`
+    10. Producer-Monitoring + Health-Check
   - Fehlerpfad: Cleanup + `syncController.stop(channelId)` + throw Error
   - **REQ:** REQ-002, REQ-003, REQ-018, REQ-026, REQ-028-B
 
-- `monitorProducers(ctx, channelId, videoProducer, audioProducer, streamHandle?, videoTitle?): void`
+- `monitorProducers(ctx, channelId, videoProducer, audioProducer, streamHandle?, videoTitle?, onStreamingDetected?): void`
   - Hängt Observer auf Producer-`score`/`close`
   - Updatet Stream-Titel auf echten Videotitel beim ersten Score-Event
   - Fallback-Timer (8s) für Titelupdate
@@ -207,9 +208,10 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 - `buildDebugCacheFileName(options): string`
 - `buildTempFilePath(videoId, streamType): string`
 - `buildVideoStreamArgs(options): string[]`
-  - aktueller Codec: VP8 (`libvpx`) für RTP/Browser-Kompatibilität
+  - aktueller Codec: H264 (`libx264`) für RTP
 - `buildAudioStreamArgs(options): string[]`
   - Audio Re-Encode nach Opus
+  - RTP-Paketgrößen-Schutz: `-frame_duration 20` + `-vbr off`, damit Opus-Payloads unter `pkt_size=1200` bleiben
 
 ### Exportierte Runtime-Funktionen
 
@@ -359,8 +361,9 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
   - formatiert Current + Upcoming + Duration
   - **REQ:** REQ-006
 
-- `registerSkipCommand(ctx, syncController)` in `skip.ts`
+- `registerSkipCommand(ctx, syncController, streamManager?)` in `skip.ts`
   - `/skip`
+  - prüft Wiedergabe robust: `isPlaying` **oder** `streamManager.isActive(...)`
   - **REQ:** REQ-008
 
 - `registerRemoveCommand(ctx, queueManager)` in `remove.ts`
@@ -369,6 +372,7 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 
 - `registerStopCommand(ctx, syncController, streamManager)` in `stop.ts`
   - `/watch_stop`
+  - prüft Wiedergabe robust: `isPlaying` **oder** `streamManager.isActive(...)`
   - stream cleanup + sync stop
   - **REQ:** REQ-010
 
@@ -378,6 +382,7 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 
 - `registerPauseCommand(ctx, syncController, streamControl)` in `pause.ts`
   - `/pause`
+  - prüft Wiedergabe robust: `isPlaying` **oder** `streamControl.isActive(...)`
   - toggelt pause/resume über `StreamManager`
   - **REQ:** REQ-013
 
@@ -389,6 +394,7 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 - `registerDebugCacheCommand(ctx)` in `debug_cache.ts`
   - `/debug_cache`
   - listet Cache-Dateien nach mtime/size
+  - gated: nur bei aktivem `debugMode` nutzbar
   - **REQ:** REQ-032, REQ-033
 
 ---
@@ -405,8 +411,9 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 ### Interne Komponenten
 
 - `NowPlayingBadge()`
-  - zeigt Badge + visuelle Buttons für Pause/Skip/Stop
-  - aktuell UI-only (keine serverseitige Action-Wiring)
+  - zeigt Badge + Buttons für Pause/Skip/Stop
+  - nutzt Command-Bridge (`executeCommand` aus Props oder globale Bridge), um `/pause`, `/skip`, `/watch_stop` auszulösen
+  - zeigt optionalen Vorbereitungsstatus mit Phase/Prozentbalken
   - **REQ-Bezug im UI-Text:** REQ-017, REQ-029, REQ-030, REQ-031
 
 - `QueuePanel()`
@@ -424,12 +431,12 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 
 - `STREAM_KEY = "vid-with-friends"`
 - `DEFAULT_SETTINGS`
-  - `BITRATE_VIDEO = "2000k"`
-  - `BITRATE_AUDIO = "256k"`
-  - `DEFAULT_VOLUME = 50`
+  - `BITRATE_VIDEO = 3000`
+  - `BITRATE_AUDIO = 128`
+  - `DEFAULT_VOLUME = 75`
   - `SYNC_MODE = "server"`
 - `AUDIO_CODEC` (Opus/PT111)
-- `VIDEO_CODEC` (VP8/PT96)
+- `VIDEO_CODEC` (H264/PT96)
 - `PLUGIN_AVATAR_URL`
 - `MAX_QUEUE_SIZE = 50`
 - `PLUGIN_NAME = "Vid With Friends"`
@@ -484,21 +491,21 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 - **Debug/Diagnostics:** REQ-026, REQ-027-A, REQ-027-B, REQ-027-C, REQ-032, REQ-033
 
 Hinweis zum Ist-Zustand:
-- UI-Komponenten für REQ-029/REQ-030/REQ-031 sind derzeit **visuell vorhanden**, aber noch nicht vollständig gegen serverseitige Actions verdrahtet.
+- UI-Komponenten für REQ-029/REQ-030/REQ-031 sind mit einer Command-Bridge verdrahtet; die tatsächliche Ausführung hängt von der Runtime-Bereitstellung dieser Bridge ab.
 
 ---
 
 ## 6) Auffälligkeiten / Technische Notizen
 
 - In `index.ts` existieren `monitorProcess` und `monitorProcessForAutoAdvance`; der primäre RTP-Auto-Advance läuft derzeit über Audio-`onEnd` in `spawnFfmpeg`.
-- `buildVideoStreamArgs` encodiert nach VP8 (`libvpx`), während frühe Kommentare teilweise historisch H264/Copy-Kontext referenzieren.
-- `components.tsx` nutzt mehrere inline `any`-Casts in Mouse-Events (bestehender Zustand).
+- `startStream` setzt initial einen Vorbereitungs-Titel (`⏳ ...`) und warnt nach 30s ohne Streaming-Signal (`REQ-028-C`).
+- `/debug_cache` ist bewusst an `debugMode` gekoppelt (`REQ-033`).
 
 ---
 
 ## 7) Kurzfazit
 
-Die Codebasis ist modular getrennt (Queue/Stream/Sync/Commands/UI) und deckt die Kern-REQs für Voice-Channel Watch-Party bereits breit ab. Der produktive Streaming-Pfad ist RTP-basiert mit robustem Temp-File-Ansatz für yt-dlp/ffmpeg. Der wichtigste offene Reifegradpunkt liegt in der vollständigen Funktionsverdrahtung der UI-Steuerbuttons (Play/Pause/Skip/Stop) auf denselben Serverpfad wie die Commands.
+Die Codebasis ist modular getrennt (Queue/Stream/Sync/Commands/UI) und deckt die Kern-REQs für Voice-Channel Watch-Party breit ab. Der produktive Streaming-Pfad ist RTP-basiert mit Temp-File-Ansatz für yt-dlp/ffmpeg und H264+Opus-Codecpfad. Offene Punkte liegen primär in vertiefter Runtime-Integration der UI-Brücke (abhängig vom Host-SDK) und weiterer Nichtfunktions-Feinabstimmung.
 
 ---
 

@@ -4,6 +4,7 @@
  * Referenced by: REQ-008
  */
 import type { SyncController } from "../sync/sync-controller";
+import type { StreamManager } from "../stream/stream-manager";
 
 type PluginContextLike = {
   commands: {
@@ -18,7 +19,8 @@ type PluginContextLike = {
 
 export const registerSkipCommand = (
   ctx: PluginContextLike,
-  syncController: SyncController
+  syncController: SyncController,
+  streamManager?: StreamManager
 ): void => {
   ctx.commands.register({
     name: "skip",
@@ -29,7 +31,9 @@ export const registerSkipCommand = (
         throw new Error("You must be in a voice channel to skip.");
       }
 
-      if (!syncController.isPlaying(channelId)) {
+      const isPlaying = syncController.isPlaying(channelId);
+      const hasActiveStream = streamManager?.isActive(channelId) ?? false;
+      if (!isPlaying && !hasActiveStream) {
         return "Nothing is currently playing.";
       }
 

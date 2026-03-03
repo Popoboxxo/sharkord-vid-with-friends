@@ -21,6 +21,9 @@ type PluginContextLike = {
   log: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
   debug: (...args: unknown[]) => void;
+  settings?: {
+    get?: <T = unknown>(key: string) => T | undefined;
+  };
 };
 
 export const registerDebugCacheCommand = (ctx: PluginContextLike): void => {
@@ -29,6 +32,10 @@ export const registerDebugCacheCommand = (ctx: PluginContextLike): void => {
     description: "List debug cache files (video/audio) for inspection",
     args: [],
     executes: async (_invoker, _args) => {
+      const debugEnabled = ctx.settings?.get?.<boolean>("debugMode") ?? false;
+      if (!debugEnabled) {
+        throw new Error("Debug Output is disabled. Enable debugMode in plugin settings before using /debug_cache.");
+      }
 
       const homeDir = process.env.HOME || process.env.USERPROFILE || process.cwd();
       const cacheDir = path.join(homeDir, ".config", "sharkord", "vid-with-friends-cache");

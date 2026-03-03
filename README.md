@@ -33,9 +33,9 @@ Server-side streaming via **yt-dlp → ffmpeg → Mediasoup RTP** guarantees fra
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | **Sync Mode** | Select | `server` | How videos are synchronized: Server-Side (RTP) or Client-Side (YouTube Player) |
-| **Video Bitrate** | String | `2000k` | Video bitrate for RTP streaming (e.g., 2000k, 4000k) |
-| **Audio Bitrate** | String | `128k` | Audio bitrate for RTP streaming (e.g., 128k, 192k) |
-| **Default Volume** | Number | `50` | Default playback volume (0-100) |
+| **Video Bitrate** | Number | `3000` | Video bitrate (kbps) for RTP streaming (e.g., 3000, 4000) |
+| **Audio Bitrate** | Number | `128` | Audio bitrate (kbps) for RTP streaming (e.g., 128, 192) |
+| **Default Volume** | Number | `75` | Default playback volume (0-100) |
 | **Debug Mode** | Boolean | `false` | Enable detailed logging for debugging stream lifecycle, ffmpeg, and yt-dlp (REQ-026) |
 
 ### Debug Mode (REQ-026)

@@ -13,7 +13,7 @@ import type { ChannelStreamResources, StreamHandleLike } from "./stream/stream-m
 import { SyncController } from "./sync/sync-controller";
 import type { QueueItem } from "./queue/types";
 
-import { spawnFfmpeg } from "./stream/ffmpeg";
+import { normalizeVolume, spawnFfmpeg } from "./stream/ffmpeg";
 import type { FfmpegLoggers, SpawnedProcess } from "./stream/ffmpeg";
 
 import {
@@ -50,7 +50,7 @@ let syncController: SyncController;
 const debugLog = (ctx: PluginContext, prefix: string, ...messages: unknown[]): void => {
   try {
     // Safe access with optional chaining - settings might not be available in all contexts
-    const debugMode = ctx.settings?.get?.("debugMode") ?? false;
+    const debugMode = Boolean(ctx.settings?.get?.("debugMode") ?? false);
     if (debugMode) {
       ctx.log(`[DEBUG] ${prefix}`, ...messages);
     }
@@ -186,10 +186,14 @@ const startStream = async (
       rtpParameters: {
         codecs: [
           {
-            mimeType: "video/vp8",
+            mimeType: "video/H264",
             payloadType: 96,
             clockRate: 90000,
-            parameters: {},
+            parameters: {
+              "packetization-mode": 1,
+              "level-asymmetry-allowed": 1,
+              "profile-level-id": "42e01f",
+            },
             rtcpFeedback: [
               { type: "nack" },
               { type: "nack", parameter: "pli" },
@@ -206,9 +210,12 @@ const startStream = async (
 
     // 5. Get settings: volume, video bitrate, audio bitrate (REQ-018)
     // Use optional chaining to safely access settings API (may not be available in all Sharkord versions)
-    const volume = syncController.getVolume(channelId);  // Already 0-100
-    const videoBitrate = ctx.settings?.get?.("videoBitrate") ?? DEFAULT_SETTINGS.BITRATE_VIDEO;
-    const audioBitrate = ctx.settings?.get?.("audioBitrate") ?? DEFAULT_SETTINGS.BITRATE_AUDIO;
+    const volume = syncController.getVolume(channelId);  // 0-100 from sync state
+    const normalizedVolume = normalizeVolume(volume);
+    const videoBitrateKbps = Number(ctx.settings?.get?.("videoBitrate") ?? DEFAULT_SETTINGS.BITRATE_VIDEO);
+    const audioBitrateKbps = Number(ctx.settings?.get?.("audioBitrate") ?? DEFAULT_SETTINGS.BITRATE_AUDIO);
+    const videoBitrate = `${Number.isFinite(videoBitrateKbps) ? videoBitrateKbps : DEFAULT_SETTINGS.BITRATE_VIDEO}k`;
+    const audioBitrate = `${Number.isFinite(audioBitrateKbps) ? audioBitrateKbps : DEFAULT_SETTINGS.BITRATE_AUDIO}k`;
 
     ctx.debug(`[stream:${channelId}] Settings: volume=${volume}%, videoBitrate=${videoBitrate}, audioBitrate=${audioBitrate}`);
 
@@ -239,7 +246,7 @@ const startStream = async (
       payloadType: 111,
       ssrc: (audioProducer as any).rtpParameters?.encodings?.[0]?.ssrc || 1,
       bitrate: audioBitrate,
-      volume,
+      volume: normalizedVolume,
       debugEnabled: debugMode,
       waitForDownloadComplete: false,  // Audio can start even if download isn't complete
       loggers,
@@ -255,11 +262,13 @@ const startStream = async (
 
     ctx.log(`[stream:${channelId}] ffmpeg spawned (video PID: ${ffmpegVideoProc.process.pid}, audio PID: ${ffmpegAudioProc.process.pid})`);
 
+    const preparationTitle = `⏳ Wird vorbereitet… — ${item.title}`;
+
     // 7. Register stream with Sharkord using real Mediasoup producers
     const streamHandle = ctx.actions.voice.createStream({
       channelId,
       key: STREAM_KEY,
-      title: item.title,
+      title: preparationTitle,
       avatarUrl: PLUGIN_AVATAR_URL,
       producers: { audio: audioProducer, video: videoProducer },
     });
@@ -281,8 +290,30 @@ const startStream = async (
     streamManager.setActive(channelId, resources);
 
     // Monitor producer score/statistics to verify RTP delivery in runtime logs
-    monitorProducers(ctx, channelId, videoProducer, audioProducer, streamHandle, item.title);
+    let streamingDetected = false;
+    monitorProducers(
+      ctx,
+      channelId,
+      videoProducer,
+      audioProducer,
+      streamHandle,
+      item.title,
+      () => {
+        streamingDetected = true;
+      }
+    );
     scheduleHealthCheck(ctx, channelId, videoProducer, audioProducer);
+
+    setTimeout(() => {
+      if (!streamManager.isActive(channelId)) return;
+      if (streamingDetected) return;
+      ctx.error(`[stream:${channelId}] ⚠ Stream preparation timeout: no STREAMING signal after 30s.`);
+      try {
+        streamHandle.update({ title: `⚠ Vorbereitung dauert ungewöhnlich lange — ${item.title}` });
+      } catch {
+        // ignore title update failures on timeout warning
+      }
+    }, 30_000);
 
     // Auto-advance is handled by the audio ffmpeg onEnd callback.
     // Monitoring only the video process can cause premature cleanup when
@@ -310,7 +341,8 @@ const monitorProducers = (
   videoProducer: unknown,
   audioProducer: unknown,
   streamHandle?: StreamHandleLike,
-  videoTitle?: string
+  videoTitle?: string,
+  onStreamingDetected?: () => void
 ): void => {
   // Access the real Mediasoup observer (runtime type, bypasses our minimal interface)
   const vp = videoProducer as { observer?: { on: (e: string, h: (...a: unknown[]) => void) => void } };
@@ -324,6 +356,7 @@ const monitorProducers = (
       // REQ-028-B: Update stream title from "⏳ Wird vorbereitet…" to actual title
       if (!titleUpdated && streamHandle && videoTitle) {
         titleUpdated = true;
+        onStreamingDetected?.();
         try {
           streamHandle.update({ title: videoTitle });
           ctx.log(`[stream:${channelId}] Stream title updated to: ${videoTitle}`);
@@ -354,6 +387,7 @@ const monitorProducers = (
   setTimeout(() => {
     if (!titleUpdated && streamHandle && videoTitle) {
       titleUpdated = true;
+      onStreamingDetected?.();
       try {
         streamHandle.update({ title: videoTitle });
         ctx.debug(`[stream:${channelId}] Title updated via fallback timer`);
@@ -557,7 +591,7 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
     {
       key: "videoBitrate",
       name: "Video-Bitrate (kbps)",
-      type: "string",
+      type: "number",
       description:
         "Controlls video quality and file size for RTP streaming. Higher values = better quality, more bandwidth needed. " +
         "Recommended: 2500–4000 kbps for standard, 4000–6000 kbps for HD. " +
@@ -565,11 +599,13 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
         "Example: 3000, 4000, 6000. " +
         "[REQ-018-A]",
       defaultValue: DEFAULT_SETTINGS.BITRATE_VIDEO,
+      min: 1000,
+      max: 12000,
     },
     {
       key: "audioBitrate",
       name: "Audio-Bitrate (kbps)",
-      type: "string",
+      type: "number",
       description:
         "Controlls audio quality for RTP streaming. 128 kbps is standard quality for most users, 192+ kbps for high-fidelity audio. " +
         "Recommended: 128 kbps (standard), 192 kbps (high quality). " +
@@ -577,6 +613,8 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
         "Example: 128, 192. " +
         "[REQ-018-B]",
       defaultValue: DEFAULT_SETTINGS.BITRATE_AUDIO,
+      min: 64,
+      max: 320,
     },
     {
       key: "defaultVolume",
@@ -620,7 +658,7 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
   // 4. Register all commands (REQ-001, REQ-004-013)
   registerPlayCommand(ctx as never, queueManager, syncController);
   registerQueueCommand(ctx as never, queueManager);
-  registerSkipCommand(ctx as never, syncController);
+  registerSkipCommand(ctx as never, syncController, streamManager);
   registerRemoveCommand(ctx as never, queueManager);
   registerStopCommand(ctx as never, syncController, streamManager);
   registerNowPlayingCommand(ctx as never, queueManager);

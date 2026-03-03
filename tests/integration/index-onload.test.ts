@@ -40,4 +40,32 @@ describe("Plugin entrypoint lifecycle", () => {
 
     onUnload(ctx as never);
   });
+
+  it("[REQ-018-A] [REQ-018-B] [REQ-018-C] should register bitrate/volume settings with expected defaults and ranges", async () => {
+    const ctx = createMockPluginContext();
+
+    await onLoad(ctx as never);
+
+    const defs = ctx.settings.registeredDefinitions;
+    const video = defs.find((d) => d.key === "videoBitrate");
+    const audio = defs.find((d) => d.key === "audioBitrate");
+    const volume = defs.find((d) => d.key === "defaultVolume");
+
+    expect(video?.type).toBe("number");
+    expect(video?.defaultValue).toBe(3000);
+    expect(video?.min).toBe(1000);
+    expect(video?.max).toBe(12000);
+
+    expect(audio?.type).toBe("number");
+    expect(audio?.defaultValue).toBe(128);
+    expect(audio?.min).toBe(64);
+    expect(audio?.max).toBe(320);
+
+    expect(volume?.type).toBe("number");
+    expect(volume?.defaultValue).toBe(75);
+    expect(volume?.min).toBe(0);
+    expect(volume?.max).toBe(100);
+
+    onUnload(ctx as never);
+  });
 });

@@ -20,7 +20,7 @@ type PluginContextLike = {
 export const registerStopCommand = (
   ctx: PluginContextLike,
   syncController: SyncController,
-  streamManager: StreamManager
+  streamManager?: StreamManager
 ): void => {
   ctx.commands.register({
     name: "watch_stop",
@@ -31,12 +31,14 @@ export const registerStopCommand = (
         throw new Error("You must be in a voice channel to stop playback.");
       }
 
-      if (!syncController.isPlaying(channelId)) {
+      const isPlaying = syncController.isPlaying(channelId);
+      const hasActiveStream = streamManager?.isActive(channelId) ?? false;
+      if (!isPlaying && !hasActiveStream) {
         return "Nothing is currently playing.";
       }
 
       // Kill all ffmpeg processes and close streams (REQ-010)
-      streamManager.cleanup(channelId);
+      streamManager?.cleanup(channelId);
       
       // Clear queue and sync state
       syncController.stop(channelId);

@@ -33,8 +33,11 @@ export type TPluginSettingDefinition = {
   key: string;
   name: string;
   description?: string;
-  type: "string" | "number" | "boolean";
+  type: "string" | "number" | "boolean" | "select";
   defaultValue: string | number | boolean;
+  min?: number;
+  max?: number;
+  options?: Array<{ label: string; value: string }>;
 };
 
 export type TCreateStreamOptions = {
@@ -240,12 +243,15 @@ export type MockPluginContext = {
   };
 
   settings: {
+    get: <T = string | number | boolean>(key: string) => T | undefined;
+    set: (key: string, value: string | number | boolean) => void;
     register: (
       definitions: readonly TPluginSettingDefinition[]
     ) => Promise<{
       get: (key: string) => string | number | boolean;
       set: (key: string, value: string | number | boolean) => void;
     }>;
+    registeredDefinitions: TPluginSettingDefinition[];
   };
 
   ui: {
@@ -262,6 +268,8 @@ export const createMockPluginContext = (): MockPluginContext => {
   const streams: TCreateStreamOptions[] = [];
   const registeredCommands = new Map<string, CommandDefinition<unknown>>();
   const registeredComponents: unknown[] = [];
+  const registeredSettingDefinitions: TPluginSettingDefinition[] = [];
+  const settingsStore = new Map<string, string | number | boolean>();
 
   let streamIdCounter = 0;
 
@@ -334,23 +342,30 @@ export const createMockPluginContext = (): MockPluginContext => {
     },
 
     settings: {
+      get<T = string | number | boolean>(key: string): T | undefined {
+        return settingsStore.get(key) as T | undefined;
+      },
+      set(key: string, value: string | number | boolean) {
+        settingsStore.set(key, value);
+      },
       async register(definitions: readonly TPluginSettingDefinition[]) {
-        const store = new Map<string, string | number | boolean>();
+        registeredSettingDefinitions.splice(0, registeredSettingDefinitions.length, ...definitions);
         for (const def of definitions) {
-          store.set(def.key, def.defaultValue);
+          settingsStore.set(def.key, def.defaultValue);
         }
         return {
           get(key: string) {
-            const value = store.get(key);
+            const value = settingsStore.get(key);
             if (value === undefined) throw new Error(`Setting '${key}' not found`);
             return value;
           },
           set(key: string, value: string | number | boolean) {
-            if (!store.has(key)) throw new Error(`Setting '${key}' not found`);
-            store.set(key, value);
+            if (!settingsStore.has(key)) throw new Error(`Setting '${key}' not found`);
+            settingsStore.set(key, value);
           },
         };
       },
+      registeredDefinitions: registeredSettingDefinitions,
     },
 
     ui: {

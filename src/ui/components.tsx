@@ -8,8 +8,6 @@
  * Referenced by: REQ-017
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 import type { JSX } from "react";
 
 // ---- Types ----
@@ -17,14 +15,60 @@ import type { JSX } from "react";
 /** Minimal props passed to plugin slot components by Sharkord */
 type SlotComponentProps = {
   channelId?: number;
+  isPaused?: boolean;
+  queueSize?: number;
+  nowPlayingTitle?: string;
+  preparationPhase?: "RESOLVING" | "PREPARING" | "BUFFERING" | "STREAMING";
+  preparationProgress?: number;
+  executeCommand?: (name: string, args?: Record<string, unknown>) => Promise<unknown>;
   [key: string]: unknown;
+};
+
+type SharkordCommandBridge = {
+  executeCommand?: (name: string, args?: Record<string, unknown>) => Promise<unknown>;
+};
+
+const toFiniteProgress = (value: unknown): number => {
+  const progress = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(progress)) return 0;
+  return Math.max(0, Math.min(100, progress));
+};
+
+const resolveCommandExecutor = (
+  props: SlotComponentProps
+): ((name: string, args?: Record<string, unknown>) => Promise<unknown>) | null => {
+  if (typeof props.executeCommand === "function") {
+    return props.executeCommand;
+  }
+
+  if (typeof globalThis !== "undefined") {
+    const bridge = (globalThis as unknown as { sharkord?: SharkordCommandBridge }).sharkord;
+    if (typeof bridge?.executeCommand === "function") {
+      return bridge.executeCommand;
+    }
+  }
+
+  return null;
+};
+
+const runVoiceCommand = async (
+  props: SlotComponentProps,
+  commandName: string,
+  args: Record<string, unknown> = {}
+): Promise<void> => {
+  const execute = resolveCommandExecutor(props);
+  if (!execute) {
+    return;
+  }
+  await execute(commandName, args);
 };
 
 /**
  * Plugin component map by slot ID.
  * This matches the TPluginComponentsMapBySlotId expected by Sharkord.
  */
-type ComponentsMap = Record<string, Array<() => JSX.Element | null>>;
+type ComponentFactory = (props?: SlotComponentProps) => JSX.Element | null;
+type ComponentsMap = Record<string, ComponentFactory[]>;
 
 // ---- Placeholder Components ----
 // Note: These are minimal stubs. The real Sharkord UI library (@sharkord/ui)
@@ -41,7 +85,37 @@ type ComponentsMap = Record<string, Array<() => JSX.Element | null>>;
  * When Sharkord provides a way for slot components to call plugin actions,
  * wire these buttons to the /pause, /watch_stop, and /skip commands.
  */
-const NowPlayingBadge = (): JSX.Element | null => {
+const NowPlayingBadge = (props: SlotComponentProps): JSX.Element | null => {
+  const currentlyPaused = props.isPaused === true;
+  const queueSize = typeof props.queueSize === "number" ? props.queueSize : 0;
+  const canSkip = queueSize > 1;
+  const title = typeof props.nowPlayingTitle === "string" && props.nowPlayingTitle.trim()
+    ? props.nowPlayingTitle
+    : "Vid With Friends";
+
+  const phase = props.preparationPhase;
+  const progress = toFiniteProgress(props.preparationProgress);
+  const showPreparation = phase !== undefined && phase !== "STREAMING";
+  const phaseLabelMap: Record<string, string> = {
+    RESOLVING: "Video wird aufgelöst…",
+    PREPARING: "Download wird vorbereitet…",
+    BUFFERING: "Stream wird gestartet…",
+  };
+
+  const withButtonHover = (target: unknown, hovered: boolean): void => {
+    const candidate = target as { style?: { backgroundColor: string; borderColor: string } } | null;
+    if (!candidate?.style) return;
+    candidate.style.backgroundColor = hovered ? "rgba(255, 255, 255, 0.15)" : "transparent";
+    candidate.style.borderColor = hovered ? "rgba(255, 255, 255, 0.4)" : "rgba(255, 255, 255, 0.2)";
+  };
+
+  const withStopButtonHover = (target: unknown, hovered: boolean): void => {
+    const candidate = target as { style?: { backgroundColor: string; borderColor: string } } | null;
+    if (!candidate?.style) return;
+    candidate.style.backgroundColor = hovered ? "rgba(244, 67, 54, 0.15)" : "transparent";
+    candidate.style.borderColor = hovered ? "rgba(244, 67, 54, 0.7)" : "rgba(244, 67, 54, 0.4)";
+  };
+
   return (
     <div
       style={{
@@ -56,12 +130,44 @@ const NowPlayingBadge = (): JSX.Element | null => {
     >
       <span role="img" aria-label="video" style={{ fontSize: "14px" }}>🎬</span>
       <span style={{ opacity: 0.8, maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        Vid With Friends
+        {title}
       </span>
+
+      {showPreparation && (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            minWidth: "140px",
+            gap: "2px",
+          }}
+        >
+          <span style={{ fontSize: "10px", opacity: 0.9 }}>
+            {phaseLabelMap[phase] ?? "Vorbereitung…"}
+          </span>
+          <div
+            style={{
+              width: "100%",
+              height: "4px",
+              borderRadius: "999px",
+              backgroundColor: "rgba(255,255,255,0.2)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                width: `${progress}%`,
+                height: "100%",
+                backgroundColor: "rgba(66, 133, 244, 0.9)",
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* REQ-029: Play/Pause Button */}
       <button
-        title="Pause / Fortsetzen"
+        title={currentlyPaused ? "Fortsetzen" : "Pause"}
         style={{
           background: "none",
           border: "1px solid rgba(255, 255, 255, 0.2)",
@@ -73,22 +179,15 @@ const NowPlayingBadge = (): JSX.Element | null => {
           lineHeight: 1,
           transition: "all 0.15s ease",
         }}
-        onMouseEnter={(e) => {
-          const target = e.currentTarget as any;
-          target.style.backgroundColor = "rgba(255, 255, 255, 0.15)";
-          target.style.borderColor = "rgba(255, 255, 255, 0.4)";
-        }}
-        onMouseLeave={(e) => {
-          const target = e.currentTarget as any;
-          target.style.backgroundColor = "transparent";
-          target.style.borderColor = "rgba(255, 255, 255, 0.2)";
-        }}
+        onClick={() => { void runVoiceCommand(props, "pause"); }}
+        onMouseEnter={(e) => withButtonHover(e.currentTarget, true)}
+        onMouseLeave={(e) => withButtonHover(e.currentTarget, false)}
       >
-        ⏸
+        {currentlyPaused ? "▶" : "⏸"}
       </button>
 
       {/* REQ-031: Skip Button */}
-      <button
+      {canSkip && <button
         title="Nächstes Video"
         style={{
           background: "none",
@@ -101,19 +200,12 @@ const NowPlayingBadge = (): JSX.Element | null => {
           lineHeight: 1,
           transition: "all 0.15s ease",
         }}
-        onMouseEnter={(e) => {
-          const target = e.currentTarget as any;
-          target.style.backgroundColor = "rgba(255, 255, 255, 0.15)";
-          target.style.borderColor = "rgba(255, 255, 255, 0.4)";
-        }}
-        onMouseLeave={(e) => {
-          const target = e.currentTarget as any;
-          target.style.backgroundColor = "transparent";
-          target.style.borderColor = "rgba(255, 255, 255, 0.2)";
-        }}
+        onClick={() => { void runVoiceCommand(props, "skip"); }}
+        onMouseEnter={(e) => withButtonHover(e.currentTarget, true)}
+        onMouseLeave={(e) => withButtonHover(e.currentTarget, false)}
       >
         ⏭
-      </button>
+      </button>}
 
       {/* REQ-030: Stop Button (destructive action — red tint) */}
       <button
@@ -129,16 +221,9 @@ const NowPlayingBadge = (): JSX.Element | null => {
           lineHeight: 1,
           transition: "all 0.15s ease",
         }}
-        onMouseEnter={(e) => {
-          const target = e.currentTarget as any;
-          target.style.backgroundColor = "rgba(244, 67, 54, 0.15)";
-          target.style.borderColor = "rgba(244, 67, 54, 0.7)";
-        }}
-        onMouseLeave={(e) => {
-          const target = e.currentTarget as any;
-          target.style.backgroundColor = "transparent";
-          target.style.borderColor = "rgba(244, 67, 54, 0.4)";
-        }}
+        onClick={() => { void runVoiceCommand(props, "watch_stop"); }}
+        onMouseEnter={(e) => withStopButtonHover(e.currentTarget, true)}
+        onMouseLeave={(e) => withStopButtonHover(e.currentTarget, false)}
       >
         ⏹
       </button>

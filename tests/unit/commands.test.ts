@@ -16,7 +16,9 @@ import { registerRemoveCommand } from "../../src/commands/remove";
 import { registerStopCommand } from "../../src/commands/stop";
 import { registerNowPlayingCommand } from "../../src/commands/nowplaying";
 import { registerPauseCommand } from "../../src/commands/pause";
+import { registerResumeCommand } from "../../src/commands/resume";
 import { registerVolumeCommand } from "../../src/commands/volume";
+import { registerDebugCacheCommand } from "../../src/commands/debug_cache";
 import {
   createMockPluginContext,
   type MockPluginContext,
@@ -97,6 +99,17 @@ describe("Commands", () => {
         ctx.commands.execute("watch", invoker, { query: "" })
       ).rejects.toThrow();
     });
+
+    it("[REQ-035] should reject starting a second video when one is already active", async () => {
+      registerPlayCommand(ctx as never, queueManager, syncController);
+      syncController.setPlaying(channelId, true);
+
+      const invoker = makeInvoker();
+      const result = await ctx.commands.execute("watch", invoker, { query: "test" });
+
+      expect(String(result)).toContain("already playing");
+      expect(queueManager.getState(channelId).size).toBe(0);
+    });
   });
 
   // --- REQ-006: /queue command ---
@@ -141,6 +154,22 @@ describe("Commands", () => {
       await expect(
         ctx.commands.execute("skip", invoker, {})
       ).rejects.toThrow("voice channel");
+    });
+
+    it("[REQ-008] should skip when stream is active even if sync state is false", async () => {
+      const streamManagerLike = {
+        isActive: (id: number) => id === channelId,
+      };
+      registerSkipCommand(ctx as never, syncController, streamManagerLike as never);
+
+      queueManager.add(channelId, makeItem({ title: "Video A" }));
+      queueManager.add(channelId, makeItem({ title: "Video B" }));
+      syncController.setPlaying(channelId, false);
+
+      const invoker = makeInvoker();
+      const result = await ctx.commands.execute("skip", invoker, {});
+
+      expect(String(result)).toContain("Skipped");
     });
   });
 
@@ -198,6 +227,26 @@ describe("Commands", () => {
 
       expect(syncController.isPlaying(channelId)).toBe(false);
     });
+
+    it("[REQ-010] should stop when stream is active even if sync state is false", async () => {
+      let cleanedChannel: number | null = null;
+      const streamManagerLike = {
+        isActive: (id: number) => id === channelId,
+        cleanup: (id: number) => {
+          cleanedChannel = id;
+        },
+      };
+
+      registerStopCommand(ctx as never, syncController, streamManagerLike as never);
+      syncController.setPlaying(channelId, false);
+      queueManager.add(channelId, makeItem());
+
+      const invoker = makeInvoker();
+      const result = await ctx.commands.execute("watch_stop", invoker, {});
+
+      expect(String(result)).toContain("Playback stopped");
+      expect(cleanedChannel).toBe(channelId);
+    });
   });
 
   // --- REQ-011: /nowplaying command ---
@@ -247,6 +296,56 @@ describe("Commands", () => {
       expect(syncController.isPaused(channelId)).toBe(false);
       expect(resumedChannelId).toBe(channelId);
     });
+
+    it("[REQ-013] should pause when stream is active even if sync state is false", async () => {
+      const streamControlWithActive = {
+        ...streamControl,
+        isActive: (id: number) => id === channelId,
+      };
+
+      registerPauseCommand(ctx as never, syncController, streamControlWithActive);
+      syncController.setPlaying(channelId, false);
+
+      const invoker = makeInvoker();
+      const result = await ctx.commands.execute("pause", invoker, {});
+
+      expect(String(result)).toContain("Paused playback");
+      expect(pausedChannelId).toBe(channelId);
+      expect(syncController.isPaused(channelId)).toBe(true);
+    });
+  });
+
+  // --- REQ-034: /resume command ---
+
+  describe("/resume", () => {
+    it("[REQ-034] should register the resume command", () => {
+      registerResumeCommand(ctx as never, syncController, streamControl);
+      expect(ctx.commands.registered.has("resume")).toBe(true);
+    });
+
+    it("[REQ-034] should return helpful message when no video is paused", async () => {
+      registerResumeCommand(ctx as never, syncController, streamControl);
+      syncController.setPlaying(channelId, true);
+      syncController.setPaused(channelId, false);
+
+      const invoker = makeInvoker();
+      const result = await ctx.commands.execute("resume", invoker, {});
+
+      expect(String(result)).toContain("No paused video");
+    });
+
+    it("[REQ-034] should resume a paused video", async () => {
+      registerResumeCommand(ctx as never, syncController, streamControl);
+      syncController.setPlaying(channelId, true);
+      syncController.setPaused(channelId, true);
+
+      const invoker = makeInvoker();
+      const result = await ctx.commands.execute("resume", invoker, {});
+
+      expect(String(result)).toContain("Resumed playback");
+      expect(syncController.isPaused(channelId)).toBe(false);
+      expect(resumedChannelId).toBe(channelId);
+    });
   });
 
   // --- REQ-012: /volume command ---
@@ -276,6 +375,24 @@ describe("Commands", () => {
       await expect(
         ctx.commands.execute("volume", invoker, { level: -10 })
       ).rejects.toThrow();
+    });
+  });
+
+  // --- REQ-033: /debug_cache command ---
+
+  describe("/debug_cache", () => {
+    it("[REQ-033] should register the debug_cache command", () => {
+      registerDebugCacheCommand(ctx as never);
+      expect(ctx.commands.registered.has("debug_cache")).toBe(true);
+    });
+
+    it("[REQ-033] should reject when debug mode is disabled", async () => {
+      registerDebugCacheCommand(ctx as never);
+      const invoker = makeInvoker();
+
+      await expect(
+        ctx.commands.execute("debug_cache", invoker, {})
+      ).rejects.toThrow("Debug Output is disabled");
     });
   });
 });

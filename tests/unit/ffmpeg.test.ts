@@ -22,7 +22,7 @@ describe("ffmpeg", () => {
   // --- REQ-002: Video RTP stream args ---
 
   describe("buildVideoStreamArgs", () => {
-    it("[REQ-002] should produce VP8 RTP output args", () => {
+    it("[REQ-002] should produce H264 RTP output args", () => {
       const args = buildVideoStreamArgs({
         inputPath: "/tmp/video.mp4",
         rtpHost: "127.0.0.1",
@@ -36,7 +36,7 @@ describe("ffmpeg", () => {
       expect(args).toContain("rtp");
       expect(args.some((a) => a.includes("127.0.0.1:40001"))).toBe(true);
       expect(args).toContain("-c:v");
-      expect(args).toContain("libvpx");
+      expect(args).toContain("libx264");
       expect(args).toContain("-payload_type");
       expect(args).toContain("96");
       expect(args).toContain("-ssrc");
@@ -97,7 +97,7 @@ describe("ffmpeg", () => {
       expect(args).toContain("+genpts");
     });
 
-    it("[REQ-002] should use VP8 realtime encoding with frequent keyframes", () => {
+    it("[REQ-002] should use H264 encoding with frequent keyframes", () => {
       const args = buildVideoStreamArgs({
         inputPath: "/tmp/video.mp4",
         rtpHost: "127.0.0.1",
@@ -107,20 +107,18 @@ describe("ffmpeg", () => {
         bitrate: "2000k",
       });
 
-      // Must use VP8 encoding for WebRTC compatibility
+      // Must use H264 encoding for Mediasoup RTP compatibility
       expect(args).toContain("-c:v");
-      expect(args).toContain("libvpx");
-      expect(args).toContain("-deadline");
-      expect(args).toContain("realtime");
+      expect(args).toContain("libx264");
+      expect(args).toContain("-profile:v");
+      expect(args).toContain("baseline");
       // Must have frequent keyframes
       expect(args).toContain("-g");
       expect(args).toContain("25");
-      // Must disable alt-ref frames for streaming
-      expect(args).toContain("-auto-alt-ref");
-      expect(args).toContain("0");
-      // Must NOT contain H264-specific flags
-      expect(args).not.toContain("libx264");
-      expect(args).not.toContain("-profile:v");
+      expect(args).toContain("-x264-params");
+      // Must NOT contain VP8-specific flags
+      expect(args).not.toContain("libvpx");
+      expect(args).not.toContain("-auto-alt-ref");
     });
 
     it("[REQ-002] should use info loglevel for diagnostics", () => {
@@ -232,6 +230,23 @@ describe("ffmpeg", () => {
 
       expect(args).toContain("-probesize");
       expect(args).toContain("-analyzeduration");
+    });
+
+    it("[REQ-002] should enforce RTP-safe Opus packet sizing", () => {
+      const args = buildAudioStreamArgs({
+        inputPath: "/tmp/audio.webm",
+        rtpHost: "127.0.0.1",
+        rtpPort: 40002,
+        payloadType: 111,
+        ssrc: 789012,
+        bitrate: "256k",
+        volume: 1,
+      });
+
+      expect(args).toContain("-frame_duration");
+      expect(args).toContain("20");
+      expect(args).toContain("-vbr");
+      expect(args).toContain("off");
     });
   });
 
