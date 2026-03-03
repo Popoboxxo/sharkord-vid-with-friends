@@ -513,6 +513,71 @@ startStream()
     })
 ```
 
+### 🌐 **WebRTC Network Architecture & Critical Fix**
+
+**Problem:** Verwechslung zwischen **internem RTP-Routing** und **externem WebRTC-Routing**
+
+#### ❌ Fehlerhafte Implementierung (früher)
+
+Die ursprüngliche Implementierung verwendete `announcedAddress` für **beide** Zwecke:
+- RTP-Streaming von ffmpeg zu Mediasoup (Container-intern)
+- WebRTC-ICE-Candidates für Browser (extern)
+
+```typescript
+// index.ts (FALSCH)
+const rtpTargetHost = announcedAddress || (ip === "0.0.0.0" ? "127.0.0.1" : ip);
+```
+
+**Symptome:**
+- Mit `announcedAddress=127.0.0.1`: Browser versuchte zu seinem eigenen localhost zu verbinden → WebRTC Consumer Transport failed
+- Mit `announcedAddress=<LAN-IP>`: ffmpeg sendete RTP an externe IP → Mediasoup erhielt keine Pakete
+
+#### ✅ Korrekte Implementierung (jetzt)
+
+**Zwei getrennte Netzwerk-Pfade:**
+
+```typescript
+// index.ts (KORREKT)
+// RTP target is always local (ffmpeg runs in same container as Mediasoup)
+const rtpTargetHost = ip === "0.0.0.0" ? "127.0.0.1" : ip;
+```
+
+**1. RTP Path (intern):**
+- ffmpeg → Mediasoup RTP Ingest
+- Ziel: `127.0.0.1` (Mediasoup Worker im gleichen Container)
+- Transport: PlainTransport mit `comedia: true`
+
+**2. WebRTC Path (extern):**
+- Mediasoup → Browser WebRTC Consumer
+- Announced Address: Host LAN-IP (z.B. `192.168.192.1`)
+- Transport: WebRtcTransport mit DTLS/SRTP
+
+#### 📊 Netzwerk-Diagramm
+
+```
+┌─────────────────────────────────────────────────┐
+│          Docker Container (sharkord-dev)        │
+│                                                 │
+│  ┌──────────┐   RTP   ┌────────────────────┐  │
+│  │  ffmpeg  │─────────→│ Mediasoup Worker   │  │
+│  └──────────┘ 127.0.0.1│                    │  │
+│                         │ listenIp: 0.0.0.0  │  │
+│                         │ announcedIp: <LAN> │  │
+│                         └──────────┬─────────┘  │
+│                                    │            │
+└────────────────────────────────────┼────────────┘
+                                     │ WebRTC
+                                     │ (UDP 40000-40100)
+                                     │ ICE Candidate: <LAN-IP>
+                                     ▼
+                           ┌──────────────────┐
+                           │   Browser Client │
+                           │   (Host-Netz)    │
+                           └──────────────────┘
+```
+
+**Wichtig:** `SHARKORD_WEBRTC_ANNOUNCED_ADDRESS` muss die **Host-LAN-IP** sein (z.B. `192.168.192.1`), NICHT `127.0.0.1`!
+
 ---
 
 ## Schritt 5: SyncController
@@ -998,7 +1063,7 @@ sharkord:
   environment:
     - SHARKORD_PORT=3000
     - SHARKORD_DEBUG=true
-    - SHARKORD_WEBRTC_ANNOUNCED_ADDRESS=127.0.0.1
+    - SHARKORD_WEBRTC_ANNOUNCED_ADDRESS=192.168.192.1  # ⚠️ Host LAN IP (nicht 127.0.0.1!)
   volumes:
     - sharkord-data:/root/.config/sharkord   # Persist DB
     - ./dist/sharkord-vid-with-friends:/root/.config/sharkord/plugins/sharkord-vid-with-friends:ro

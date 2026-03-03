@@ -132,34 +132,38 @@ export class StreamManager {
     return this.activeHLSStreams.get(channelId);
   }
 
-  /** Pause active RTP stream for a channel (REQ-013). */
+  /** Pause active RTP stream for a channel (REQ-013).
+   * 
+   * Mediasoup approach: Pause producers, which signals WebRTC consumers to mute
+   * the stream. The ffmpeg processes continue running to avoid restart delays
+   * when resuming (they just accumulate packets that won't be sent).
+   * 
+   * NOTE: SIGSTOP/SIGCONT only work on Unix. On Windows, process suspension
+   * via signals is not reliable. Producer pause is the primary control mechanism.
+   */
   pauseChannelStream(channelId: number): boolean {
     const resources = this.activeStreams.get(channelId);
     if (!resources) return false;
 
     try {
+      // Pause producers - signals WebRTC consumers to mute
       resources.audioProducer.pause?.();
       resources.videoProducer.pause?.();
     } catch {
-      // ignore producer pause failures
+      // ignore producer pause failures (API may not support pause)
     }
 
-    try {
-      resources.videoProcess?.process.kill("SIGSTOP");
-    } catch {
-      // ignore process signal failures
-    }
-
-    try {
-      resources.audioProcess?.process.kill("SIGSTOP");
-    } catch {
-      // ignore process signal failures
-    }
+    // Note: ffmpeg processes continue running but produce muted streams
+    // This avoids expensive restart overhead on resume
 
     return true;
   }
 
-  /** Resume paused RTP stream for a channel (REQ-013). */
+  /** Resume paused RTP stream for a channel (REQ-013).
+   * 
+   * Restores producers so WebRTC consumers receive packets again.
+   * ffmpeg processes were never actually paused, so no restart needed.
+   */
   resumeChannelStream(channelId: number): boolean {
     const resources = this.activeStreams.get(channelId);
     if (!resources) return false;
@@ -168,19 +172,7 @@ export class StreamManager {
       resources.audioProducer.resume?.();
       resources.videoProducer.resume?.();
     } catch {
-      // ignore producer resume failures
-    }
-
-    try {
-      resources.videoProcess?.process.kill("SIGCONT");
-    } catch {
-      // ignore process signal failures
-    }
-
-    try {
-      resources.audioProcess?.process.kill("SIGCONT");
-    } catch {
-      // ignore process signal failures
+      // ignore producer resume failures (API may not support resume)
     }
 
     return true;

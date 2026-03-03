@@ -4,6 +4,7 @@
  * Referenced by: REQ-010
  */
 import type { SyncController } from "../sync/sync-controller";
+import type { StreamManager } from "../stream/stream-manager";
 
 type PluginContextLike = {
   commands: {
@@ -18,7 +19,8 @@ type PluginContextLike = {
 
 export const registerStopCommand = (
   ctx: PluginContextLike,
-  syncController: SyncController
+  syncController: SyncController,
+  streamManager: StreamManager
 ): void => {
   ctx.commands.register({
     name: "watch_stop",
@@ -33,7 +35,12 @@ export const registerStopCommand = (
         return "Nothing is currently playing.";
       }
 
+      // Kill all ffmpeg processes and close streams (REQ-010)
+      streamManager.cleanup(channelId);
+      
+      // Clear queue and sync state
       syncController.stop(channelId);
+      
       return "Playback stopped and queue cleared.";
     },
   });

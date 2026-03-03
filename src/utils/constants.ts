@@ -10,7 +10,7 @@ export const STREAM_KEY = "vid-with-friends";
 /** Default plugin settings */
 export const DEFAULT_SETTINGS = {
   BITRATE_VIDEO: "2000k",
-  BITRATE_AUDIO: "128k",
+  BITRATE_AUDIO: "256k",  // REQ-011: Erhöht auf 256k für bessere Soundqualität (von 128k)
   DEFAULT_VOLUME: 50,
   SYNC_MODE: "server" as const, // "server" | "client"
 } as const;

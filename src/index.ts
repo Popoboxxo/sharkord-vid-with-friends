@@ -49,11 +49,8 @@ let syncController: SyncController;
  */
 const debugLog = (ctx: PluginContext, prefix: string, ...messages: unknown[]): void => {
   try {
-    // Safe access - settings might not be available in all contexts
-    if (!ctx.settings?.get) {
-      return;
-    }
-    const debugMode = ctx.settings.get<boolean>("debugMode") ?? false;
+    // Safe access with optional chaining - settings might not be available in all contexts
+    const debugMode = ctx.settings?.get?.("debugMode") ?? false;
     if (debugMode) {
       ctx.log(`[DEBUG] ${prefix}`, ...messages);
     }
@@ -119,7 +116,7 @@ const startStream = async (
   item: QueueItem
 ): Promise<void> => {
   try {
-    const debugMode = ctx.settings?.get ? (ctx.settings.get<boolean>("debugMode") ?? false) : false;
+    const debugMode = ctx.settings?.get?.("debugMode") ?? false;
     const loggers: FfmpegLoggers = {
       log: (...m) => ctx.log(`[stream:${channelId}]`, ...m),
       error: (...m) => ctx.error(`[stream:${channelId}]`, ...m),
@@ -207,8 +204,13 @@ const startStream = async (
     ctx.log(`[stream:${channelId}] Audio producer created (SSRC: ${(audioProducer as any).rtpParameters?.encodings?.[0]?.ssrc})`);
     ctx.log(`[stream:${channelId}] Video producer created (SSRC: ${(videoProducer as any).rtpParameters?.encodings?.[0]?.ssrc})`);
 
-    // 5. Get volume setting
+    // 5. Get settings: volume, video bitrate, audio bitrate (REQ-018)
+    // Use optional chaining to safely access settings API (may not be available in all Sharkord versions)
     const volume = syncController.getVolume(channelId);  // Already 0-100
+    const videoBitrate = ctx.settings?.get?.("videoBitrate") ?? DEFAULT_SETTINGS.BITRATE_VIDEO;
+    const audioBitrate = ctx.settings?.get?.("audioBitrate") ?? DEFAULT_SETTINGS.BITRATE_AUDIO;
+
+    ctx.debug(`[stream:${channelId}] Settings: volume=${volume}%, videoBitrate=${videoBitrate}, audioBitrate=${audioBitrate}`);
 
     // 6. Spawn ffmpeg with RTP output (using temp-file method for stability)
     const ffmpegVideoProc = await spawnFfmpeg({
@@ -219,7 +221,7 @@ const startStream = async (
       rtpPort: (videoTransport as any).tuple?.localPort,
       payloadType: 96,
       ssrc: (videoProducer as any).rtpParameters?.encodings?.[0]?.ssrc || 1,
-      bitrate: DEFAULT_SETTINGS.BITRATE_VIDEO,
+      bitrate: videoBitrate,
       debugEnabled: debugMode,
       waitForDownloadComplete: true,
       loggers,
@@ -236,7 +238,7 @@ const startStream = async (
       rtpPort: (audioTransport as any).tuple?.localPort,
       payloadType: 111,
       ssrc: (audioProducer as any).rtpParameters?.encodings?.[0]?.ssrc || 1,
-      bitrate: DEFAULT_SETTINGS.BITRATE_AUDIO,
+      bitrate: audioBitrate,
       volume,
       debugEnabled: debugMode,
       waitForDownloadComplete: false,  // Audio can start even if download isn't complete
@@ -620,7 +622,7 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
   registerQueueCommand(ctx as never, queueManager);
   registerSkipCommand(ctx as never, syncController);
   registerRemoveCommand(ctx as never, queueManager);
-  registerStopCommand(ctx as never, syncController);
+  registerStopCommand(ctx as never, syncController, streamManager);
   registerNowPlayingCommand(ctx as never, queueManager);
   registerPauseCommand(ctx as never, syncController, streamManager);
   registerVolumeCommand(ctx as never, syncController);
