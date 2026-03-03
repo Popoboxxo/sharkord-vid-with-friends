@@ -70,6 +70,9 @@ export type ChannelStreamResources = {
   audioProcess: SpawnedProcess | null;
   streamHandle: StreamHandleLike | null;
   router: RouterLike;
+  videoTempFile?: string;  // Path to temp video file (for cleanup)
+  audioTempFile?: string;  // Path to temp audio file (for cleanup)
+  debugEnabled?: boolean;  // Whether debug mode is active (affects cleanup)
 };
 
 /** HLS-specific stream resources (alternative to RTP/Mediasoup) */
@@ -290,8 +293,9 @@ export class StreamManager {
   }
 
   /**
-   * Cleanup all resources for a channel. (REQ-016)
+   * Cleanup all resources for a channel. (REQ-016, REQ-037)
    * Closes transports, producers, kills processes, removes stream handle.
+   * Also deletes temp download files if debug mode is disabled.
    */
   cleanup(channelId: number): void {
     const resources = this.activeStreams.get(channelId);
@@ -329,6 +333,28 @@ export class StreamManager {
         resources.videoTransport?.close();
       } catch {
         // Ignore
+      }
+
+      // Cleanup temp files (REQ-037: only if debug mode is disabled)
+      if (!resources.debugEnabled) {
+        const { unlinkSync } = require("fs");
+        const { existsSync } = require("fs");
+        
+        if (resources.videoTempFile && existsSync(resources.videoTempFile)) {
+          try {
+            unlinkSync(resources.videoTempFile);
+          } catch {
+            // Ignore cleanup errors
+          }
+        }
+        
+        if (resources.audioTempFile && existsSync(resources.audioTempFile)) {
+          try {
+            unlinkSync(resources.audioTempFile);
+          } catch {
+            // Ignore cleanup errors
+          }
+        }
       }
 
       this.activeStreams.delete(channelId);

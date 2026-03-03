@@ -25,6 +25,7 @@ export type VideoStreamOptions = {
   payloadType: number;
   ssrc: number;
   bitrate: string;
+  realtimeReading?: boolean;  // Use -re flag (default: true for progressive, false for complete files)
 };
 
 export type AudioStreamOptions = {
@@ -35,6 +36,7 @@ export type AudioStreamOptions = {
   ssrc: number;
   bitrate: string;
   volume: number;
+  realtimeReading?: boolean;  // Use -re flag (default: true for progressive, false for complete files)
 };
 
 export type FfmpegLoggers = {
@@ -46,6 +48,7 @@ export type FfmpegLoggers = {
 export type SpawnedProcess = {
   process: ReturnType<typeof Bun.spawn>;
   kill: () => void;
+  tempFilePath?: string;  // Path to temp download file (for cleanup)
 };
 
 export type YtDlpDownloadOptions = {
@@ -197,18 +200,24 @@ const getDebugCacheDir = (): string => {
  * actual H.264 profile (High/Main/Baseline) doesn't matter for forwarding.
  */
 export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
-  const { inputPath, rtpHost, rtpPort, payloadType, ssrc, bitrate } = options;
+  const { inputPath, rtpHost, rtpPort, payloadType, ssrc, bitrate, realtimeReading = true } = options;
   const bitrateNorm = normalizeBitrate(bitrate);
 
   // Re-encode to H264 for Mediasoup RTP streaming (REQ-002).
   // Frequent keyframes improve startup for late joiners.
+  // -re flag: Only use for progressive downloads. For complete files, read at full speed.
+  const realtimeFlag = realtimeReading ? ["-re"] : [];
+  
   return [
     "-hide_banner",
     "-loglevel", "info",
-    // Read input at realtime speed
-    "-re",
+    // Read input at realtime speed (only for progressive downloads)
+    ...realtimeFlag,
     // Generate timestamps
     "-fflags", "+genpts",
+    // Probe larger buffer for fragmented MP4 format detection (REQ-002)
+    "-probesize", "10000000",
+    "-analyzeduration", "10000000",
     // Input from temp file
     "-i", inputPath,
     // Drop audio (separate audio stream handles this)
@@ -243,18 +252,19 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
  * REQ-026: Workaround for URL length issue in statically-linked ffmpeg.
  */
 export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
-  const { inputPath, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume } = options;
+  const { inputPath, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume, realtimeReading = true } = options;
   const bitrateNorm = normalizeBitrate(bitrate);
 
   const volumeFilter = volume !== 1 ? ["-af", `volume=${volume}`] : [];
+  const realtimeFlag = realtimeReading ? ["-re"] : [];
 
   // Audio MUST be re-encoded (AAC → Opus) for Mediasoup/WebRTC compatibility.
   // Unlike video, this is lightweight and doesn't cause frame drops.
   return [
     "-hide_banner",
     "-loglevel", "info",
-    // Read input at realtime speed to avoid fast playback and early exit
-    "-re",
+    // Read input at realtime speed to avoid fast playback and early exit (only for progressive downloads)
+    ...realtimeFlag,
     // Generate timestamps for piped input to keep RTP timing stable
     "-fflags", "+genpts",
     // Probe larger buffer for fragmented MP4 format detection
@@ -319,11 +329,6 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   // Generate temp file path
   const videoId = extractYouTubeId(youtubeUrl || "");
   const tempFilePath = buildTempFilePath(videoId, streamType);
-  
-  // Build ffmpeg args with temp file as input
-  const args = streamType === "video"
-    ? buildVideoStreamArgs({ inputPath: tempFilePath, rtpHost, rtpPort, payloadType, ssrc, bitrate })
-    : buildAudioStreamArgs({ inputPath: tempFilePath, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume });
 
   const cleanupDownloadedFile = (): void => {
     if (!shouldCleanupDownloadedData(debugEnabled)) return;
@@ -367,7 +372,6 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   if (debugEnabled) {
     loggers.debug(`[${tag}]`, "[yt-dlp cmd full]", ytDlpCmd.join(" "));
   }
-  loggers.debug(`[${tag}]`, "[FFmpeg cmd]", ffmpegPath, ...args);
 
   // Start yt-dlp to download to temp file
   const ytDlpProc = Bun.spawn({
@@ -436,12 +440,18 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   }
 
   // ---- AWAIT: Wait for temp file to have enough data ----
+  // For progressive downloads (waitForFullDownload=false), we need a larger initial buffer
+  // to prevent ffmpeg from hitting EOF on fragmented MP4s before more data arrives.
+  const minInitialBytes = waitForFullDownload
+    ? 10_000  // Full download: just need to verify file exists
+    : (streamType === "video" ? 10_000_000 : 100_000);  // Progressive: 10 MB video, 100 KB audio
+  
   loggers.log(`[${tag}]`, "Waiting for download data...");
   let fileReady = false;
   for (let i = 0; i < 300; i++) {  // 30 seconds max wait
     if (existsSync(tempFilePath)) {
       const fileSize = Bun.file(tempFilePath).size;
-      if (fileSize > 10000) {  // Wait for at least 10KB
+      if (fileSize >= minInitialBytes) {
         loggers.log(`[${tag}]`, `Temp file ready (${Math.round(fileSize / 1024)} KB), starting ffmpeg...`);
         fileReady = true;
         break;
@@ -459,6 +469,17 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
 
   // ---- Start ffmpeg (file has data now) ----
   loggers.log(`[${tag}]`, "Phase: STREAMING — ffmpeg reading from temp file...");
+
+  // Build ffmpeg args now that we know download status
+  // For complete downloads, don't use -re (realtime reading) to avoid EOF issues with fragmented MP4
+  const useRealtimeReading = !waitForFullDownload;
+  const args = streamType === "video"
+    ? buildVideoStreamArgs({ inputPath: tempFilePath, rtpHost, rtpPort, payloadType, ssrc, bitrate, realtimeReading: useRealtimeReading })
+    : buildAudioStreamArgs({ inputPath: tempFilePath, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume, realtimeReading: useRealtimeReading });
+
+  if (debugEnabled) {
+    loggers.debug(`[${tag}]`, "[FFmpeg cmd]", ffmpegPath, ...args);
+  }
 
   const proc = Bun.spawn({
     cmd: [ffmpegPath, ...args],
@@ -576,12 +597,14 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
       loggers.error(`[${tag}]`, `[FFmpeg] ✗ Exited with error code ${exitCode}`);
     }
 
-    cleanupDownloadedFile();
+    // NOTE: Temp file cleanup moved to StreamManager.cleanup()
+    // to ensure both video+audio are done before deletion
     onEnd?.();
   });
 
   return {
     process: proc,
+    tempFilePath,  // Return path for later cleanup by StreamManager
     kill() {
       killed = true;
       try {

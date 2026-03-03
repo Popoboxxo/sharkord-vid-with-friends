@@ -232,7 +232,7 @@ const startStream = async (
       ssrc: (videoProducer as any).rtpParameters?.encodings?.[0]?.ssrc || 1,
       bitrate: videoBitrate,
       debugEnabled: debugMode,
-      waitForDownloadComplete: fullDownloadMode,
+      waitForDownloadComplete: fullDownloadMode,  // Controlled by user setting
       loggers,
       onEnd: async () => {
         ctx.log(`[stream:${channelId}] Video ffmpeg ended`);
@@ -287,6 +287,9 @@ const startStream = async (
       audioProcess: ffmpegAudioProc,
       streamHandle,
       router: router as any,  // Runtime type is Mediasoup Router
+      videoTempFile: ffmpegVideoProc.tempFilePath,
+      audioTempFile: ffmpegAudioProc.tempFilePath,
+      debugEnabled: debugMode,
     };
 
     streamManager.setActive(channelId, resources);
