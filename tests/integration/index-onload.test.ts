@@ -51,6 +51,7 @@ describe("Plugin entrypoint lifecycle", () => {
     const video = defs.find((d) => d.key === "videoBitrate");
     const audio = defs.find((d) => d.key === "audioBitrate");
     const volume = defs.find((d) => d.key === "defaultVolume");
+    const fullDownloadMode = defs.find((d) => d.key === "fullDownloadMode");
 
     expect(video?.type).toBe("number");
     expect(video?.defaultValue).toBe(3000);
@@ -66,6 +67,9 @@ describe("Plugin entrypoint lifecycle", () => {
     expect(volume?.defaultValue).toBe(75);
     expect(volume?.min).toBe(0);
     expect(volume?.max).toBe(100);
+
+    expect(fullDownloadMode?.type).toBe("boolean");
+    expect(fullDownloadMode?.defaultValue).toBe(false);
 
     onUnload(ctx as never);
   });

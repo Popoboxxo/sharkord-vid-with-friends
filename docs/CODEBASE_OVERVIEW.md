@@ -25,7 +25,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 
 - `onLoad(ctx: PluginContext): Promise<void>`
   - Initialisiert `QueueManager`, `StreamManager`, `SyncController`
-  - Registriert Settings (`videoBitrate`, `audioBitrate`, `defaultVolume`, `syncMode`, `debugMode`)
+  - Registriert Settings (`videoBitrate`, `audioBitrate`, `defaultVolume`, `syncMode`, `fullDownloadMode`, `debugMode`)
   - Registriert Commands: `watch`, `queue`, `skip`, `remove`, `watch_stop`, `nowplaying`, `pause`, `volume`, `debug_cache`
   - Registriert UI-Komponenten (`ctx.ui.registerComponents(...)` falls verfügbar)
   - Registriert Event-Handler für `voice:runtime_closed`
@@ -51,9 +51,9 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
     2. `ctx.actions.voice.getRouter(channelId)` + `getListenInfo()`
     3. `createPlainTransport(...)` für Audio+Video
     4. `transport.produce(...)` für Audio (Opus/PT111) + Video (H264/PT96)
-    5. Settings lesen (`videoBitrate`, `audioBitrate`) + Volume aus `syncController` (0..100)
+    5. Settings lesen (`videoBitrate`, `audioBitrate`, `fullDownloadMode`) + Volume aus `syncController` (0..100)
     6. Audio-Volume via `normalizeVolume(...)` auf 0..1 für ffmpeg normalisieren
-    7. `spawnFfmpeg(...)` Video + Audio
+    7. `spawnFfmpeg(...)` Video + Audio (Video wartet nur bei `fullDownloadMode=true` auf Voll-Download)
     8. `ctx.actions.voice.createStream(...)`
     9. Ressourcen via `streamManager.setActive(...)`
     10. Producer-Monitoring + Health-Check
@@ -204,6 +204,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 - `normalizeVolume(volume): number` (0..1)
 - `normalizeBitrate(bitrate?): string`
 - `shouldWaitForDownloadComplete(streamType): boolean`
+- `shouldCleanupDownloadedData(debugEnabled): boolean`
 - `buildYtDlpDownloadCmd(options): string[]`
 - `buildDebugCacheFileName(options): string`
 - `buildTempFilePath(videoId, streamType): string`
@@ -217,12 +218,13 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 
 - `spawnFfmpeg(options): Promise<SpawnedProcess>`
   - startet yt-dlp Download in Temp-Datei
-  - wartet optional auf Voll-Download (Video i.d.R. ja, Audio nein)
+  - wartet optional auf Voll-Download (abhängig von Setting/Caller)
   - wartet auf minimale Dateigröße
   - startet ffmpeg RTP-Prozess
   - parsed/loggt ffmpeg Fortschritt (`frame`, `time`, `speed`, `bitrate`)
   - killt bei Cleanup ffmpeg + yt-dlp
-  - **REQ:** REQ-002, REQ-003, REQ-012, REQ-027-B, REQ-027-C
+  - löscht Temp-Dateien automatisch bei `debugMode=false`
+  - **REQ:** REQ-002, REQ-003, REQ-012, REQ-027-B, REQ-027-C, REQ-037
 
 - `testFfmpegBinary(loggers?): Promise<string>`
 
@@ -492,10 +494,10 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 
 ## 5) REQ-Coverage (Implementation Trace)
 
-- **Wiedergabe:** REQ-001, REQ-002, REQ-003, REQ-010, REQ-011, REQ-012, REQ-013, REQ-034, REQ-035
+- **Wiedergabe:** REQ-001, REQ-002, REQ-003, REQ-010, REQ-011, REQ-012, REQ-013, REQ-034, REQ-035, REQ-036
 - **Queue:** REQ-004 bis REQ-009
 - **Lifecycle/UI/Settings:** REQ-014, REQ-015, REQ-016, REQ-017, REQ-018
-- **Debug/Diagnostics:** REQ-026, REQ-027-A, REQ-027-B, REQ-027-C, REQ-032, REQ-033
+- **Debug/Diagnostics:** REQ-026, REQ-027-A, REQ-027-B, REQ-027-C, REQ-032, REQ-033, REQ-037
 
 Hinweis zum Ist-Zustand:
 - UI-Komponenten für REQ-029/REQ-030/REQ-031 sind mit einer Command-Bridge verdrahtet; die tatsächliche Ausführung hängt von der Runtime-Bereitstellung dieser Bridge ab.

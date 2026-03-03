@@ -213,12 +213,13 @@ const startStream = async (
     // Use optional chaining to safely access settings API (may not be available in all Sharkord versions)
     const volume = syncController.getVolume(channelId);  // 0-100 from sync state
     const normalizedVolume = normalizeVolume(volume);
+    const fullDownloadMode = Boolean(ctx.settings?.get?.("fullDownloadMode") ?? false);
     const videoBitrateKbps = Number(ctx.settings?.get?.("videoBitrate") ?? DEFAULT_SETTINGS.BITRATE_VIDEO);
     const audioBitrateKbps = Number(ctx.settings?.get?.("audioBitrate") ?? DEFAULT_SETTINGS.BITRATE_AUDIO);
     const videoBitrate = `${Number.isFinite(videoBitrateKbps) ? videoBitrateKbps : DEFAULT_SETTINGS.BITRATE_VIDEO}k`;
     const audioBitrate = `${Number.isFinite(audioBitrateKbps) ? audioBitrateKbps : DEFAULT_SETTINGS.BITRATE_AUDIO}k`;
 
-    ctx.debug(`[stream:${channelId}] Settings: volume=${volume}%, videoBitrate=${videoBitrate}, audioBitrate=${audioBitrate}`);
+    ctx.debug(`[stream:${channelId}] Settings: volume=${volume}%, videoBitrate=${videoBitrate}, audioBitrate=${audioBitrate}, fullDownloadMode=${fullDownloadMode}`);
 
     // 6. Spawn ffmpeg with RTP output (using temp-file method for stability)
     const ffmpegVideoProc = await spawnFfmpeg({
@@ -231,7 +232,7 @@ const startStream = async (
       ssrc: (videoProducer as any).rtpParameters?.encodings?.[0]?.ssrc || 1,
       bitrate: videoBitrate,
       debugEnabled: debugMode,
-      waitForDownloadComplete: true,
+      waitForDownloadComplete: fullDownloadMode,
       loggers,
       onEnd: async () => {
         ctx.log(`[stream:${channelId}] Video ffmpeg ended`);
@@ -643,6 +644,17 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
         { label: "Server-Streaming (Standard)", value: "server" },
         { label: "Client-Sync (Hybrid/YouTube Player)", value: "client" },
       ],
+    },
+    {
+      key: "fullDownloadMode",
+      name: "Full-Download-Modus",
+      type: "boolean",
+      description:
+        "When enabled, videos are fully downloaded before playback starts. " +
+        "When disabled, playback starts while download is still in progress (faster start). " +
+        "Default: disabled. " +
+        "[REQ-036]",
+      defaultValue: false,
     },
     {
       key: "debugMode",

@@ -37,6 +37,7 @@ Server-side streaming via **yt-dlp → ffmpeg → Mediasoup RTP** guarantees fra
 | **Video Bitrate** | Number | `3000` | Video bitrate (kbps) for RTP streaming (e.g., 3000, 4000) |
 | **Audio Bitrate** | Number | `128` | Audio bitrate (kbps) for RTP streaming (e.g., 128, 192) |
 | **Default Volume** | Number | `75` | Default playback volume (0-100) |
+| **Full Download Mode** | Boolean | `false` | If enabled, wait for full video download before playback; if disabled, play during download |
 | **Debug Mode** | Boolean | `false` | Enable detailed logging for debugging stream lifecycle, ffmpeg, and yt-dlp (REQ-026) |
 
 ### Debug Mode (REQ-026)

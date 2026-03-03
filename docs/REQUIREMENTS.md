@@ -26,7 +26,8 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 | REQ-013 | Stream kann pausiert und fortgesetzt werden (`/pause`) | Should |
 | REQ-034 | Pausierter Stream kann explizit fortgesetzt werden (`/resume`). Wenn kein pausiertes Video vorhanden ist, liefert der Command eine klare Rückmeldung | Must |
 | REQ-035 | Pro Voice-Channel darf nur **ein** aktives Video laufen. Ein weiterer Startversuch (`/watch`) während aktiver Wiedergabe wird abgewiesen | Must |
-
+| REQ-036 | Plugin-Setting **Full-Download-Modus** steuert den Startzeitpunkt: aktiviert = vollständiger Download vor Wiedergabe, deaktiviert = Wiedergabe während Download. Standardwert: deaktiviert | Should |
+| REQ-037 | Wenn `debugMode=false`, werden alle während der Session heruntergeladenen Video-/Audio-Dateien nach Nutzung automatisch gelöscht (Logs bleiben erhalten) | Must |
 ### Warteschlange (Queue)
 
 | ID | Anforderung | Priorität |

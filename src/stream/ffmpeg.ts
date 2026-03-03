@@ -9,7 +9,7 @@
 import path from "path";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, unlinkSync } from "fs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -113,6 +113,10 @@ export const normalizeBitrate = (bitrate?: string): string => {
 /** Decide if ffmpeg should wait for a full download before starting. */
 export const shouldWaitForDownloadComplete = (streamType: "video" | "audio"): boolean =>
   streamType === "video";
+
+/** Decide whether downloaded media files should be deleted after usage. (REQ-037) */
+export const shouldCleanupDownloadedData = (debugEnabled: boolean): boolean =>
+  !debugEnabled;
 
 /** Build yt-dlp download command for downloading to temp file. (REQ-027-B, REQ-027-C) */
 export const buildYtDlpDownloadCmd = (options: YtDlpDownloadOptions & { outputPath: string }): string[] => {
@@ -320,6 +324,18 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   const args = streamType === "video"
     ? buildVideoStreamArgs({ inputPath: tempFilePath, rtpHost, rtpPort, payloadType, ssrc, bitrate })
     : buildAudioStreamArgs({ inputPath: tempFilePath, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume });
+
+  const cleanupDownloadedFile = (): void => {
+    if (!shouldCleanupDownloadedData(debugEnabled)) return;
+    try {
+      if (existsSync(tempFilePath)) {
+        unlinkSync(tempFilePath);
+        loggers.debug(`[${tag}]`, `[Cleanup] Removed downloaded temp file: ${path.basename(tempFilePath)}`);
+      }
+    } catch (err) {
+      loggers.debug(`[${tag}]`, `[Cleanup] Could not remove temp file: ${String(err)}`);
+    }
+  };
   
   // Ensure cache directory exists
   const cacheDir = path.dirname(tempFilePath);
@@ -414,6 +430,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     loggers.log(`[${tag}]`, "Waiting for full download before starting ffmpeg...");
     const code = await ytDlpExit;
     if (code !== 0 && code !== 143) {
+      cleanupDownloadedFile();
       throw new Error(`${tag}: yt-dlp failed — exit ${code}`);
     }
   }
@@ -436,6 +453,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   if (!fileReady) {
     loggers.error(`[${tag}]`, `Temp file not ready after 30s! yt-dlp may have failed.`);
     try { ytDlpProc.kill("SIGTERM"); } catch { /* */ }
+    cleanupDownloadedFile();
     throw new Error(`${tag}: yt-dlp download failed — no data received after 30s`);
   }
 
@@ -557,7 +575,8 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     } else {
       loggers.error(`[${tag}]`, `[FFmpeg] ✗ Exited with error code ${exitCode}`);
     }
-    
+
+    cleanupDownloadedFile();
     onEnd?.();
   });
 

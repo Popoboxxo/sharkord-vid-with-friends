@@ -157,3 +157,29 @@ Vollständiger REQ-Audit (REQ-001 bis REQ-033) gegen den aktuellen Codebestand m
 ### Verifikation
 - `bun run test:unit` ✅ (118 pass)
 - `bun run test:integration` ✅ (18 pass)
+
+---
+
+## 9. Nachtrag — Full-Download-Modus + Session-Cleanup
+
+### Neue Anforderungen
+- `REQ-036`: Setting `fullDownloadMode` (Default: `false`) steuert, ob vor Wiedergabe vollständig geladen wird.
+- `REQ-037`: Bei `debugMode=false` werden heruntergeladene Media-Dateien nach Nutzung gelöscht (Logs bleiben).
+
+### Umsetzung
+- `src/index.ts`
+  - neues Boolean-Setting `fullDownloadMode` registriert (Default `false`)
+  - `startStream` liest Setting und übergibt es als `waitForDownloadComplete` für Video
+- `src/stream/ffmpeg.ts`
+  - `shouldCleanupDownloadedData(debugEnabled)` ergänzt
+  - Temp-Datei-Cleanup in `spawnFfmpeg` bei Prozessende/Fehler, wenn Debug deaktiviert ist
+
+### Tests
+- `tests/integration/index-onload.test.ts`
+  - prüft neues Setting `fullDownloadMode` inklusive Default `false`
+- `tests/unit/ffmpeg.test.ts`
+  - neue `[REQ-037]` Tests für Cleanup-Entscheidungslogik
+
+### Verifikation
+- `bun run test:unit` ✅ (120 pass)
+- `bun run test:integration` ✅ (18 pass)

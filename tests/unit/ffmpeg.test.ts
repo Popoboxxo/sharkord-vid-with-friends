@@ -16,6 +16,7 @@ import {
   buildYtDlpDownloadCmd,
   buildDebugCacheFileName,
   shouldWaitForDownloadComplete,
+  shouldCleanupDownloadedData,
 } from "../../src/stream/ffmpeg";
 
 describe("ffmpeg", () => {
@@ -280,6 +281,16 @@ describe("ffmpeg", () => {
 
     it("[REQ-002] should allow audio to skip full download by default", () => {
       expect(shouldWaitForDownloadComplete("audio")).toBe(false);
+    });
+  });
+
+  describe("shouldCleanupDownloadedData", () => {
+    it("[REQ-037] should cleanup downloaded data when debug mode is disabled", () => {
+      expect(shouldCleanupDownloadedData(false)).toBe(true);
+    });
+
+    it("[REQ-037] should keep downloaded data when debug mode is enabled", () => {
+      expect(shouldCleanupDownloadedData(true)).toBe(false);
     });
   });
 
