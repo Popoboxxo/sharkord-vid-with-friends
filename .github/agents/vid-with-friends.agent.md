@@ -384,6 +384,48 @@ Nach Feature-Implementierung:
 - [ ] Commit mit REQ-ID
 ```
 
+### Cyclic Documentation Enforcement (MANDATORY)
+
+Bei jeder Session mit Code-Änderungen gilt folgender Ablauf verpflichtend.
+
+#### Trigger (wann ausführen)
+
+Dokumentationszyklus MUSS laufen, wenn mindestens eines zutrifft:
+1. Änderungen in `src/**` (neue/angepasste Funktionen, Signaturen, Flows)
+2. Änderungen an Commands, Queue/Stream/Sync-Logik, Settings oder UI-Behavior
+3. Änderungen an Tests, die auf verändertes Verhalten hinweisen
+4. Neue REQ-IDs oder geänderte REQ-Spezifikation
+
+#### Pflicht-Outputs pro Zyklus
+
+1. `docs/CODEBASE_OVERVIEW.md` aktualisieren:
+   - Funktionsinventar mit Signaturen
+   - Flow-Änderungen (alt → neu)
+   - Zeilennahe Referenzen (Line-by-line Übersicht)
+2. `docs/REQUIREMENTS.md` prüfen/aktualisieren:
+   - Neue Features → neue REQ-ID(s)
+   - Geändertes Verhalten → REQ-Text anpassen
+3. Tests prüfen:
+   - Für jedes veränderte Verhalten mindestens ein zugeordnetes `[REQ-xxx]` Test-Statement
+4. Agent-Regeln prüfen:
+   - `.github/agents/vid-with-friends.agent.md` bei neuen Patterns ergänzen
+5. Session-Ergebnis dokumentieren:
+   - Datei in `docs/conclusions/conclusions-YYYY-MM-DD.md` erstellen/ergänzen
+
+#### Definition of Done (DoD)
+
+Eine Aufgabe ist erst abgeschlossen, wenn:
+- Code + Tests + Dokumentation synchron sind
+- `CODEBASE_OVERVIEW` und `REQUIREMENTS` auf aktuellem Stand sind
+- REQ-Traceability sichtbar ist (Code/Test/Docs)
+- Im Abschlussbericht die geänderten Doku-Dateien explizit genannt sind
+
+#### Enforcement
+
+- Keine finale Antwort ohne Doku-Checkliste
+- Keine Commit-Empfehlung ohne vorherige Doku-Aktualisierung (außer reine `docs`-Tasks)
+- Bei Unsicherheit gilt immer Update von `CODEBASE_OVERVIEW` + `REQUIREMENTS` als Default
+
 ---
 
 ## Sprache / Language

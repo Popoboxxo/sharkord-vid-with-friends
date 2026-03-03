@@ -1,1402 +1,622 @@
 # Codebase Overview — sharkord-vid-with-friends
 
-Eine **vollständige, detaillierte Übersicht** aller 8 Kernkomponenten des Plugins mit architektonischen Diagrammen.
+Stand: **03.03.2026**
+
+Diese Übersicht ist eine **codegenaue Bestandsaufnahme** des aktuellen Implementierungsstands in `src/`.
+Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung (nicht nur Ziel-Architektur).
 
 ---
 
-## 📚 Inhaltsverzeichnis
+## 1) Scope & Architektur-Snapshot
 
-1. [Schritt 1: Projekt-Struktur](#schritt-1-projekt-Struktur)
-2. [Schritt 2: Entry Point (index.ts)](#schritt-2-entry-point)
-3. [Schritt 3: Queue-System](#schritt-3-queue-system)
-4. [Schritt 4: Stream-System](#schritt-4-stream-system)
-5. [Schritt 5: SyncController](#schritt-5-synccontroller)
-6. [Schritt 6: Commands](#schritt-6-commands)
-7. [Schritt 7: Tests](#schritt-7-tests)
-8. [Schritt 8: Konfiguration](#schritt-8-konfiguration)
-9. [Gesamtzusammenfassung & Flows](#gesamtzusammenfassung--flows)
+- **Runtime:** Bun
+- **Kern-Module:** Queue, Stream, Sync, Commands, UI
+- **Entry Point:** `src/index.ts`
+- **Streaming-Pfad (aktuell):** yt-dlp Download in Temp-Datei → ffmpeg RTP (Video+Audio getrennt) → Mediasoup Producer → Sharkord Stream
+- **Alternative vorhanden:** HLS-Server + HLS-ffmpeg-Path (`src/stream/hls-server.ts`, `spawnFfmpegForHLS`)
 
 ---
 
-## Schritt 1: Projekt-Struktur
+## 2) Implementierungs-Matrix nach Datei
 
-```
-sk_plugin/
-├── .github/agents/
-│   └── vid-with-friends.agent.md    ← Agent-Instruktionen & Rules
-│
-├── bin/                              ← Kompilierte Binaries (ffmpeg, yt-dlp)
-│
-├── docs/
-│   ├── ARCHITECTURE.md               ← Detaillierte Architektur
-│   ├── REQUIREMENTS.md               ← Alle REQ-001 bis REQ-018
-│   ├── CODEBASE_OVERVIEW.md          ← Diese Datei
-│   └── conclusions/
-│       └── conclusions-YYYY-MM-DD.md ← Tägliche Erkenntnisse
-│
-├── scripts/
-│   └── download-binaries.sh          ← Binary-Download Helper
-│
-├── src/                              ← HAUPTQUELLCODE
-│   ├── index.ts                      ← Plugin Entry Point
-│   ├── commands/                     ← 8 User-Befehle
-│   │   ├── play.ts (/watch)
-│   │   ├── queue.ts (/queue)
-│   │   ├── skip.ts (/skip)
-│   │   ├── remove.ts (/remove)
-│   │   ├── stop.ts (/watch_stop)
-│   │   ├── nowplaying.ts (/nowplaying)
-│   │   ├── pause.ts (/pause)
-│   │   └── volume.ts (/volume)
-│   ├── queue/                        ← Warteschlangen-Verwaltung
-│   │   ├── queue-manager.ts
-│   │   └── types.ts
-│   ├── stream/                       ← Video/Audio Streaming
-│   │   ├── ffmpeg.ts                 ← RTP-Streaming
-│   │   ├── yt-dlp.ts                 ← URL-Auflösung
-│   │   └── stream-manager.ts         ← Mediasoup Lifecycle
-│   ├── sync/                         ← Orchestrierung
-│   │   └── sync-controller.ts
-│   ├── ui/
-│   │   └── components.tsx            ← React UI-Komponenten
-│   └── utils/
-│       └── constants.ts              ← Konstanten & Defaults
-│
-├── tests/
-│   ├── unit/                         ← Isolierte Tests
-│   ├── integration/                  ← Manager + Context
-│   └── docker/                       ← E2E im Container
-│
-├── docker-compose.dev.yml            ← Docker Development Setup
-├── package.json                      ← Bun Dependencies
-├── tsconfig.json                     ← TypeScript Config
-└── README.md                         ← English Dokumentation
-```
+## `src/index.ts`
 
-### 📌 Key Files
+### Exportierte API
 
-| Datei | Zeile | Zweck |
-|-------|-------|-------|
-| [src/index.ts](../src/index.ts) | 1-333 | Plugin Lifecycle: onLoad/onUnload, startStream, monitorProcess |
-| [src/queue/types.ts](../src/queue/types.ts) | 1-150 | QueueItem, QueueState, ResolvedVideo Types |
-| [src/queue/queue-manager.ts](../src/queue/queue-manager.ts) | 1-162 | QueueManager Class: add, skip, remove, clear |
-| [src/stream/yt-dlp.ts](../src/stream/yt-dlp.ts) | 1-198 | yt-dlp Wrapper: isYouTubeUrl, buildYtDlpArgs, resolveVideo |
-| [src/stream/ffmpeg.ts](../src/stream/ffmpeg.ts) | 1-211 | ffmpeg Wrapper: buildVideoStreamArgs, buildAudioStreamArgs, spawnFfmpeg |
-| [src/stream/stream-manager.ts](../src/stream/stream-manager.ts) | 1-235 | StreamManager Class: createTransports, createProducers |
-| [src/sync/sync-controller.ts](../src/sync/sync-controller.ts) | 1-162 | SyncController Class: play, skip, onVideoEnded, stop |
+- `onLoad(ctx: PluginContext): Promise<void>`
+  - Initialisiert `QueueManager`, `StreamManager`, `SyncController`
+  - Registriert Settings (`videoBitrate`, `audioBitrate`, `defaultVolume`, `syncMode`, `debugMode`)
+  - Registriert Commands: `watch`, `queue`, `skip`, `remove`, `watch_stop`, `nowplaying`, `pause`, `volume`, `debug_cache`
+  - Registriert UI-Komponenten (`ctx.ui.registerComponents(...)` falls verfügbar)
+  - Registriert Event-Handler für `voice:runtime_closed`
+  - **REQ:** REQ-014, REQ-015, REQ-016, REQ-018, REQ-026
 
----
+- `onUnload(ctx: PluginContext): void`
+  - Ruft `streamManager.cleanupAll()` und `syncController.cleanupAll()` auf
+  - **REQ:** REQ-016
 
-## Schritt 2: Entry Point (`src/index.ts`)
+- `components` (re-export)
+  - `export { components } from "./ui/components"`
+  - **REQ:** REQ-017
 
-### 🎯 Verantwortung
+### Interne Funktionen
 
-- Plugin-Lifecycle: `onLoad()`, `onUnload()`
-- Singletons initialisieren (QueueManager, StreamManager, SyncController)
-- 8 Commands registrieren
-- Event-Listener (voice:runtime_closed)
-- Stream-Orchestrierung: `startStream()`, `monitorProcess()`
+- `debugLog(ctx, prefix, ...messages): void`
+  - Bedingtes Debug-Logging bei aktiviertem `debugMode`
+  - Derzeit Hilfsfunktion, im File kaum aktiv genutzt.
 
-### 🔄 Lifecycle Diagramm
+- `startStream(ctx, channelId, item): Promise<void>`
+  - Haupt-Orchestrierung:
+    1. `streamManager.cleanup(channelId)`
+    2. `ctx.actions.voice.getRouter(channelId)` + `getListenInfo()`
+    3. `createPlainTransport(...)` für Audio+Video
+    4. `transport.produce(...)` für Audio (Opus/PT111) + Video (VP8/PT96)
+    5. Settings lesen (`videoBitrate`, `audioBitrate`) + Volume aus `syncController`
+    6. `spawnFfmpeg(...)` Video + Audio
+    7. `ctx.actions.voice.createStream(...)`
+    8. Ressourcen via `streamManager.setActive(...)`
+    9. Producer-Monitoring + Health-Check
+  - Fehlerpfad: Cleanup + `syncController.stop(channelId)` + throw Error
+  - **REQ:** REQ-002, REQ-003, REQ-018, REQ-026, REQ-028-B
 
-```
-┌──────────────────────────────────────────────────────────┐
-│ onLoad(ctx: PluginContext)                               │
-├──────────────────────────────────────────────────────────┤
-│                                                          │
-│ 1. queueManager = new QueueManager()                     │
-│ 2. streamManager = new StreamManager()                   │
-│ 3. syncController = new SyncController(...)             │
-│ 4. ctx.settings.register([...])                         │
-│    - syncMode, videoBitrate, audioBitrate, defaultVolume│
-│ 5. registerPlayCommand(ctx, queueManager, syncController)│
-│    registerQueueCommand(ctx, queueManager)              │
-│    registerSkipCommand(ctx, syncController)             │
-│    ... (8 total)                                        │
-│ 6. ctx.events.on("voice:runtime_closed", handler)      │
-│                                                          │
-│ Plugin bereit zum Empfangen von User-Befehlen! ✅      │
-└──────────────────────────────────────────────────────────┘
-```
+- `monitorProducers(ctx, channelId, videoProducer, audioProducer, streamHandle?, videoTitle?): void`
+  - Hängt Observer auf Producer-`score`/`close`
+  - Updatet Stream-Titel auf echten Videotitel beim ersten Score-Event
+  - Fallback-Timer (8s) für Titelupdate
+  - **REQ:** REQ-026, REQ-028-B
 
-### ⚙️ Settings API (REQ-018)
+- `scheduleHealthCheck(ctx, channelId, videoProducer, audioProducer): void`
+  - Verzögerter 5s-Check:
+    - Producer-Stats (`getStats`) für RTP-Bytes/Packets
+    - ffmpeg Prozessstatus aus `streamManager.getResources(channelId)`
+  - **REQ:** REQ-026
 
-**Korrekte Settings-Struktur für Sharkord v0.0.6:**
+- `monitorProcess(ctx, channelId, ffmpegProcess): void`
+  - Wartet auf ffmpeg-Ende, cleanup + `syncController.onVideoEnded(...)`
+  - **Hinweis:** Aktuell nicht zentral im aktiven Startpfad verwendet (Auto-Advance liegt primär im Audio-`onEnd` Callback von `spawnFfmpeg`).
 
-```typescript
-ctx.settings.register([
-  {
-    key: string;           // Eindeutiger Schlüssel (z.B. "videoBitrate")
-    name: string;          // ⚠️ Label für Sidebar (NICHT "label" oder "title"!)
-    type: "string" | "number" | "boolean" | "select";
-    description?: string;  // Beschreibung rechts im Panel
-    defaultValue: any;     // ⚠️ Default-Wert (NICHT "default"!)
-    
-    // Optional für type="number":
-    min?: number;
-    max?: number;
-    
-    // Optional für type="select":
-    options?: Array<{ label: string; value: string }>;
-  }
-]);
-```
+- `monitorProcessForAutoAdvance(ctx, channelId, bunProcess): void`
+  - HLS-Variante für Auto-Advance
+  - Cleanup + `syncController.onVideoEnded(...)`
 
-**Beispiel:**
-
-```typescript
-ctx.settings.register([
-  {
-    key: "videoBitrate",
-    name: "Video-Bitrate (kbps)",        // ← Wird in Sidebar angezeigt
-    type: "string",
-    description: "Controlls video quality...",
-    defaultValue: "2000k",               // ← NICHT "default"!
-  },
-  {
-    key: "defaultVolume",
-    name: "Standard-Lautstärke (%)",
-    type: "number",
-    description: "Default playback volume...",
-    defaultValue: 50,
-    min: 0,
-    max: 100,
-  },
-]);
-```
-
-**⚠️ Häufige Fehler:**
-- ❌ `label:` statt `name:` → Sidebar zeigt nur "string", "number", etc.
-- ❌ `default:` statt `defaultValue:` → Einstellung hat keinen Default-Wert
-- ❌ `title:` statt `name:` → Funktioniert nicht
-
-**Settings abrufen:**
-
-```typescript
-const videoBitrate = ctx.settings.get<string>("videoBitrate") ?? "2000k";
-const debugMode = ctx.settings.get<boolean>("debugMode") ?? false;
-```
-
-### 🎬 startStream() Flow
-
-```
-startStream(ctx, channelId, item)
-  │
-  ├─ 1. streamManager.cleanup(channelId)
-  │      ↓ Alte Ressourcen killen
-  │
-  ├─ 2. router = ctx.actions.voice.getRouter(channelId)
-  │      ↓ Mediasoup Router holen
-  │
-  ├─ 3. transports = streamManager.createTransports(router, ip, announcedAddress)
-  │      ↓ 2 Transports (Audio + Video)
-  │
-  ├─ 4. producers = streamManager.createProducers(transports)
-  │      ↓ 2 Producer (Audio + Video)
-  │
-  ├─ 5. streamHandle = ctx.actions.voice.createStream({...})
-  │      ↓ Sharkord registriert Stream
-  │
-  ├─ 6. videoProcess = spawnFfmpeg(buildVideoStreamArgs(...))
-  │      ↓ ffmpeg -re -i item.streamUrl -c:v libx264 -f rtp rtp://...
-  │      ↓ Sendet H264 Video-Frames via RTP
-  │
-  ├─ 7. audioProcess = spawnFfmpeg(buildAudioStreamArgs(...))
-  │      ↓ ffmpeg -re -i item.streamUrl -c:a libopus -f rtp rtp://...
-  │      ↓ Sendet Opus Audio-Frames via RTP
-  │
-  ├─ 8. streamManager.setActive(channelId, {
-  │        audioTransport, videoTransport,
-  │        audioProducer, videoProducer,
-  │        videoProcess, audioProcess,
-  │        streamHandle, router
-  │      })
-  │      ↓ Speichert alle Ressourcen für spätere Cleanup
-  │
-  └─ 9. monitorProcess(ctx, channelId, videoProcess)
-         ↓ Wartet auf videoProcess.exited
-         ↓ wenn EXIT → onVideoEnded() → Auto-Advance!
-```
-
-### 🧹 Cleanup (onUnload & voice:runtime_closed)
-
-```
-onUnload(ctx) / handleVoiceRuntimeClosed(ctx)
-  │
-  ├─ streamManager.cleanup(channelId) / cleanupAll()
-  │   ├─ Alle ffmpeg-Prozesse: kill(SIGTERM)
-  │   ├─ Alle Producers: close()
-  │   ├─ Alle Transports: close()
-  │   └─ Alle Streams: streamHandle.remove()
-  │
-  ├─ syncController.cleanupChannel(channelId) / cleanupAll()
-  │   └─ Alle State (isPlaying, isPaused, volume)
-  │
-  └─ queueManager.clear(channelId)
-      └─ Queue leeren
-```
+- `handleVoiceRuntimeClosed(ctx) => (...args) => void`
+  - Event-Closure für `voice:runtime_closed`
+  - Führt durch: stream cleanup + sync cleanup + queue clear
+  - **REQ:** REQ-016
 
 ---
 
-## Schritt 3: Queue-System
+## `src/queue/types.ts`
 
-### 📊 Types
+- `QueueItem`
+  - Felder: `id`, `query`, `title`, `youtubeUrl`, `streamUrl`, `audioUrl`, `duration`, `thumbnail`, `addedBy`, `addedAt`
+- `QueueAddInput`
+- `ResolvedVideo`
+  - inkl. `videoFormatId`, `audioFormatId`
+- `QueueState`
+  - `current`, `upcoming`, `size`
+- `QueueAdvanceCallback`
 
-```typescript
-// Ein Video in der Queue
-QueueItem {
-  id: string                 // UUID
-  query: string             // Original-Suchbegriff
-  title: string             // Aufgelöster Titel
-  streamUrl: string         // Direkte Stream-URL
-  duration: number          // Sekunden
-  thumbnail: string         // Vorschaubild-URL
-  addedBy: number           // Benutzer-ID
-  addedAt: number           // Millisekunden-Timestamp
-}
-
-// Status einer Channel-Queue
-QueueState {
-  current: QueueItem | null     // Gerade spielend
-  upcoming: QueueItem[]         // Nächste Videos
-  size: number                  // Gesamt-Anzahl
-}
-
-// Per-Channel interne Struktur
-ChannelQueue {
-  items: QueueItem[]
-  currentIndex: number    // ← Zeiger auf aktuelles Video
-}
-```
-
-### 🎯 QueueManager Methoden
-
-```typescript
-class QueueManager {
-  // ──── CORE OPERATIONS ────
-  add(channelId, item)
-    → queue.items.push(item)
-    → Wirft Error wenn queue.length >= 50
-
-  skip(channelId)
-    → currentIndex++
-    → emitAdvance() → SyncController.skip()
-    → return next Item oder null
-
-  remove(channelId, position)
-    → position 1 = current, 2 = first upcoming, etc
-    → items.splice(currentIndex + position - 1, 1)
-    → if position == 1: emitAdvance()
-
-  getCurrent(channelId)
-    → return items[currentIndex] ?? null
-
-  getState(channelId)
-    → return { current, upcoming, size }
-
-  clear(channelId)
-    → queues.delete(channelId)
-
-  hasItems(channelId)
-    → return getState(channelId).size > 0
-
-  // ──── CALLBACKS ────
-  onAdvance(callback)
-    → Registriert Listener
-    → Wird aufgerufen bei skip/remove current
-    → callback(next, channelId)
-}
-```
-
-### 📋 Beispiel: Multi-Channel Queues
-
-```
-Channel #123:
-  Queue: [Video1, Video2, Video3, Video4, Video5]
-         ↑ currentIndex = 0
-  → getCurrent() = Video1
-  → getState() = { current: Video1, upcoming: [V2, V3, V4, V5], size: 5 }
-
-Channel #456:
-  Queue: [VideoA, VideoB]
-         ↑ currentIndex = 1
-  → getCurrent() = VideoB
-  → getState() = { current: VideoB, upcoming: [], size: 2 }
-
-Channel #789:
-  Queue: []
-  → getCurrent() = null
-  → getState() = { current: null, upcoming: [], size: 0 }
-```
+**REQ:** REQ-004 bis REQ-009
 
 ---
 
-## Schritt 4: Stream-System
+## `src/queue/queue-manager.ts`
 
-Besteht aus **3 Teilen:**
+### Klasse `QueueManager`
 
-### 4a) yt-dlp.ts — URL-Auflösung
+- Zustand:
+  - `queues: Map<number, ChannelQueue>`
+  - `advanceCallbacks: QueueAdvanceCallback[]`
 
-```typescript
-// Pure Functions (testbar ohne Binary)
-isYouTubeUrl(url)             → boolean
-getYtDlpBinaryName()          → "yt-dlp" | "yt-dlp.exe"
-getYtDlpPath()                → Path zu Binary
-buildYtDlpArgs(options)       → string[] CLI-Args
-parseYtDlpOutput(json)        → ResolvedVideo
+### Public Methods
 
-// Runtime Function (braucht Binary)
-resolveVideo(url, loggers)    → Promise<ResolvedVideo>
-```
+- `onAdvance(callback): void`
+  - registriert Advance-Callbacks
 
-**Flow:**
+- `add(channelId, item): void`
+  - fügt Item an Queue-Ende an
+  - wirft bei `MAX_QUEUE_SIZE` (50)
+  - **REQ:** REQ-004
 
-```
-Input:  "rick astley" oder "https://youtube.com/watch?v=xyz"
-  │
-  ├─ isYouTubeUrl() = true
-  │  ↓
-  ├─ Normalize: "rick astley" → "ytsearch:rick astley"
-  │  ↓
-  ├─ buildYtDlpArgs({
-  │    ytDlpPath: "/path/to/yt-dlp",
-  │    sourceUrl: "ytsearch:rick astley",
-  │    mode: "json"
-  │  })
-  │  → ["yt-dlp", "--dump-json", "ytsearch:rick astley"]
-  │  ↓
-  ├─ Bun.spawn({ cmd: [...] })
-  │  → yt-dlp läuft
-  │  → Kontaktiert YouTube
-  │  → Gibt JSON zurück
-  │  ↓
-  ├─ parseYtDlpOutput(json)
-  │  → {
-  │      title: "Rick Astley - Never Gonna Give You Up",
-  │      streamUrl: "http://manifest.m3u8?key=...",
-  │      audioUrl: "...",
-  │      duration: 213,
-  │      thumbnail: "http://..."
-  │    }
-  │  ↓
-Output: ResolvedVideo ✅
-```
+- `remove(channelId, position): QueueItem | null`
+  - 1-basierte Position relativ zum Current
+  - bei Entfernen von Position 1: `emitAdvance(next, channelId)`
+  - **REQ:** REQ-007
 
-### 4b) ffmpeg.ts — RTP-Streaming
+- `skip(channelId): QueueItem | null`
+  - `currentIndex++`, danach Advance-Event
+  - bei Ende: `clear(channelId)`
+  - **REQ:** REQ-008
 
-```typescript
-// Pure Functions
-getFfmpegBinaryName()         → "ffmpeg" | "ffmpeg.exe"
-getFfmpegPath()               → Path zu Binary
-normalizeVolume(0-100)        → 0-1 float
-normalizeBitrate(bitrate)     → "192k"
-buildVideoStreamArgs(opts)    → string[]
-buildAudioStreamArgs(opts)    → string[]
+- `getCurrent(channelId): QueueItem | null`
 
-// Runtime Function
-spawnFfmpeg(args, loggers)    → SpawnedProcess
-killProcess(process)          → void
-```
+- `getState(channelId): QueueState`
+  - liefert `current`, `upcoming`, `size`
+  - **REQ:** REQ-006
 
-**Video RTP Args:**
+- `clear(channelId): void`
+  - **REQ:** REQ-010
 
-```bash
-ffmpeg \
-  -hide_banner -nostats -loglevel warning \
-  -reconnect 1 -reconnect_streamed 1 \    # Auto-Reconnect
-  -re                                      # Real-time playback
-  -i "http://manifest.m3u8?key=xyz"       # Input URL
-  -an                                      # No audio
-  -c:v libx264                             # Video codec
-  -preset ultrafast                        # CPU Usage
-  -tune zerolatency                        # Low latency
-  -b:v 2000k -maxrate 2000k                # Bitrate
-  -pix_fmt yuv420p                         # Pixel format
-  -payload_type 96                         # RTP payload type
-  -ssrc 123456789                          # Sync source (SSRC)
-  -f rtp                                   # Output format
-  rtp://10.0.0.1:40001?pkt_size=1200       # RTP destination
-```
+- `hasItems(channelId): boolean`
 
-**Audio RTP Args:**
+### Private Methods
 
-```bash
-ffmpeg \
-  ... (same reconnect args)
-  -re \
-  -i "http://manifest.m3u8?key=xyz"       # SAME URL!
-  -vn                                      # No video
-  -af "volume=0.8"                         # Audio volume filter
-  -c:a libopus                             # Audio codec
-  -ar 48000 -ac 2                          # Sample rate + channels
-  -b:a 128k                                # Audio bitrate
-  -payload_type 111                        # RTP payload type
-  -ssrc 987654321                          # Different SSRC
-  -f rtp \
-  rtp://10.0.0.1:40002?pkt_size=1200       # Different port!
-```
+- `getOrCreateQueue(channelId): ChannelQueue`
+- `emitAdvance(next, channelId): void`
 
-**Synchronisation:**
-- Beide ffmpeg-Prozesse lesen von der **GLEICHEN URL**
-- Starten zur **GLEICHE ZEIT**
-- → Frames sind **synchronisiert** ⏱️
-
-### 4c) stream-manager.ts — Mediasoup Lifecycle
-
-```typescript
-class StreamManager {
-  // Manage per-channel resources
-  activeStreams = Map<number, ChannelStreamResources>
-
-  generateSsrc()                              → number
-  isActive(channelId)                         → boolean
-  setActive(channelId, resources)             → void
-  getResources(channelId)                     → ChannelStreamResources
-  cleanup(channelId)                          → void
-  cleanupAll()                                → void
-
-  async createTransports(router, ip, announcedAddress)
-    → Creates 2 PlainTransports (audio + video)
-    → Returns: { audioTransport, videoTransport, audioSsrc, videoSsrc }
-
-  async createProducers(transports)
-    → Binds 2 Producers to Transports
-    → Returns: { audioProducer, videoProducer }
-}
-```
-
-**Types:**
-
-```typescript
-interface ChannelStreamResources {
-  audioTransport: TransportLike
-  videoTransport: TransportLike
-  audioProducer: ProducerLike
-  videoProducer: ProducerLike
-  audioProcess: SpawnedProcess | null
-  videoProcess: SpawnedProcess | null
-  streamHandle: StreamHandleLike | null
-  router: RouterLike
-}
-```
-
-**Lifecycle:**
-
-```
-startStream()
-  │
-  ├─ streamManager.createTransports(router, ip, announcedAddress)
-  │   ├─ router.createPlainTransport({ listenIp, rtcpMux: true })
-  │   │  → audioTransport
-  │   ├─ router.createPlainTransport({ listenIp, rtcpMux: true })
-  │   │  → videoTransport
-  │   └─ return { audioTransport, videoTransport, audioSsrc, videoSsrc }
-  │
-  ├─ streamManager.createProducers(transports)
-  │   ├─ audioTransport.produce({
-  │   │    kind: "audio",
-  │   │    rtpParameters: AUDIO_CODEC.rtpParameters
-  │   │  })
-  │   │  → audioProducer
-  │   ├─ videoTransport.produce({
-  │   │    kind: "video",
-  │   │    rtpParameters: VIDEO_CODEC.rtpParameters
-  │   │  })
-  │   │  → videoProducer
-  │   └─ return { audioProducer, videoProducer }
-  │
-  └─ streamManager.setActive(channelId, {
-      audioTransport, videoTransport,
-      audioProducer, videoProducer,
-      videoProcess, audioProcess,
-      streamHandle, router
-    })
-```
-
-### 🌐 **WebRTC Network Architecture & Critical Fix**
-
-**Problem:** Verwechslung zwischen **internem RTP-Routing** und **externem WebRTC-Routing**
-
-#### ❌ Fehlerhafte Implementierung (früher)
-
-Die ursprüngliche Implementierung verwendete `announcedAddress` für **beide** Zwecke:
-- RTP-Streaming von ffmpeg zu Mediasoup (Container-intern)
-- WebRTC-ICE-Candidates für Browser (extern)
-
-```typescript
-// index.ts (FALSCH)
-const rtpTargetHost = announcedAddress || (ip === "0.0.0.0" ? "127.0.0.1" : ip);
-```
-
-**Symptome:**
-- Mit `announcedAddress=127.0.0.1`: Browser versuchte zu seinem eigenen localhost zu verbinden → WebRTC Consumer Transport failed
-- Mit `announcedAddress=<LAN-IP>`: ffmpeg sendete RTP an externe IP → Mediasoup erhielt keine Pakete
-
-#### ✅ Korrekte Implementierung (jetzt)
-
-**Zwei getrennte Netzwerk-Pfade:**
-
-```typescript
-// index.ts (KORREKT)
-// RTP target is always local (ffmpeg runs in same container as Mediasoup)
-const rtpTargetHost = ip === "0.0.0.0" ? "127.0.0.1" : ip;
-```
-
-**1. RTP Path (intern):**
-- ffmpeg → Mediasoup RTP Ingest
-- Ziel: `127.0.0.1` (Mediasoup Worker im gleichen Container)
-- Transport: PlainTransport mit `comedia: true`
-
-**2. WebRTC Path (extern):**
-- Mediasoup → Browser WebRTC Consumer
-- Announced Address: Host LAN-IP (z.B. `192.168.192.1`)
-- Transport: WebRtcTransport mit DTLS/SRTP
-
-#### 📊 Netzwerk-Diagramm
-
-```
-┌─────────────────────────────────────────────────┐
-│          Docker Container (sharkord-dev)        │
-│                                                 │
-│  ┌──────────┐   RTP   ┌────────────────────┐  │
-│  │  ffmpeg  │─────────→│ Mediasoup Worker   │  │
-│  └──────────┘ 127.0.0.1│                    │  │
-│                         │ listenIp: 0.0.0.0  │  │
-│                         │ announcedIp: <LAN> │  │
-│                         └──────────┬─────────┘  │
-│                                    │            │
-└────────────────────────────────────┼────────────┘
-                                     │ WebRTC
-                                     │ (UDP 40000-40100)
-                                     │ ICE Candidate: <LAN-IP>
-                                     ▼
-                           ┌──────────────────┐
-                           │   Browser Client │
-                           │   (Host-Netz)    │
-                           └──────────────────┘
-```
-
-**Wichtig:** `SHARKORD_WEBRTC_ANNOUNCED_ADDRESS` muss die **Host-LAN-IP** sein (z.B. `192.168.192.1`), NICHT `127.0.0.1`!
+**REQ:** REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010
 
 ---
 
-## Schritt 5: SyncController
+## `src/stream/yt-dlp.ts`
 
-### 📊 State pro Channel
+### Exportierte Typen
 
-```typescript
-type ChannelSyncState {
-  isPlaying: boolean     // Läuft gerade was?
-  isPaused: boolean      // Ist es pausiert?
-  volume: number         // 0-100
-}
-```
+- `YtDlpMode = "url" | "title" | "json"`
+- `YtDlpBuildOptions`
+- `YtDlpLoggers`
 
-### 🎯 Methoden
+### Exportierte Funktionen (pure)
 
-```typescript
-class SyncController {
-  private states = Map<number, ChannelSyncState>
-  private queueManager: QueueManager
-  private startStream: (channelId, item) => Promise<void>
+- `isYouTubeUrl(url): boolean`
+- `getYtDlpBinaryName(): string`
+- `getYtDlpPath(): string`
+- `buildYtDlpArgs(options): string[]`
+- `parseYtDlpOutput(jsonString): ResolvedVideo`
+  - parst JSON robust
+  - extrahiert bevorzugt H.264 Videoformat (<=1080p) und Audioformat
+  - Fallback auf top-level URL
 
-  // ─── STATE ACCESSORS ───
-  isPlaying(channelId)                      → boolean
-  setPlaying(channelId, playing)            → void
-  isPaused(channelId)                       → boolean
-  setPaused(channelId, paused)              → void
-  getVolume(channelId)                      → number (0-100)
-  setVolume(channelId, volume)              → void
+### Exportierte Runtime-Funktion
 
-  // ─── ACTIONS ───
-  async play(channelId)
-    → if current is null: throw "Queue empty"
-    → setPlaying(true)
-    → await startStream(channelId, current)
+- `resolveVideo(sourceUrl, loggers): Promise<ResolvedVideo>`
+  - baut JSON-Resolve Command
+  - loggt Phasen `RESOLVING` / `RESOLVED` / `FORMAT_SELECTED`
+  - fallback auf `-g` URL-Modus bei fehlender Stream-URL
 
-  async skip(channelId)
-    → next = queueManager.skip(channelId)
-    → if next: await startStream(channelId, next)
-    → else: setPlaying(false)
+### Interne Funktionen
 
-  async onVideoEnded(channelId)
-    → if not isPlaying or isPaused: return
-    → next = queueManager.skip(channelId)
-    → if next: await startStream(channelId, next)
-    → else: setPlaying(false)
+- `runYtDlp(cmd, loggers)`
+- `cookiesExist(cookiesPath)`
 
-  stop(channelId)
-    → setPlaying(false)
-    → setPaused(false)
-    → queueManager.clear(channelId)
-
-  // ─── CLEANUP ───
-  cleanupChannel(channelId)                 → void
-  cleanupAll()                              → void
-}
-```
-
-### 🔄 State Machine Diagramm
-
-```
-                    isPlaying=false
-                         ↑
-                         │ stop()
-                         │
-                    (Initial State)
-                         ↑
-                         │ play()
-                         ↓
-                    ┌─────────────────┐
-                    │ isPlaying=true  │
-                    │ isPaused=false  │ ← LÄUFT
-                    └─────────────────┘
-                         ↑     ↓
-              pause() ────┤     ├──── skip() / onVideoEnded()
-                         ↓     ↑
-                    ┌─────────────────┐
-                    │ isPlaying=true  │
-                    │ isPaused=true   │ ← PAUSIERT
-                    └─────────────────┘
-                         │ (nur setVolume/setPlayingzu false)
-```
-
-### ⚠️ Wichtig: Pause ist UI-Level
-
-**Das macht pause():**
-```typescript
-isPaused = !isPaused  // nur ein Bool!
-```
-
-**Das macht pause() NICHT:**
-- ❌ ffmpeg Process paused nicht
-- ❌ RTP Streams stoppen nicht
-- ✅ Video läuft weiter am Server
-- ✅ Aber Client zeigt "paused" UI
-- ✅ Auto-Advance wird nicht ausgelöst
+**REQ:** REQ-001, REQ-027-A
 
 ---
 
-## Schritt 6: Commands
+## `src/stream/ffmpeg.ts`
 
-### 📋 Übersicht aller 8 Commands
+### Exportierte Typen
 
-| Befehl | Datei | Arg | REQ | Funktion |
-|--------|-------|-----|-----|----------|
-| `/watch <query>` | play.ts | string | REQ-001, 004 | Starten/Enqueue Video |
-| `/queue` | queue.ts | — | REQ-006 | Zeige Queue |
-| `/skip` | skip.ts | — | REQ-008 | Nächstes Video |
-| `/remove <pos>` | remove.ts | number | REQ-007 | Lösche aus Queue |
-| `/watch_stop` | stop.ts | — | REQ-010 | Stoppe alles |
-| `/nowplaying` | nowplaying.ts | — | REQ-005 | Info aktuelles Video |
-| `/pause` | pause.ts | — | REQ-013 | Pausiere/Resume |
-| `/volume <0-100>` | volume.ts | number | REQ-012 | Lautstärke |
+- `VideoStreamOptions`, `AudioStreamOptions`
+- `FfmpegLoggers`
+- `SpawnedProcess`
+- `YtDlpDownloadOptions`
+- `DebugCacheFileOptions`
+- `SpawnFfmpegOptions`
+- `SpawnFfmpegForHLSOptions`
 
-### 🎬 /watch <query> — Der Hauptbefehl (REQ-001, REQ-004)
+### Exportierte Funktionen (pure/helper)
 
-```
-User Typing: /watch "rick astley"
-                ↓
-1. Validierung
-   if !voiceChannel: throw "Must be in voice channel"
-   if !args.query: throw "Missing query"
+- `getFfmpegBinaryName(): string`
+- `getFfmpegPath(): string`
+- `normalizeVolume(volume): number` (0..1)
+- `normalizeBitrate(bitrate?): string`
+- `shouldWaitForDownloadComplete(streamType): boolean`
+- `buildYtDlpDownloadCmd(options): string[]`
+- `buildDebugCacheFileName(options): string`
+- `buildTempFilePath(videoId, streamType): string`
+- `buildVideoStreamArgs(options): string[]`
+  - aktueller Codec: VP8 (`libvpx`) für RTP/Browser-Kompatibilität
+- `buildAudioStreamArgs(options): string[]`
+  - Audio Re-Encode nach Opus
 
-2. Normalisierung
-   query = "rick astley"
-   isYouTubeUrl? Nein → query = "ytsearch:rick astley"
+### Exportierte Runtime-Funktionen
 
-3. Auflösen (yt-dlp)
-   resolved = await resolveVideo("ytsearch:rick astley")
-   → { title, streamUrl, duration, thumbnail }
+- `spawnFfmpeg(options): Promise<SpawnedProcess>`
+  - startet yt-dlp Download in Temp-Datei
+  - wartet optional auf Voll-Download (Video i.d.R. ja, Audio nein)
+  - wartet auf minimale Dateigröße
+  - startet ffmpeg RTP-Prozess
+  - parsed/loggt ffmpeg Fortschritt (`frame`, `time`, `speed`, `bitrate`)
+  - killt bei Cleanup ffmpeg + yt-dlp
+  - **REQ:** REQ-002, REQ-003, REQ-012, REQ-027-B, REQ-027-C
 
-4. QueueItem erstellen
-   item = {
-     id: UUID,
-     query: "rick astley",
-     title: "Rick Astley - Never Gonna Give You Up",
-     streamUrl: "http://manifest.m3u8?key=...",
-     duration: 213,
-     thumbnail: "...",
-     addedBy: userId,
-     addedAt: Date.now()
-   }
+- `testFfmpegBinary(loggers?): Promise<string>`
 
-5. Zur Queue oder Spielen?
-   if syncController.isPlaying(channelId):
-     queueManager.add(channelId, item)  // Enqueue
-     return "Added to queue: ..."
-   else:
-     queueManager.add(channelId, item)  // Add
-     await syncController.play(channelId) // Play
-     return "Now playing: ..."
-```
+- `spawnFfmpegForHLS(options): Promise<SpawnedProcess>`
+  - HLS-Alternative mit Temp-Downloads Video+Audio + HLS-Ausgabe
 
-### 📋 /queue — Display Queue (REQ-006)
+### Interne Helper
 
-```
-User Typing: /queue
-                ↓
-1. Get State
-   state = queueManager.getState(channelId)
-   → { current, upcoming, size }
+- `extractYouTubeId(url): string`
+- `getDebugCacheDir(): string`
 
-2. Format
-   lines = [
-     "▶ Now playing: Rick Astley (3:33)",
-     "",
-     "Up next:",
-     "  2. Britney Spears (3:35)",
-     "  3. Michael Jackson (4:12)",
-     "",
-     "3 videos in queue"
-   ]
-
-3. Return Message
-   return lines.join("\n")
-```
-
-**Output:**
-```
-▶ Now playing: Rick Astley - Never Gonna Give You Up (3:33)
-
-Up next:
-  2. Britney Spears - ...Baby One More Time (3:35)
-  3. Michael Jackson - Billie Jean (4:12)
-
-3 videos in queue
-```
-
-### ⏭ /skip (REQ-008)
-
-```
-User: /skip
-         ↓
-if !syncController.isPlaying(): return "Nothing playing"
-         ↓
-await syncController.skip(channelId)
-  → queueManager.skip() (currentIndex++)
-  → startStream(channelId, next) OR setPlaying(false)
-         ↓
-return "Skipped."
-```
-
-### ❌ /remove <position> (REQ-007)
-
-```
-User: /remove 2
-        ↓
-if position < 1: throw Error
-        ↓
-removed = queueManager.remove(channelId, position)
-        ↓
-if !removed: return "Invalid position"
-        ↓
-return `Removed: ${removed.title}`
-```
-
-**Position numbering:**
-```
-/queue output:
-  1. Rick Astley (current)
-  2. Britney Spears
-  3. Michael Jackson
-
-/remove 2 → Entfernt Britney Spears
-/remove 1 → Entfernt Rick Astley + advance!
-```
-
-### ⏹ /watch_stop (REQ-010)
-
-```
-User: /watch_stop
-         ↓
-syncController.stop(channelId)
-  → setPlaying(false)
-  → setPaused(false)
-  → queueManager.clear(channelId)
-         ↓
-return "Stopped playback and cleared queue."
-```
-
-### 🎬 /nowplaying (REQ-005)
-
-```
-User: /nowplaying
-          ↓
-current = queueManager.getCurrent(channelId)
-          ↓
-if !current: return "Nothing playing"
-          ↓
-return `Now playing: ${current.title} (${current.duration}s)
-Added by: <@${current.addedBy}>`
-```
-
-### ⏸ /pause (REQ-013)
-
-```
-User: /pause (while playing)
-        ↓
-isPaused = syncController.isPaused(channelId)
-        ↓
-syncController.setPaused(channelId, !isPaused)
-        ↓
-return isPaused ? "Resumed" : "Paused"
-```
-
-**Important:** Pause ist nur UI-State!
-- ffmpeg läuft weiter
-- Auto-Advance wird blockiert
-
-### 🔊 /volume <0-100> (REQ-012)
-
-```
-User: /volume 50
-         ↓
-if level < 0 || level > 100: throw Error
-         ↓
-syncController.setVolume(channelId, level)
-  → state.volume = Math.min(100, Math.max(0, level))
-         ↓
-return "Volume set to 50%"
-         ↓
-(Applies to NEXT video!)
-```
+**REQ:** REQ-002, REQ-003, REQ-012, REQ-027-B, REQ-027-C, REQ-032
 
 ---
 
-## Schritt 7: Tests
+## `src/stream/hls-server.ts`
 
-### 🏗️ Test-Struktur
+### Exportierte Interfaces
 
-```
-tests/
-├── unit/                              ← Pure Logic (no Sharkord deps)
-│   ├── queue-manager.test.ts          ← QueueManager (REQ-004-010)
-│   ├── sync-controller.test.ts        ← SyncController (REQ-003, 008-013)
-│   ├── commands.test.ts               ← All 8 Commands (REQ-001-008, 012-013)
-│   ├── ffmpeg.test.ts                 ← ffmpeg args builders
-│   ├── yt-dlp.test.ts                 ← yt-dlp args builders
-│   └── stream-manager.test.ts         ← Transports + Producers
-│
-├── integration/
-│   ├── mock-plugin-context.ts         ← Mock Sharkord API (NO @sharkord SDK needed!)
-│   └── plugin-lifecycle.test.ts       ← onLoad/onUnload (REQ-014-016)
-│
-└── docker/
-    ├── Dockerfile.test                ← Test Container (ffmpeg + yt-dlp)
-    ├── docker-compose.yml             ← Test Orchestration
-    └── e2e-smoke.test.ts              ← E2E in Docker (REQ-001, 002, 015)
-```
+- `HLSServerConfig`
+- `HLSServerHandle`
 
-### ✅ Test Pattern
+### Exportierte Funktion
 
-```typescript
-import { describe, it, expect, beforeEach } from "bun:test";
-import { QueueManager } from "../../src/queue/queue-manager";
+- `startHLSServer(config): Promise<HLSServerHandle>`
+  - Serviert `.m3u8` + `.ts`
+  - CORS Header aktiv
+  - Basic Path-Safety gegen Traversal
 
-describe("QueueManager", () => {
-  let queue: QueueManager;
-  const channelId = 42;
-
-  beforeEach(() => {
-    queue = new QueueManager();  // Fresh instance each test
-  });
-
-  it("[REQ-004] should add a video to the queue", () => {
-    const item = makeItem({ title: "Video A" });
-    queue.add(channelId, item);
-
-    const state = queue.getState(channelId);
-    expect(state.size).toBe(1);
-    expect(state.current?.title).toBe("Video A");
-  });
-
-  it("[REQ-005] should isolate queues per channel", () => {
-    queue.add(1, makeItem({ title: "Channel A" }));
-    queue.add(2, makeItem({ title: "Channel B" }));
-
-    expect(queue.getState(1).current?.title).toBe("Channel A");
-    expect(queue.getState(2).current?.title).toBe("Channel B");
-  });
-});
-```
-
-**Wichtig:**
-- ✅ Jeder Test hat [REQ-ID]
-- ✅ Keine externe Dependencies
-- ✅ beforeEach für isolierte Tests
-- ✅ Assert nur eine Sache pro Test
-
-### 🐳 Docker E2E Tests
-
-```bash
-bun run test:docker
-  ↓
-docker compose -f tests/docker/docker-compose.yml up
-  ↓
-image: sharkord:v0.0.6 + ffmpeg + yt-dlp
-  ↓
-bun test (im Container, ffmpeg/yt-dlp verfügbar!)
-  ↓
-Tests kann ffmpeg/yt-dlp wirklich spawnen
-```
-
-### 🔄 TDD Workflow
-
-```
-1. Schreibe Test ZUERST
-   it("[REQ-009] should auto-advance when video ends")
-   → Test FAILS
-
-2. Implementiere minimal
-   async onVideoEnded(channelId) {
-     const next = queueManager.skip(channelId);
-     if (next) await startStream(channelId, next);
-   }
-   → Test PASSES ✅
-
-3. Refactor (optional)
-   Tests müssen immer grün bleiben
-
-4. Commit
-   git commit -m "feat(REQ-009): implement auto-advance"
-```
+**REQ:** REQ-002 (HLS-Variante), REQ-028-B (Status-/Auslieferungskontext)
 
 ---
 
-## Schritt 8: Konfiguration
+## `src/stream/stream-manager.ts`
 
-### 📦 package.json
+### Exportierte Typen
 
-```json
-{
-  "name": "sharkord-vid-with-friends",
-  "version": "0.0.1",
-  "module": "src/index.ts",     // Entry für Bun
-  "type": "module",              // ES6 Module
-  
-  "sharkord": {
-    "entry": "index.js",         // Nach Build
-    "description": "..."
-  },
-  
-  "scripts": {
-    "build": "bun build src/index.ts --outdir dist/ --target bun --minify",
-    "test": "bun test",
-    "test:docker": "docker compose -f tests/docker/docker-compose.yml up",
-    "lint": "tsc --noEmit"
-  },
-  
-  "dependencies": {
-    "zod": "^4.3.5"
-  }
-}
-```
+- `TransportLike`, `ProducerLike`, `RouterLike`, `StreamHandleLike`
+- `ChannelStreamResources`, `HLSChannelStreamResources`
+- `TransportResources`, `ProducerResources`
 
-**Build Output:**
-```
-dist/sharkord-vid-with-friends/
-├── index.js           ← Minified Bundle
-├── package.json       ← Manifest
-└── bin/               ← ffmpeg, yt-dlp (from Docker)
-    ├── ffmpeg
-    └── yt-dlp
-```
+### Klasse `StreamManager`
 
-### 🔧 tsconfig.json
+#### Public Methods
 
-```json
-{
-  "compilerOptions": {
-    "lib": ["ESNext"],
-    "target": "ESNext",
-    "module": "Preserve",         // Behält import/export bei
-    "jsx": "react-jsx",           // React 19
-    
-    "strict": true,               // STRICT MODE
-    "noEmit": true,               // Bun kompiliert
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true
-  },
-  
-  "paths": {
-    "@/*": ["./src/*"],
-    "@tests/*": ["./tests/*"]
-  }
-}
-```
+- `generateSsrc(): number`
+- `isActive(channelId): boolean`
+- `setActive(channelId, resources): void`
+- `setActiveHLS(channelId, resources): void`
+- `getResources(channelId): ChannelStreamResources | undefined`
+- `getHLSResources(channelId): HLSChannelStreamResources | undefined`
+- `pauseChannelStream(channelId): boolean`
+  - pausiert Producer (ffmpeg bleibt aktiv)
+  - **REQ:** REQ-013
+- `resumeChannelStream(channelId): boolean`
+  - **REQ:** REQ-013
+- `createTransports(router, ip, announcedAddress): Promise<TransportResources>`
+  - erstellt PlainTransports (Audio/Video)
+  - **REQ:** REQ-002
+- `createProducers(router, transports): Promise<ProducerResources>`
+  - liest PayloadType bevorzugt aus Router-Capabilities
+  - erzeugt Audio/Video Producer
+  - **REQ:** REQ-002
+- `cleanup(channelId): void`
+  - RTP- und HLS-Ressourcen cleanup inkl. Prozesse, Producer, Transports, Stream-Handle
+  - **REQ:** REQ-016
+- `cleanupAll(): void`
+  - **REQ:** REQ-016
 
-### 🐳 docker-compose.dev.yml
+#### Private Methods
 
-**Service 1: init-binaries** — Download ffmpeg + yt-dlp
+- `getPayloadTypeFromRouter(router, mimeType, fallback): number`
 
-```yaml
-init-binaries:
-  image: alpine:latest
-  command:
-    - -c
-    - |
-      BIN_DIR=/binaries
-      if [ -f "$BIN_DIR/ffmpeg" ] && [ -f "$BIN_DIR/yt-dlp" ]; then exit 0; fi
-      apk add --no-cache wget xz
-      wget -O "$BIN_DIR/yt-dlp" https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux
-      chmod +x "$BIN_DIR/yt-dlp"
-      wget -O /tmp/ffmpeg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
-      tar -xf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg-extract --strip-components=1
-      cp /tmp/ffmpeg-extract/ffmpeg "$BIN_DIR/ffmpeg"
-      chmod +x "$BIN_DIR/ffmpeg"
-  volumes:
-    - plugin-binaries:/binaries
-```
-
-**Service 2: sharkord** — Run Sharkord mit Plugin
-
-```yaml
-sharkord:
-  image: sharkord/sharkord:v0.0.6
-  depends_on:
-    init-binaries:
-      condition: service_completed_successfully
-  ports:
-    - "3000:3000"                            # Web UI
-    - "40000-40100:40000-40100/udp"          # WebRTC RTP
-  environment:
-    - SHARKORD_PORT=3000
-    - SHARKORD_DEBUG=true
-    - SHARKORD_WEBRTC_ANNOUNCED_ADDRESS=192.168.192.1  # ⚠️ Host LAN IP (nicht 127.0.0.1!)
-  volumes:
-    - sharkord-data:/root/.config/sharkord   # Persist DB
-    - ./dist/sharkord-vid-with-friends:/root/.config/sharkord/plugins/sharkord-vid-with-friends:ro
-    - plugin-binaries:/root/.config/sharkord/plugins/sharkord-vid-with-friends/bin:ro
-```
-
-**Volume Mapping:**
-```
-Host                              Container
-./dist/.../                       /root/.config/sharkord/plugins/.../
-  └── index.js (Plugin)
-  └── bin/                        /root/.config/.../bin/
-      ├── ffmpeg                  (from plugin-binaries)
-      └── yt-dlp
-```
-
-### 🚀 Quick Start
-
-```bash
-# 1. Build
-bun run build
-
-# 2. Start Docker
-docker compose -f docker-compose.dev.yml up
-
-# 3. Open
-http://localhost:3000
-
-# 4. Test
-/watch "rick astley"
-/queue
-/skip
-
-# 5. Stop
-docker compose -f docker-compose.dev.yml down
-```
+**REQ:** REQ-002, REQ-003, REQ-013, REQ-015, REQ-016
 
 ---
 
-## Gesamtzusammenfassung & Flows
+## `src/sync/sync-controller.ts`
 
-### 🎯 Architektur Übersicht
+### Exportierter Typ
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Plugin Entry (index.ts)                  │
-├─────────────────────────────────────────────────────────────────┤
-│  onLoad(ctx)                                                    │
-│    │                                                            │
-│    ├─ Singletons Init                                           │
-│    │  ├─ queueManager = new QueueManager()                      │
-│    │  ├─ streamManager = new StreamManager()                    │
-│    │  └─ syncController = new SyncController(...)              │
-│    │                                                            │
-│    └─ Register 8 Commands ──────┐                              │
-│                                  │                              │
-│                                  └─→ User Typing /watch, /skip, etc.
-│                                     (src/commands/*.ts)
-│
-└─────────────────────────────────────────────────────────────────┘
-                 ↓
-        ┌────────┴────────┐
-        ↓                 ↓
-   ┌─────────────┐   ┌──────────────┐
-   │   QueueMgr  │   │ SyncController│
-   ├─────────────┤   ├──────────────┤
-   │add(item)    │   │play()        │
-   │skip()       │   │skip()        │
-   │remove(pos)  │   │stop()        │
-   │getState()   │   │on→VideoEnded()
-   │clear()      │   └──────────────┘
-   └─────────────┘        ↓
-                    await startStream()
-                          ↓
-                    ┌──────────────────────────┐
-                    │   StreamManager          │
-                    ├──────────────────────────┤
-                    │createTransports()        │
-                    │createProducers()        │
-                    │cleanup()                │
-                    └──────────────────────────┘
-                          ↓
-                    ┌──────────────────────────┐
-                    │ Spawn 2 ffmpeg Processes │
-                    ├──────────────────────────┤
-                    │ ffmpeg (Video RTP)      │
-                    │ ffmpeg (Audio RTP)      │
-                    │ monitorProcess()        │
-                    └──────────────────────────┘
-```
+- `StartStreamFn = (channelId: number, item: QueueItem) => Promise<void>`
 
-### 🎬 **Complete /watch Flow**
+### Klasse `SyncController`
 
-```
-User: /watch "rick astley"
-│
-├─ [Command Handler] play.ts:executes()
-│
-├─ 1. Validate
-│   └─ Check: in voice channel? ✅
-│
-├─ 2. Normalize Query
-│   └─ "rick astley" → "ytsearch:rick astley"
-│
-├─ 3. Resolve (yt-dlp)
-│   ├─ buildYtDlpArgs()
-│   ├─ Bun.spawn(["yt-dlp", "--dump-json", "ytsearch:rick astley"])
-│   ├─ yt-dlp contacts YouTube
-│   ├─ parseYtDlpOutput()
-│   └─ ResolvedVideo = { title, streamUrl, duration, thumbnail }
-│
-├─ 4. Create QueueItem
-│   └─ item = { id, query, title, streamUrl, duration, thumbnail, addedBy, addedAt }
-│
-├─ 5. Check Playing Status
-│   ├─ isPlaying?
-│   │  YES → queueManager.add(channelId, item) → return "Added to queue"
-│   │  NO  → continue (add + play)
-│
-├─ 6. Add to Queue
-│   └─ queueManager.add(channelId, item)
-│       queue.items.push(item), currentIndex = 0
-│
-├─ 7. Start Playing
-│   └─ syncController.play(channelId)
-│       ├─ setPlaying(true)
-│       └─ await startStream(ctx, channelId, item)
-│
-├─ 8. startStream() [index.ts]
-│   ├─ streamManager.cleanup(channelId)  // Kill old streams
-│   ├─ router = ctx.actions.voice.getRouter(channelId)
-│   ├─ transports = createTransports(router, ip, announcedAddress)
-│   │   ├─ audioTransport = router.createPlainTransport(...)
-│   │   └─ videoTransport = router.createPlainTransport(...)
-│   ├─ producers = createProducers(transports)
-│   │   ├─ audioProducer = audioTransport.produce({kind: "audio", ...})
-│   │   └─ videoProducer = videoTransport.produce({kind: "video", ...})
-│   ├─ streamHandle = ctx.actions.voice.createStream({
-│   │    channelId, key, title, avatarUrl,
-│   │    producers: { audio: audioProducer, video: videoProducer }
-│   │  })
-│   ├─ volume = syncController.getVolume(channelId) / 100
-│   │
-│   ├─ 9. Spawn Video ffmpeg
-│   │   ├─ buildVideoStreamArgs({
-│   │   │   sourceUrl: item.streamUrl,
-│   │   │   rtpHost: ip, rtpPort: 40001,
-│   │   │   payloadType: 96, ssrc: 123..., bitrate: "2000k"
-│   │   │ })
-│   │   │ → ["ffmpeg", "-re", "-i", "http://...", "-c:v", "libx264", "-f", "rtp", "rtp://10.0.0.1:40001"]
-│   │   ├─ videoProcess = spawnFfmpeg(args, loggers)
-│   │   │  → Bun.spawn({ cmd: [...] })
-│   │   │  → ffmpeg startet, liest Frames von item.streamUrl
-│   │   │  → Sendet H264 RTP Pakete zu 10.0.0.1:40001
-│   │   │  → Loggers pipen stderr für Exception-Handling
-│   │
-│   ├─ 10. Spawn Audio ffmpeg
-│   │   ├─ buildAudioStreamArgs({
-│   │   │   sourceUrl: item.streamUrl,  # SAME URL!
-│   │   │   rtpHost: ip, rtpPort: 40002,
-│   │   │   payloadType: 111, ssrc: 456..., bitrate: "128k",
-│   │   │   volume: 0.8 or 0.5 etc.
-│   │   │ })
-│   │   │ → ["ffmpeg", "-re", "-i", "http://...", "-c:a", "libopus", "-af", "volume=0.8", "-f", "rtp", "rtp://10.0.0.1:40002"]
-│   │   ├─ audioProcess = spawnFfmpeg(args, loggers)
-│   │   │  → ffmpeg startet, liest GLEICHE URL von item.streamUrl
-│   │   │  → Sendet Opus RTP Pakete zu 10.0.0.1:40002
-│   │   │  → Beide ffmpeg starten zur gleichen Zeit → Synchronisation! ⏱️
-│   │
-│   ├─ 11. Store Resources
-│   │   └─ streamManager.setActive(channelId, {
-│   │       audioTransport, videoTransport,
-│   │       audioProducer, videoProducer,
-│   │       videoProcess, audioProcess,
-│   │       streamHandle, router
-│   │     })
-│   │
-│   └─ 12. Monitor ffmpeg Exit (Auto-Advance)
-│       ├─ monitorProcess(ctx, channelId, videoProcess)
-│       ├─ videoProcess.process.exited
-│       │  .then(async () => {
-│       │    streamManager.cleanup(channelId)  // Kill all resources
-│       │    await syncController.onVideoEnded(channelId)
-│       │      ├─ if !isPlaying || isPaused: return
-│       │      ├─ next = queueManager.skip(channelId)
-│       │      └─ if next: await startStream(ctx, channelId, next)
-│       │  })
-│       │
-│       └─ Video läuft und Auto-Advance ist ready! ✅
-```
+#### State
 
-### 🔄 **Auto-Advance Flow (onVideoEnded)**
+- `states: Map<number, { isPlaying; isPaused; volume }>`
+- `queueManager` (Dependency)
+- `startStream` (injectable callback)
 
-```
-Video 1 läuft... (140 Sekunden)
-│
-├─ ffmpeg liest Frame by Frame
-│  └─ 140s: Letzter Frame, ffmpeg stoppt
-│
-├─ videoProcess.process.exited triggered
-│  └─ monitorProcess detection!
-│
-├─ monitorProcess()
-│  └─ streamManager.cleanup(channelId)
-│     ├─ videoProcess.kill(SIGTERM)
-│     ├─ audioProcess.kill(SIGTERM)
-│     ├─ videoProducer.close()
-│     ├─ audioProducer.close()
-│     ├─ videoTransport.close()
-│     ├─ audioTransport.close()
-│     └─ streamHandle.remove()
-│
-├─ syncController.onVideoEnded(channelId)
-│  └─ if !isPlaying || isPaused: return
-│  └─ next = queueManager.skip(channelId)
-│     └─ currentIndex++ → getCurrent() = Video 2
-│  └─ await startStream(ctx, channelId, Video2)
-│
-└─ Video 2 SOFORT starten!
-   └─ Neue transports, producers, ffmpeg
-   └─ Kein Unterbruch! (nahtlos) ✅
-```
+#### Public Methods
 
-### 📊 **Queue State Transitions**
+- `isPlaying(channelId): boolean`
+- `setPlaying(channelId, playing): void`
+- `isPaused(channelId): boolean`
+- `setPaused(channelId, paused): void`
+- `getVolume(channelId): number`
+- `setVolume(channelId, volume): void` (clamped 0..100)
+- `play(channelId): Promise<void>`
+  - startet Current Queue Item
+  - **REQ:** REQ-003
+- `skip(channelId): Promise<void>`
+  - queue skip + start next oder `setPlaying(false)`
+  - **REQ:** REQ-008
+- `onVideoEnded(channelId): Promise<void>`
+  - Auto-Advance wenn playing und nicht paused
+  - **REQ:** REQ-009
+- `stop(channelId): void`
+  - stop state + queue clear
+  - **REQ:** REQ-010
+- `cleanupChannel(channelId): void`
+- `cleanupAll(): void`
 
-```
-User Adds Videos:
-  /watch "A" → isPlaying=false
-    → add(A), play(A)
-    → Queue: [A*], isPlaying=true
-    → ffmpeg A läuft
+#### Private Methods
 
-  /watch "B" → isPlaying=true
-    → add(B)
-    → Queue: [A*, B], isPlaying=true
-    → ffmpeg A läuft immer noch
+- `getState(channelId)` (read-only default)
+- `getOrCreateState(channelId)`
 
-  /watch "C"
-    → add(C)
-    → Queue: [A*, B, C], isPlaying=true
-
-User Skips:
-  /skip
-    → skip()
-    → currentIndex=1, getCurrent()=B
-    → Queue: [A, B*, C], isPlaying=true
-    → ffmpeg switch: A → B
-
-  /skip
-    → currentIndex=2, getCurrent()=C
-    → Queue: [A, B, C*], isPlaying=true
-    → ffmpeg switch: B → C
-
-  /skip
-    → currentIndex=3, getCurrent()=null
-    → Queue: [], isPlaying=false
-    → ffmpeg C killed
-
-User Removes:
-  /remove 2
-    → remove(position=2) = remove upcoming[0] = B
-    → Queue: [A*, C], isPlaying=true
-    → A weiter spielen
-
-  /remove 1
-    → remove(position=1) = remove current = A
-    → Queue: [C*], isPlaying=true
-    → Trigger skip → C startet
-```
-
-### 🧪 Test Coverage nach Komponente
-
-| Komponente | Unit | Integration | E2E |
-|------------|------|-------------|-----|
-| QueueManager | ✅ add, skip, remove, clear | ✅ with commands | — |
-| SyncController | ✅ play, skip, onVideoEnded | ✅ lifecycle | — |
-| ffmpeg.ts | ✅ arg builders | ✅ spawn | ✅ binary exists |
-| yt-dlp.ts | ✅ arg builders | ✅ resolve | ✅ binary exists |
-| Commands | ✅ all 8 | ✅ registration | — |
-| Plugin Lifecycle | — | ✅ onLoad/onUnload | ✅ import |
+**REQ:** REQ-003, REQ-008, REQ-009, REQ-010, REQ-012, REQ-013, REQ-016
 
 ---
 
-## 📌 Wichtige Regeln (aus Agent Instructions)
+## 3) Commands (`src/commands/*`)
 
-### ✅ DO
+Alle Commands registrieren über `ctx.commands.register(...)`.
 
-- ✅ Jede Änderung mit REQ-ID verknüpfen
-- ✅ Tests ZUERST schreiben (TDD)
-- ✅ TypeScript strict mode
-- ✅ Named exports only
-- ✅ Zod für Input-Validierung
-- ✅ Bun runtime (nicht Node.js!)
-- ✅ ES6+ modules
-- ✅ kebab-case Dateinamen
+- `registerPlayCommand(ctx, queueManager, syncController)` in `play.ts`
+  - `/watch <query>`
+  - Resolve via `resolveVideo`, Queue add, Start (wenn nicht bereits playing)
+  - Fehlerpfad entfernt erstes Queue-Item bei Startfehler
+  - **REQ:** REQ-001, REQ-004
 
-### ❌ DON'T
+- `registerQueueCommand(ctx, queueManager)` in `queue.ts`
+  - `/queue`
+  - formatiert Current + Upcoming + Duration
+  - **REQ:** REQ-006
 
-- ❌ Default exports
-- ❌ `any` types
-- ❌ `var` keyword
-- ❌ CommonJS `require()`
-- ❌ Code ohne Tests
-- ❌ Features ohne Requirement
-- ❌ Secrets im Code
-- ❌ `node:` prefix
+- `registerSkipCommand(ctx, syncController)` in `skip.ts`
+  - `/skip`
+  - **REQ:** REQ-008
+
+- `registerRemoveCommand(ctx, queueManager)` in `remove.ts`
+  - `/remove <position>`
+  - **REQ:** REQ-007
+
+- `registerStopCommand(ctx, syncController, streamManager)` in `stop.ts`
+  - `/watch_stop`
+  - stream cleanup + sync stop
+  - **REQ:** REQ-010
+
+- `registerNowPlayingCommand(ctx, queueManager)` in `nowplaying.ts`
+  - `/nowplaying`
+  - **REQ:** REQ-011
+
+- `registerPauseCommand(ctx, syncController, streamControl)` in `pause.ts`
+  - `/pause`
+  - toggelt pause/resume über `StreamManager`
+  - **REQ:** REQ-013
+
+- `registerVolumeCommand(ctx, syncController)` in `volume.ts`
+  - `/volume <0-100>`
+  - wirkt auf nächste Video-Instanz
+  - **REQ:** REQ-012
+
+- `registerDebugCacheCommand(ctx)` in `debug_cache.ts`
+  - `/debug_cache`
+  - listet Cache-Dateien nach mtime/size
+  - **REQ:** REQ-032, REQ-033
 
 ---
 
-## 🔄 Maintenance & Documentation Updates
+## `src/ui/components.tsx`
 
-**Nach größeren Funktionsänderungen:**
+### Exportierte API
 
-1. **Diese Datei updaten** (CODEBASE_OVERVIEW.md)
-   - Flows aktualisieren
-   - Neue Methoden dokumentieren
-   - Diagramme überprüfen
+- `components: ComponentsMap`
+  - `TOPBAR_RIGHT: [NowPlayingBadge]`
+  - `HOME_SCREEN: [QueuePanel]`
+  - `ADMIN_SETTINGS: [SettingsPanel]`
 
-2. **REQUIREMENTS.md updaten**
-   - Neue REQ-IDs hinzufügen
+### Interne Komponenten
 
-3. **Tests aktualisieren**
-   - Neue Tests schreiben
-   - Alte Tests fixieren
+- `NowPlayingBadge()`
+  - zeigt Badge + visuelle Buttons für Pause/Skip/Stop
+  - aktuell UI-only (keine serverseitige Action-Wiring)
+  - **REQ-Bezug im UI-Text:** REQ-017, REQ-029, REQ-030, REQ-031
 
-4. **Commit Message:** 
-   ```
-   feat(REQ-xxx): new feature description
-   docs: update CODEBASE_OVERVIEW.md
-   ```
+- `QueuePanel()`
+  - Basis-Hinweis für Nutzung (`/watch`)
+  - **REQ:** REQ-017
+
+- `SettingsPanel()`
+  - visuelles Panel für Bitrates, Volume, Sync-Mode, Debug
+  - derzeit primär statisch/placeholder
+  - **REQ-Bezug im UI-Text:** REQ-018, REQ-026
 
 ---
 
-**Version:** 2026-02-23  
-**Last Updated:** Schritt 8 komplett ✅  
-**Vollständig?** JA — Alle 8 Schritte dokumentiert
+## `src/utils/constants.ts`
+
+- `STREAM_KEY = "vid-with-friends"`
+- `DEFAULT_SETTINGS`
+  - `BITRATE_VIDEO = "2000k"`
+  - `BITRATE_AUDIO = "256k"`
+  - `DEFAULT_VOLUME = 50`
+  - `SYNC_MODE = "server"`
+- `AUDIO_CODEC` (Opus/PT111)
+- `VIDEO_CODEC` (VP8/PT96)
+- `PLUGIN_AVATAR_URL`
+- `MAX_QUEUE_SIZE = 50`
+- `PLUGIN_NAME = "Vid With Friends"`
+
+**REQ:** REQ-002, REQ-003, REQ-018
+
+---
+
+## 4) Reale End-to-End Flows (Ist-Zustand)
+
+### Flow A: `/watch` bis laufender Stream
+
+1. User ruft `/watch <query>`
+2. `registerPlayCommand` normalisiert Query (`ytsearch:` bei Suchtext)
+3. `resolveVideo(...)` liefert Metadaten + URLs
+4. Queue add via `queueManager.add(...)`
+5. Wenn nicht playing: `syncController.play(channelId)`
+6. `SyncController.play` ruft injiziertes `startStream(...)`
+7. `startStream` erstellt Transports/Producer, startet ffmpeg-Prozesse, registriert Stream
+8. Stream läuft; Monitoring + HealthCheck aktiv
+
+### Flow B: Auto-Advance
+
+1. Audio-ffmpeg endet (`onEnd` Callback in `spawnFfmpeg`)
+2. `syncController.onVideoEnded(channelId)`
+3. `queueManager.skip(channelId)`
+4. Bei vorhandenem nächsten Item: erneutes `startStream(...)`
+5. Sonst `setPlaying(false)`
+
+### Flow C: Stop/Cleanup
+
+- Command `/watch_stop`:
+  1. `streamManager.cleanup(channelId)`
+  2. `syncController.stop(channelId)`
+
+- Event `voice:runtime_closed`:
+  1. `streamManager.cleanup(channelId)`
+  2. `syncController.cleanupChannel(channelId)`
+  3. `queueManager.clear(channelId)`
+
+- Plugin unload:
+  1. `streamManager.cleanupAll()`
+  2. `syncController.cleanupAll()`
+
+---
+
+## 5) REQ-Coverage (Implementation Trace)
+
+- **Wiedergabe:** REQ-001, REQ-002, REQ-003, REQ-010, REQ-011, REQ-012, REQ-013
+- **Queue:** REQ-004 bis REQ-009
+- **Lifecycle/UI/Settings:** REQ-014, REQ-015, REQ-016, REQ-017, REQ-018
+- **Debug/Diagnostics:** REQ-026, REQ-027-A, REQ-027-B, REQ-027-C, REQ-032, REQ-033
+
+Hinweis zum Ist-Zustand:
+- UI-Komponenten für REQ-029/REQ-030/REQ-031 sind derzeit **visuell vorhanden**, aber noch nicht vollständig gegen serverseitige Actions verdrahtet.
+
+---
+
+## 6) Auffälligkeiten / Technische Notizen
+
+- In `index.ts` existieren `monitorProcess` und `monitorProcessForAutoAdvance`; der primäre RTP-Auto-Advance läuft derzeit über Audio-`onEnd` in `spawnFfmpeg`.
+- `buildVideoStreamArgs` encodiert nach VP8 (`libvpx`), während frühe Kommentare teilweise historisch H264/Copy-Kontext referenzieren.
+- `components.tsx` nutzt mehrere inline `any`-Casts in Mouse-Events (bestehender Zustand).
+
+---
+
+## 7) Kurzfazit
+
+Die Codebasis ist modular getrennt (Queue/Stream/Sync/Commands/UI) und deckt die Kern-REQs für Voice-Channel Watch-Party bereits breit ab. Der produktive Streaming-Pfad ist RTP-basiert mit robustem Temp-File-Ansatz für yt-dlp/ffmpeg. Der wichtigste offene Reifegradpunkt liegt in der vollständigen Funktionsverdrahtung der UI-Steuerbuttons (Play/Pause/Skip/Stop) auf denselben Serverpfad wie die Commands.
+
+---
+
+## 8) Line-by-line Funktionsreferenz
+
+Hinweis: Zeilenangaben referenzieren den Stand dieser Doku-Aktualisierung (03.03.2026).
+
+### `src/index.ts`
+
+- `debugLog` — L50
+- `startStream` — L113
+- `monitorProducers` — L307
+- `scheduleHealthCheck` — L370
+- `monitorProcess` — L455
+- `monitorProcessForAutoAdvance` — L482
+- `handleVoiceRuntimeClosed` — L511
+- `onLoad` — L540
+- `onUnload` — L650
+
+### `src/queue/queue-manager.ts`
+
+- `QueueManager` (class) — L16
+- `onAdvance` — L21
+- `add` — L26
+- `remove` — L40
+- `skip` — L65
+- `getCurrent` — L83
+- `getState` — L93
+- `clear` — L107
+- `hasItems` — L112
+- `getOrCreateQueue` (private) — L118
+- `emitAdvance` (private) — L127
+
+### `src/stream/yt-dlp.ts`
+
+- `isYouTubeUrl` — L37
+- `getYtDlpBinaryName` — L43
+- `getYtDlpPath` — L47
+- `buildYtDlpArgs` — L51
+- `parseYtDlpOutput` — L69
+- `runYtDlp` (internal) — L166
+- `cookiesExist` (internal) — L189
+- `resolveVideo` — L203
+
+### `src/stream/ffmpeg.ts`
+
+- `getFfmpegBinaryName` — L86
+- `getFfmpegPath` — L90
+- `normalizeVolume` — L97
+- `normalizeBitrate` — L104
+- `shouldWaitForDownloadComplete` — L114
+- `buildYtDlpDownloadCmd` — L118
+- `buildDebugCacheFileName` — L157
+- `buildTempFilePath` — L163
+- `extractYouTubeId` (internal) — L171
+- `getDebugCacheDir` (internal) — L176
+- `buildVideoStreamArgs` — L195
+- `buildAudioStreamArgs` — L258
+- `spawnFfmpeg` — L307
+- `testFfmpegBinary` — L598
+- `spawnFfmpegForHLS` — L674
+
+### `src/stream/hls-server.ts`
+
+- `startHLSServer` — L52
+
+### `src/stream/stream-manager.ts`
+
+- `StreamManager` (class) — L101
+- `generateSsrc` — L106
+- `isActive` — L111
+- `setActive` — L116
+- `setActiveHLS` — L121
+- `getResources` — L126
+- `getHLSResources` — L131
+- `pauseChannelStream` — L144
+- `resumeChannelStream` — L167
+- `createTransports` — L185
+- `createProducers` — L213
+- `getPayloadTypeFromRouter` (private) — L275
+- `cleanup` — L293
+- `cleanupAll` — L368
+
+### `src/sync/sync-controller.ts`
+
+- `SyncController` (class) — L29
+- `isPlaying` — L42
+- `setPlaying` — L47
+- `isPaused` — L52
+- `setPaused` — L57
+- `getVolume` — L62
+- `setVolume` — L67
+- `play` — L77
+- `skip` — L91
+- `onVideoEnded` — L105
+- `stop` — L121
+- `cleanupChannel` — L130
+- `cleanupAll` — L135
+- `getState` (private) — L141
+- `getOrCreateState` (private) — L149
+
+### `src/commands/*`
+
+- `registerPlayCommand` — `src/commands/play.ts` L27
+- `registerQueueCommand` — `src/commands/queue.ts` L19
+- `formatDuration` (queue) — `src/commands/queue.ts` L66
+- `registerSkipCommand` — `src/commands/skip.ts` L19
+- `registerRemoveCommand` — `src/commands/remove.ts` L19
+- `registerStopCommand` — `src/commands/stop.ts` L20
+- `registerNowPlayingCommand` — `src/commands/nowplaying.ts` L19
+- `formatDuration` (nowplaying) — `src/commands/nowplaying.ts` L45
+- `registerPauseCommand` — `src/commands/pause.ts` L24
+- `registerVolumeCommand` — `src/commands/volume.ts` L19
+- `registerDebugCacheCommand` — `src/commands/debug_cache.ts` L26
+
+### `src/ui/components.tsx`
+
+- `NowPlayingBadge` — L44
+- `QueuePanel` — L154
+- `SettingsPanel` — L192
+- `components` (map export) — L537
