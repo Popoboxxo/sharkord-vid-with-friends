@@ -30,6 +30,7 @@ import { registerRemoveCommand } from "./commands/remove";
 import { registerStopCommand } from "./commands/stop";
 import { registerNowPlayingCommand } from "./commands/nowplaying";
 import { registerPauseCommand } from "./commands/pause";
+import { registerResumeCommand } from "./commands/resume";
 import { registerVolumeCommand } from "./commands/volume";
 import { registerDebugCacheCommand } from "./commands/debug_cache";
 import { components as pluginComponents } from "./ui/components";
@@ -663,6 +664,7 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
   registerStopCommand(ctx as never, syncController, streamManager);
   registerNowPlayingCommand(ctx as never, queueManager);
   registerPauseCommand(ctx as never, syncController, streamManager);
+  registerResumeCommand(ctx as never, syncController, streamManager);
   registerVolumeCommand(ctx as never, syncController);
   registerDebugCacheCommand(ctx as never);
 

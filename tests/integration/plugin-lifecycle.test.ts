@@ -18,6 +18,7 @@ import { registerRemoveCommand } from "../../src/commands/remove";
 import { registerStopCommand } from "../../src/commands/stop";
 import { registerNowPlayingCommand } from "../../src/commands/nowplaying";
 import { registerPauseCommand } from "../../src/commands/pause";
+import { registerResumeCommand } from "../../src/commands/resume";
 import { registerVolumeCommand } from "../../src/commands/volume";
 
 // ---- Helpers ----
@@ -74,13 +75,14 @@ describe("Integration: Queue + SyncController + Commands", () => {
     registerStopCommand(ctx as never, syncController);
     registerNowPlayingCommand(ctx as never, queueManager);
     registerPauseCommand(ctx as never, syncController);
+    registerResumeCommand(ctx as never, syncController);
     registerVolumeCommand(ctx as never, syncController);
   });
 
   // ---- REQ-015: Plugin lifecycle ----
 
-  it("[REQ-015] should register all 8 commands", () => {
-    expect(ctx.commands.registered.size).toBe(8);
+  it("[REQ-015] should register all 9 commands", () => {
+    expect(ctx.commands.registered.size).toBe(9);
     expect(ctx.commands.registered.has("watch")).toBe(true);
     expect(ctx.commands.registered.has("queue")).toBe(true);
     expect(ctx.commands.registered.has("skip")).toBe(true);
@@ -88,6 +90,7 @@ describe("Integration: Queue + SyncController + Commands", () => {
     expect(ctx.commands.registered.has("watch_stop")).toBe(true);
     expect(ctx.commands.registered.has("nowplaying")).toBe(true);
     expect(ctx.commands.registered.has("pause")).toBe(true);
+    expect(ctx.commands.registered.has("resume")).toBe(true);
     expect(ctx.commands.registered.has("volume")).toBe(true);
   });
 

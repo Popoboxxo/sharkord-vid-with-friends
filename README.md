@@ -19,13 +19,14 @@ Server-side streaming via **yt-dlp → ffmpeg → Mediasoup RTP** guarantees fra
 
 | Command | Description |
 |---------|-------------|
-| `/watch <url\|query>` | Play a YouTube video or add it to the queue |
+| `/watch <url\|query>` | Play a YouTube video (rejected if another video is already active in the same channel) |
 | `/queue` | Display the current video queue |
 | `/skip` | Skip the current video |
 | `/remove <position>` | Remove a video from the queue by position |
 | `/watch_stop` | Stop playback and clear the queue |
 | `/nowplaying` | Show the currently playing video |
 | `/pause` | Toggle pause/resume |
+| `/resume` | Resume only when a video is paused |
 | `/volume <0-100>` | Set the playback volume |
 
 ## Settings
@@ -87,7 +88,7 @@ src/
 │   └── yt-dlp.ts         # YouTube URL resolution
 ├── sync/
 │   └── sync-controller.ts # Queue + stream orchestration
-├── commands/              # All 8 slash commands
+├── commands/              # All slash commands (including /resume)
 ├── ui/
 │   └── components.tsx    # React UI for plugin slots
 └── utils/

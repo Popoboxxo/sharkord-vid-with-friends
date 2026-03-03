@@ -127,3 +127,33 @@ Vollständiger REQ-Audit (REQ-001 bis REQ-033) gegen den aktuellen Codebestand m
 - Gesamttests grün:
   - `bun run test:unit` ✅ (114 pass)
   - `bun run test:integration` ✅ (18 pass)
+
+---
+
+## 8. Nachtrag — `/resume` + Single-Active-Guard
+
+### Neue Anforderungen
+- `REQ-034`: Expliziter `/resume`-Command für pausierte Streams.
+- `REQ-035`: Pro Channel nur ein aktives Video; zweiter `/watch`-Start wird abgewiesen.
+
+### Umsetzung
+- Neuer Command `src/commands/resume.ts`:
+  - Resumed nur wenn `isPaused=true`
+  - Rückmeldung bei nicht pausiertem Zustand: `No paused video to resume.`
+- `src/commands/play.ts`:
+  - Früher Guard gegen zweiten Startversuch bei aktivem Playback
+  - Rückmeldung: bereits aktives Video im Channel
+- `src/index.ts`:
+  - `/resume` in der Command-Registrierung ergänzt
+
+### Tests
+- `tests/unit/commands.test.ts`
+  - `[REQ-034]` Registrierung + Verhalten von `/resume`
+  - `[REQ-035]` Blockierung von zweitem `/watch`
+- Integration angepasst:
+  - `tests/integration/index-onload.test.ts` prüft `/resume`
+  - `tests/integration/plugin-lifecycle.test.ts` Command-Anzahl auf 9 aktualisiert
+
+### Verifikation
+- `bun run test:unit` ✅ (118 pass)
+- `bun run test:integration` ✅ (18 pass)

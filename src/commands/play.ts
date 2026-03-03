@@ -50,6 +50,10 @@ export const registerPlayCommand = (
         throw new Error("Please provide a YouTube URL or search query.");
       }
 
+      if (syncController.isPlaying(channelId)) {
+        return "A video is already playing in this channel. Stop it first before starting another one.";
+      }
+
       let sourceUrl = args.query.trim();
 
       // Convert plain search terms to yt-search format
@@ -94,12 +98,6 @@ export const registerPlayCommand = (
       };
 
       queueManager.add(channelId, item);
-
-      // If already playing, just add to queue
-      if (syncController.isPlaying(channelId)) {
-        const state = queueManager.getState(channelId);
-        return `Added to queue (#${state.size}): ${resolved.title}`;
-      }
 
       // Otherwise start playing immediately
       try {

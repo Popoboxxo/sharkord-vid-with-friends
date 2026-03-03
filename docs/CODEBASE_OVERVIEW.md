@@ -352,9 +352,10 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 
 - `registerPlayCommand(ctx, queueManager, syncController)` in `play.ts`
   - `/watch <query>`
-  - Resolve via `resolveVideo`, Queue add, Start (wenn nicht bereits playing)
+  - blockiert zweiten Startversuch bei aktiver Wiedergabe im selben Channel
+  - Resolve via `resolveVideo`, Queue add, Start (nur wenn kein aktiver Stream)
   - Fehlerpfad entfernt erstes Queue-Item bei Startfehler
-  - **REQ:** REQ-001, REQ-004
+  - **REQ:** REQ-001, REQ-004, REQ-035
 
 - `registerQueueCommand(ctx, queueManager)` in `queue.ts`
   - `/queue`
@@ -385,6 +386,12 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
   - prüft Wiedergabe robust: `isPlaying` **oder** `streamControl.isActive(...)`
   - toggelt pause/resume über `StreamManager`
   - **REQ:** REQ-013
+
+- `registerResumeCommand(ctx, syncController, streamControl?)` in `resume.ts`
+  - `/resume`
+  - setzt explizit fort, wenn ein Stream pausiert ist
+  - liefert klare Rückmeldung wenn nichts pausiert ist
+  - **REQ:** REQ-034
 
 - `registerVolumeCommand(ctx, syncController)` in `volume.ts`
   - `/volume <0-100>`
@@ -485,7 +492,7 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 
 ## 5) REQ-Coverage (Implementation Trace)
 
-- **Wiedergabe:** REQ-001, REQ-002, REQ-003, REQ-010, REQ-011, REQ-012, REQ-013
+- **Wiedergabe:** REQ-001, REQ-002, REQ-003, REQ-010, REQ-011, REQ-012, REQ-013, REQ-034, REQ-035
 - **Queue:** REQ-004 bis REQ-009
 - **Lifecycle/UI/Settings:** REQ-014, REQ-015, REQ-016, REQ-017, REQ-018
 - **Debug/Diagnostics:** REQ-026, REQ-027-A, REQ-027-B, REQ-027-C, REQ-032, REQ-033
@@ -618,6 +625,7 @@ Hinweis: Zeilenangaben referenzieren den Stand dieser Doku-Aktualisierung (03.03
 - `registerNowPlayingCommand` — `src/commands/nowplaying.ts` L19
 - `formatDuration` (nowplaying) — `src/commands/nowplaying.ts` L45
 - `registerPauseCommand` — `src/commands/pause.ts` L24
+- `registerResumeCommand` — `src/commands/resume.ts` L25
 - `registerVolumeCommand` — `src/commands/volume.ts` L19
 - `registerDebugCacheCommand` — `src/commands/debug_cache.ts` L26
 

@@ -20,6 +20,7 @@ describe("Plugin entrypoint lifecycle", () => {
     expect(ctx.commands.registered.has("watch_stop")).toBe(true);
     expect(ctx.commands.registered.has("nowplaying")).toBe(true);
     expect(ctx.commands.registered.has("pause")).toBe(true);
+    expect(ctx.commands.registered.has("resume")).toBe(true);
     expect(ctx.commands.registered.has("volume")).toBe(true);
     expect(ctx.commands.registered.has("debug_cache")).toBe(true);
 
