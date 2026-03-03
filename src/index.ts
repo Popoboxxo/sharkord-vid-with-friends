@@ -222,6 +222,11 @@ const startStream = async (
     ctx.debug(`[stream:${channelId}] Settings: volume=${volume}%, videoBitrate=${videoBitrate}, audioBitrate=${audioBitrate}, fullDownloadMode=${fullDownloadMode}`);
 
     // 6. Spawn ffmpeg with RTP output (using temp-file method for stability)
+    // NOTE: Video file download strategy depends on fullDownloadMode setting:
+    // - false (default): Wait for 10MB buffer, then stream progressively while downloading
+    //   → Fast start, good for long videos
+    // - true: Wait for complete download, then stream
+    //   → Slower start, but complete file available
     const ffmpegVideoProc = await spawnFfmpeg({
       streamType: "video",
       sourceUrl: item.streamUrl,
@@ -232,7 +237,7 @@ const startStream = async (
       ssrc: (videoProducer as any).rtpParameters?.encodings?.[0]?.ssrc || 1,
       bitrate: videoBitrate,
       debugEnabled: debugMode,
-      waitForDownloadComplete: fullDownloadMode,  // Controlled by user setting
+      waitForDownloadComplete: fullDownloadMode,  // TRUE = wait for complete download, FALSE = start after buffer
       loggers,
       onEnd: async () => {
         ctx.log(`[stream:${channelId}] Video ffmpeg ended`);

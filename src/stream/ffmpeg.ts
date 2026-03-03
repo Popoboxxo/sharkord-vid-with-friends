@@ -205,19 +205,19 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
 
   // Re-encode to H264 for Mediasoup RTP streaming (REQ-002).
   // Frequent keyframes improve startup for late joiners.
-  // -re flag: Only use for progressive downloads. For complete files, read at full speed.
-  const realtimeFlag = realtimeReading ? ["-re"] : [];
-  
+  // Use -re flag ONLY for progressive downloads (live temp file). Skip for complete downloads.
+  const realtimeFlags = realtimeReading ? ["-re"] : [];
   return [
     "-hide_banner",
     "-loglevel", "info",
-    // Read input at realtime speed (only for progressive downloads)
-    ...realtimeFlag,
+    // Read input at realtime speed for progressive mode (growing temp files)
+    ...realtimeFlags,
     // Generate timestamps
     "-fflags", "+genpts",
     // Probe larger buffer for fragmented MP4 format detection (REQ-002)
-    "-probesize", "10000000",
-    "-analyzeduration", "10000000",
+    // Even with -re, need substantial probesize to detect fragment structure
+    "-probesize", "50000000",
+    "-analyzeduration", "50000000",
     // Input from temp file
     "-i", inputPath,
     // Drop audio (separate audio stream handles this)
@@ -256,20 +256,20 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
   const bitrateNorm = normalizeBitrate(bitrate);
 
   const volumeFilter = volume !== 1 ? ["-af", `volume=${volume}`] : [];
-  const realtimeFlag = realtimeReading ? ["-re"] : [];
+  const realtimeFlags = realtimeReading ? ["-re"] : [];
 
   // Audio MUST be re-encoded (AAC → Opus) for Mediasoup/WebRTC compatibility.
-  // Unlike video, this is lightweight and doesn't cause frame drops.
+  // Use -re flag ONLY for progressive mode (growing files). Skip for complete downloads.
   return [
     "-hide_banner",
     "-loglevel", "info",
-    // Read input at realtime speed to avoid fast playback and early exit (only for progressive downloads)
-    ...realtimeFlag,
+    // Read input at realtime speed for progressive mode
+    ...realtimeFlags,
     // Generate timestamps for piped input to keep RTP timing stable
     "-fflags", "+genpts",
-    // Probe larger buffer for fragmented MP4 format detection
-    "-probesize", "5000000",
-    "-analyzeduration", "5000000",
+    // Probe larger buffer for fragmented format detection
+    "-probesize", "30000000",
+    "-analyzeduration", "30000000",
     // Input from temp file (grows as yt-dlp downloads)
     "-i", inputPath,
     // Drop video (separate video stream handles this)
@@ -430,49 +430,50 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   loggers.log(`[${tag}]`, `[RTP Config] PT=${options.payloadType}, SSRC=${options.ssrc}, dest=rtp://${rtpHost}:${rtpPort}`);
 
   const waitForFullDownload = waitForDownloadComplete ?? shouldWaitForDownloadComplete(streamType);
+  
   if (waitForFullDownload) {
+    // ---- Complete Download Mode ----
     loggers.log(`[${tag}]`, "Waiting for full download before starting ffmpeg...");
     const code = await ytDlpExit;
     if (code !== 0 && code !== 143) {
       cleanupDownloadedFile();
       throw new Error(`${tag}: yt-dlp failed — exit ${code}`);
     }
-  }
-
-  // ---- AWAIT: Wait for temp file to have enough data ----
-  // For progressive downloads (waitForFullDownload=false), we need a larger initial buffer
-  // to prevent ffmpeg from hitting EOF on fragmented MP4s before more data arrives.
-  const minInitialBytes = waitForFullDownload
-    ? 10_000  // Full download: just need to verify file exists
-    : (streamType === "video" ? 10_000_000 : 100_000);  // Progressive: 10 MB video, 100 KB audio
-  
-  loggers.log(`[${tag}]`, "Waiting for download data...");
-  let fileReady = false;
-  for (let i = 0; i < 300; i++) {  // 30 seconds max wait
-    if (existsSync(tempFilePath)) {
-      const fileSize = Bun.file(tempFilePath).size;
-      if (fileSize >= minInitialBytes) {
-        loggers.log(`[${tag}]`, `Temp file ready (${Math.round(fileSize / 1024)} KB), starting ffmpeg...`);
-        fileReady = true;
-        break;
+    loggers.log(`[${tag}]`, "Download complete, starting ffmpeg...");
+  } else {
+    // ---- Progressive Mode: Buffer & Start ----
+    const minInitialBytes = streamType === "video" ? 10_000_000 : 100_000;  // 10 MB video, 100 KB audio
+    loggers.log(`[${tag}]`, "Waiting for initial buffer...");
+    let fileReady = false;
+    for (let i = 0; i < 300; i++) {  // 30 seconds max wait
+      if (existsSync(tempFilePath)) {
+        const fileSize = Bun.file(tempFilePath).size;
+        if (fileSize >= minInitialBytes) {
+          loggers.log(`[${tag}]`, `Temp file ready (${Math.round(fileSize / 1024)} KB), starting ffmpeg...`);
+          fileReady = true;
+          break;
+        }
       }
+      await new Promise<void>(r => setTimeout(r, 100));
     }
-    await new Promise<void>(r => setTimeout(r, 100));
-  }
-
-  if (!fileReady) {
-    loggers.error(`[${tag}]`, `Temp file not ready after 30s! yt-dlp may have failed.`);
-    try { ytDlpProc.kill("SIGTERM"); } catch { /* */ }
-    cleanupDownloadedFile();
-    throw new Error(`${tag}: yt-dlp download failed — no data received after 30s`);
+    if (!fileReady) {
+      loggers.error(`[${tag}]`, `Temp file not ready after 30s! yt-dlp may have failed.`);
+      try { ytDlpProc.kill("SIGTERM"); } catch { /* */ }
+      cleanupDownloadedFile();
+      throw new Error(`${tag}: yt-dlp download failed — no data received after 30s`);
+    }
   }
 
   // ---- Start ffmpeg (file has data now) ----
   loggers.log(`[${tag}]`, "Phase: STREAMING — ffmpeg reading from temp file...");
 
-  // Build ffmpeg args now that we know download status
-  // For complete downloads, don't use -re (realtime reading) to avoid EOF issues with fragmented MP4
+  // Determine if we should use -re flag:
+  // - fullDownloadMode=true (complete file): NO -re (normal file reading)
+  // - fullDownloadMode=false (progressive): YES -re (simulate realtime reading from growing file)
   const useRealtimeReading = !waitForFullDownload;
+  loggers.log(`[${tag}]`, `[FFmpeg config] -re flag: ${useRealtimeReading ? "ON (progressive)" : "OFF (complete file)"}`);
+
+  // Build ffmpeg args with appropriate realtime reading setting
   const args = streamType === "video"
     ? buildVideoStreamArgs({ inputPath: tempFilePath, rtpHost, rtpPort, payloadType, ssrc, bitrate, realtimeReading: useRealtimeReading })
     : buildAudioStreamArgs({ inputPath: tempFilePath, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume, realtimeReading: useRealtimeReading });
