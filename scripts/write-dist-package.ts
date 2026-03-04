@@ -15,6 +15,12 @@ export const normalizeCommitHash = (value: string): string => {
 export const buildVersionWithCommit = (baseVersion: string, commitHash: string): string => {
   const safeBase = baseVersion.trim() || "0.0.0";
   const safeCommit = normalizeCommitHash(commitHash);
+  return `${safeBase}-${safeCommit}`;
+};
+
+export const buildTraceVersionLabel = (baseVersion: string, commitHash: string): string => {
+  const safeBase = baseVersion.trim() || "0.0.0";
+  const safeCommit = normalizeCommitHash(commitHash);
   return `${safeBase}:${safeCommit}`;
 };
 
@@ -42,10 +48,12 @@ export const writeDistPackageWithCommitVersion = (workspaceRoot: string): { vers
   const baseVersion = typeof parsed.version === "string" ? parsed.version : "0.0.0";
   const commitHash = resolveGitCommitHash();
   const versionWithCommit = buildVersionWithCommit(baseVersion, commitHash);
+  const traceVersionLabel = buildTraceVersionLabel(baseVersion, commitHash);
 
   const output: PackageJson = {
     ...parsed,
     version: versionWithCommit,
+    sharkordVersionTrace: traceVersionLabel,
   };
 
   mkdirSync(outDir, { recursive: true });

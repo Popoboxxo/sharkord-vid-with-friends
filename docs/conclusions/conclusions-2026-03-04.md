@@ -178,3 +178,24 @@ Probesize (50MB Video / 30MB Audio):
 **Critical Bug gefixt**: Video Early Termination war auf fehlerhaften -re Flag bei Complete Downloads zurückzuführen. Conditional Implementation nun ready für Production.
 
 **Quality:** Code solid, Tests full-coverage, Commit clean, Requirements documented. Session erfolgreich abgeschlossen.
+
+---
+
+## 9. Plugin Discovery Regression nach Version-Suffix mit Doppelpunkt
+
+### Problem
+- Nach Einführung von `version` im Format `<basis>:<commit>` erschien das Plugin nicht mehr zuverlässig in der Plugin-Liste.
+- Wahrscheinliche Ursache: Parser/Loader erwartet SemVer-kompatible Versionen im Feld `version`.
+
+### Umsetzung (REQ-040 Anpassung)
+- `scripts/write-dist-package.ts` schreibt `version` jetzt im loader-kompatiblen Format `<basis>-<commit>` (Regex-konform zu Sharkord).
+- Zusätzlich wird `sharkordVersionTrace` im Format `<basis>:<commit>` geschrieben, damit die gewünschte menschlich lesbare Trace-Notation erhalten bleibt.
+- Unit-Tests angepasst:
+  - `buildVersionWithCommit()` erwartet `-`.
+  - `buildTraceVersionLabel()` validiert die `:`-Trace-Darstellung.
+
+### Betroffene Dateien
+- `scripts/write-dist-package.ts`
+- `tests/unit/write-dist-package.test.ts`
+- `docs/REQUIREMENTS.md` (REQ-040)
+- `docs/CODEBASE_OVERVIEW.md`

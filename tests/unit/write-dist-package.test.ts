@@ -1,10 +1,15 @@
 import { describe, expect, it } from "bun:test";
-import { buildVersionWithCommit, normalizeCommitHash } from "../../scripts/write-dist-package";
+import { buildTraceVersionLabel, buildVersionWithCommit, normalizeCommitHash } from "../../scripts/write-dist-package";
 
 describe("write-dist-package", () => {
-  it("[REQ-040] should format version as base:commit", () => {
+  it("[REQ-040] should format semver-compatible version as base-commit", () => {
     const version = buildVersionWithCommit("0.0.1", "a1b2c3d");
-    expect(version).toBe("0.0.1:a1b2c3d");
+    expect(version).toBe("0.0.1-a1b2c3d");
+  });
+
+  it("[REQ-040] should expose trace label as base:commit", () => {
+    const label = buildTraceVersionLabel("0.0.1", "a1b2c3d");
+    expect(label).toBe("0.0.1:a1b2c3d");
   });
 
   it("[REQ-040] should normalize noisy commit output", () => {
@@ -14,6 +19,6 @@ describe("write-dist-package", () => {
 
   it("[REQ-040] should fallback to unknown when commit hash is invalid", () => {
     const version = buildVersionWithCommit("0.0.1", "not-a-hash");
-    expect(version).toBe("0.0.1:unknown");
+    expect(version).toBe("0.0.1-unknown");
   });
 });

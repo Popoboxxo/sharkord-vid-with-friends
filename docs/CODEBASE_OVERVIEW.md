@@ -14,7 +14,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 - **Entry Point:** `src/index.ts`
 - **Streaming-Pfad (aktuell):** yt-dlp Download in Temp-Datei → ffmpeg RTP (Video+Audio getrennt) → Mediasoup Producer → Sharkord Stream
 - **Alternative vorhanden:** HLS-Server + HLS-ffmpeg-Path (`src/stream/hls-server.ts`, `spawnFfmpegForHLS`)
-- **Build-Metadaten:** Dist-`package.json` Version wird als `<basis>:<commit>` geschrieben (REQ-040)
+- **Build-Metadaten:** Dist-`package.json` Version wird loader-kompatibel als `<basis>-<commit>` geschrieben; zusätzlich enthält `sharkordVersionTrace` das lesbare Format `<basis>:<commit>` (REQ-040)
 
 ---
 
