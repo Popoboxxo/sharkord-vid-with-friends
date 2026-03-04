@@ -336,6 +336,23 @@ describe("ffmpeg", () => {
   });
 
   describe("buildYtDlpDownloadCmd", () => {
+    it("[REQ-038] should prefer explicit formatId when provided", () => {
+      const cmd = buildYtDlpDownloadCmd({
+        ytDlpPath: "/bin/yt-dlp",
+        ffmpegLocation: "/bin",
+        sourceUrl: "https://example.com/video",
+        youtubeUrl: "https://www.youtube.com/watch?v=H6P3kJ8nrR8",
+        streamType: "video",
+        formatId: "137",
+        debug: false,
+        outputPath: "/tmp/output.mp4",
+      });
+
+      const formatIndex = cmd.indexOf("-f");
+      expect(formatIndex).toBeGreaterThanOrEqual(0);
+      expect(cmd[formatIndex + 1]).toBe("137");
+    });
+
     it("[REQ-027-C] should include --verbose in debug mode", () => {
       const cmd = buildYtDlpDownloadCmd({
         ytDlpPath: "/bin/yt-dlp",

@@ -91,6 +91,8 @@ export const registerPlayCommand = (
         youtubeUrl: resolved.youtubeUrl,
         streamUrl: resolved.streamUrl,
         audioUrl: resolved.audioUrl || resolved.streamUrl,  // Fallback to streamUrl if no separate audio
+        videoFormatId: resolved.videoFormatId,
+        audioFormatId: resolved.audioFormatId,
         duration: resolved.duration,
         thumbnail: resolved.thumbnail,
         addedBy: invoker.userId,

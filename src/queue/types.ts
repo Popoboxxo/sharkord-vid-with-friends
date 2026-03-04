@@ -18,6 +18,10 @@ export type QueueItem = {
   streamUrl: string;
   /** Resolved audio-only stream URL (from yt-dlp) - may be same as streamUrl */
   audioUrl: string;
+  /** Resolved yt-dlp format_id used for video download locking */
+  videoFormatId?: string;
+  /** Resolved yt-dlp format_id used for audio download locking */
+  audioFormatId?: string;
   /** Video duration in seconds (0 if unknown) */
   duration: number;
   /** Thumbnail URL */

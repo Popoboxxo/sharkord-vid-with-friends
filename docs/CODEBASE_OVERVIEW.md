@@ -13,6 +13,8 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 - **Kern-Module:** Queue, Stream, Sync, Commands, UI
 - **Entry Point:** `src/index.ts`
 - **Streaming-Pfad (aktuell):** yt-dlp Download in Temp-Datei → ffmpeg RTP (Video+Audio getrennt) → Mediasoup Producer → Sharkord Stream
+- **Format-Lock im Download-Pfad:** Für Video/Audio wird bevorzugt die beim Resolve ermittelte `format_id` an yt-dlp durchgereicht, um Re-Selektion und instabile Varianten zu vermeiden (REQ-038)
+- **Settings-Runtime-Fallback:** `settings:changed` Payloads werden als Override ausgewertet, falls `ctx.settings.get()` zur Laufzeit verzögert/stale ist; `startStream` nutzt diese effektiven Werte (REQ-039)
 - **Alternative vorhanden:** HLS-Server + HLS-ffmpeg-Path (`src/stream/hls-server.ts`, `spawnFfmpegForHLS`)
 - **Build-Metadaten:** Dist-`package.json` Version wird loader-kompatibel als `<basis>-<commit>` geschrieben; zusätzlich enthält `sharkordVersionTrace` das lesbare Format `<basis>:<commit>` (REQ-040)
 

@@ -56,6 +56,7 @@ export type YtDlpDownloadOptions = {
   ffmpegLocation: string;
   sourceUrl: string;
   youtubeUrl?: string;
+  formatId?: string;
   streamType: "video" | "audio";
   useMpegTsOutput?: boolean;
   cookiesPath?: string;
@@ -72,6 +73,7 @@ export type SpawnFfmpegOptions = {
   streamType: "video" | "audio";
   sourceUrl: string;
   youtubeUrl?: string;
+  formatId?: string;
   rtpHost: string;
   rtpPort: number;
   payloadType: number;
@@ -129,6 +131,7 @@ export const buildYtDlpDownloadCmd = (options: YtDlpDownloadOptions & { outputPa
     ffmpegLocation,
     sourceUrl,
     youtubeUrl,
+    formatId,
     streamType,
     useMpegTsOutput = false,
     cookiesPath,
@@ -153,10 +156,14 @@ export const buildYtDlpDownloadCmd = (options: YtDlpDownloadOptions & { outputPa
 
   // ALWAYS prefer youtubeUrl over pre-resolved CDN URL
   if (youtubeUrl) {
-    const formatSel = streamType === "video"
-      ? "bv[vcodec^=avc1][height<=1080]/bv[vcodec^=avc1]/bv*[vcodec^=avc1]"
-      : "ba/ba*";
-    cmd.push("-f", formatSel, "-o", outputPath, youtubeUrl);
+    if (formatId && formatId.trim()) {
+      cmd.push("-f", formatId.trim(), "-o", outputPath, youtubeUrl);
+    } else {
+      const formatSel = streamType === "video"
+        ? "bv[vcodec^=avc1][height<=1080]/bv[vcodec^=avc1]/bv*[vcodec^=avc1]"
+        : "ba/ba*";
+      cmd.push("-f", formatSel, "-o", outputPath, youtubeUrl);
+    }
   } else {
     // Fallback: use pre-resolved URL
     cmd.push("-o", outputPath, sourceUrl);
@@ -317,6 +324,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     streamType,
     sourceUrl,
     youtubeUrl,
+    formatId,
     rtpHost,
     rtpPort,
     payloadType,
@@ -378,6 +386,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
       ffmpegLocation: binDir,
       sourceUrl,
       youtubeUrl,
+      formatId,
       streamType,
       useMpegTsOutput: progressiveVideoMode,
       cookiesPath: existsSync(cookiesPath) ? cookiesPath : undefined,
@@ -386,10 +395,14 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     });
 
     if (youtubeUrl) {
-      const formatSel = streamType === "video"
-        ? "bv[vcodec^=avc1][height<=1080]/bv[vcodec^=avc1]/bv*[vcodec^=avc1]"
-        : "ba/ba*";
-      loggers.log(`[${tag}]`, `Downloading via YouTube URL (format: ${formatSel}${progressiveVideoMode ? ", hls-use-mpegts=true" : ""})`);
+      if (formatId && formatId.trim()) {
+        loggers.log(`[${tag}]`, `Downloading via YouTube URL (locked formatId: ${formatId.trim()}${progressiveVideoMode ? ", hls-use-mpegts=true" : ""})`);
+      } else {
+        const formatSel = streamType === "video"
+          ? "bv[vcodec^=avc1][height<=1080]/bv[vcodec^=avc1]/bv*[vcodec^=avc1]"
+          : "ba/ba*";
+        loggers.log(`[${tag}]`, `Downloading via YouTube URL (format: ${formatSel}${progressiveVideoMode ? ", hls-use-mpegts=true" : ""})`);
+      }
     } else {
       loggers.log(`[${tag}]`, `Fallback: downloading from CDN URL (${sourceUrl.length} chars)`);
     }

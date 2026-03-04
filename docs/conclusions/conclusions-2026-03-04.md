@@ -199,3 +199,24 @@ Probesize (50MB Video / 30MB Audio):
 - `tests/unit/write-dist-package.test.ts`
 - `docs/REQUIREMENTS.md` (REQ-040)
 - `docs/CODEBASE_OVERVIEW.md`
+
+---
+
+## 10. Log-Forensik: fullDownloadMode-Stale Read + Video-Ende bei ~31s
+
+### Befund aus Session-Logs
+- UI/Server meldet `fullDownloadMode` Update auf `true`, aber `startStream` loggt weiter `fullDownloadMode=false`.
+- Video-FFmpeg endet reproduzierbar nach ~789 Frames (~31s bei 25fps) mit `exit 0`, während Audio weiterläuft.
+
+### Umgesetzte Korrekturen
+- **REQ-039:** Runtime-Settings-Fallback ergänzt:
+  - Auswertung von `settings:changed` Payload (`key/value` sowie `settings` Objekt)
+  - In-Memory Overrides für effektive Settings im Stream-Start
+  - Robuste Boolean-Normalisierung (`true/false`, `1/0`, `on/off`, `yes/no`)
+- **REQ-038:** Download-Format-Lock ergänzt:
+  - Beim `/watch` werden `videoFormatId` / `audioFormatId` aus Resolve in den Queue-Item geschrieben
+  - `spawnFfmpeg`/yt-dlp nutzt diese IDs bevorzugt via `-f <formatId>` statt erneuter breiter Auto-Selektion
+
+### Erwarteter Effekt
+- Der aktivierte Full-Download-Modus wird sofort im nächsten Streamlauf wirksam.
+- Der Video-Pfad verwendet konsistent das aufgelöste Format und reduziert den vorzeitigen Video-Ende-Effekt durch abweichende Re-Selektion.

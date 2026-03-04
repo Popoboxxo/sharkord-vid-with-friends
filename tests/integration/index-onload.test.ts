@@ -159,4 +159,30 @@ describe("Plugin entrypoint lifecycle", () => {
 
     onUnload(ctx as never);
   });
+
+  it("[REQ-039] should apply fullDownloadMode from settings:changed payload even when store read is stale", async () => {
+    const ctx = createMockPluginContext();
+
+    await onLoad(ctx as never);
+
+    // Simulate runtime where setting backend remains stale (still false)
+    // but event payload carries the new value.
+    ctx.events.emit("settings:changed", { key: "fullDownloadMode", value: true });
+
+    const structuredChangeLog = ctx.logs.find(
+      (l) => l.level === "log" && l.args.some((a) => typeof a === "string" && a.includes("[Settings]") && a.includes("settings:changed"))
+    );
+
+    expect(structuredChangeLog).toBeDefined();
+    const structuredPayload = JSON.parse(String(structuredChangeLog!.args[1]));
+    expect(structuredPayload.settings).toHaveProperty("fullDownloadMode", true);
+
+    const changedReadable = ctx.logs.find(
+      (l) => l.level === "log" && l.args.some((a) => typeof a === "string" && a.includes("[Settings:Changed]"))
+    );
+    expect(changedReadable).toBeDefined();
+    expect(String(changedReadable!.args[1])).toContain("fullDownloadMode: false -> true");
+
+    onUnload(ctx as never);
+  });
 });

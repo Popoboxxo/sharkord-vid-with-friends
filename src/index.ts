@@ -41,6 +41,8 @@ let queueManager: QueueManager;
 let streamManager: StreamManager;
 let syncController: SyncController;
 let settingsWatcher: ReturnType<typeof setInterval> | null = null;
+let settingsAccessor: { get: <T = unknown>(key: string) => T | undefined } | null = null;
+let runtimeSettingsOverrides: Partial<EffectiveSettingsSnapshot> = {};
 
 // ---- Debug Mode Helper (REQ-026) ----
 
@@ -128,25 +130,102 @@ type EffectiveSettingsSnapshot = {
 const clampNumber = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));
 
-const resolveEffectiveSettings = (ctx: PluginContext): EffectivePluginSettings => {
-  const rawVideoBitrate = Number(ctx.settings?.get?.("videoBitrate"));
-  const rawAudioBitrate = Number(ctx.settings?.get?.("audioBitrate"));
-  const rawDefaultVolume = Number(ctx.settings?.get?.("defaultVolume"));
-  const rawSyncMode = ctx.settings?.get?.("syncMode");
+const parseBooleanSetting = (value: unknown, fallback: boolean): boolean => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "off", ""].includes(normalized)) return false;
+  }
+  return fallback;
+};
 
-  const videoBitrateKbps = Number.isFinite(rawVideoBitrate)
-    ? clampNumber(rawVideoBitrate, 1000, 12000)
+const getSettingValue = <T = unknown>(ctx: PluginContext, key: string): T | undefined => {
+  try {
+    if (settingsAccessor?.get) {
+      const value = settingsAccessor.get<T>(key);
+      if (value !== undefined) return value;
+    }
+  } catch {
+    // ignore accessor read failure and fallback to ctx.settings.get
+  }
+
+  return ctx.settings?.get?.<T>(key);
+};
+
+const extractRuntimeSettingOverrides = (eventPayload: unknown): Partial<EffectiveSettingsSnapshot> => {
+  if (!eventPayload || typeof eventPayload !== "object") return {};
+
+  const payload = eventPayload as Record<string, unknown>;
+  const override: Partial<EffectiveSettingsSnapshot> = {};
+
+  const applyKeyValue = (key: string, value: unknown): void => {
+    if (key === "videoBitrate") {
+      const n = Number(value);
+      if (Number.isFinite(n)) override.videoBitrate = clampNumber(n, 1000, 12000);
+    }
+    if (key === "audioBitrate") {
+      const n = Number(value);
+      if (Number.isFinite(n)) override.audioBitrate = clampNumber(n, 64, 320);
+    }
+    if (key === "defaultVolume") {
+      const n = Number(value);
+      if (Number.isFinite(n)) override.defaultVolume = clampNumber(n, 0, 100);
+    }
+    if (key === "syncMode") {
+      override.syncMode = value === "client" ? "client" : "server";
+    }
+    if (key === "fullDownloadMode") {
+      override.fullDownloadMode = parseBooleanSetting(value, false);
+    }
+    if (key === "debugMode") {
+      override.debugMode = parseBooleanSetting(value, false);
+    }
+  };
+
+  if (typeof payload.key === "string" && "value" in payload) {
+    applyKeyValue(payload.key, payload.value);
+  }
+
+  if (payload.settings && typeof payload.settings === "object") {
+    const settingsObj = payload.settings as Record<string, unknown>;
+    for (const [key, value] of Object.entries(settingsObj)) {
+      applyKeyValue(key, value);
+    }
+  }
+
+  return override;
+};
+
+const resolveEffectiveSettings = (ctx: PluginContext): EffectivePluginSettings => {
+  const rawVideoBitrate = Number(getSettingValue(ctx, "videoBitrate"));
+  const rawAudioBitrate = Number(getSettingValue(ctx, "audioBitrate"));
+  const rawDefaultVolume = Number(getSettingValue(ctx, "defaultVolume"));
+  const rawSyncMode = getSettingValue(ctx, "syncMode");
+  const rawFullDownloadMode = getSettingValue(ctx, "fullDownloadMode");
+  const rawDebugMode = getSettingValue(ctx, "debugMode");
+
+  const resolvedVideoBitrate = runtimeSettingsOverrides.videoBitrate ?? rawVideoBitrate;
+  const resolvedAudioBitrate = runtimeSettingsOverrides.audioBitrate ?? rawAudioBitrate;
+  const resolvedDefaultVolume = runtimeSettingsOverrides.defaultVolume ?? rawDefaultVolume;
+  const resolvedSyncMode = runtimeSettingsOverrides.syncMode ?? rawSyncMode;
+  const resolvedFullDownloadMode = runtimeSettingsOverrides.fullDownloadMode ?? rawFullDownloadMode;
+  const resolvedDebugMode = runtimeSettingsOverrides.debugMode ?? rawDebugMode;
+
+  const videoBitrateKbps = Number.isFinite(resolvedVideoBitrate)
+    ? clampNumber(Number(resolvedVideoBitrate), 1000, 12000)
     : DEFAULT_SETTINGS.BITRATE_VIDEO;
-  const audioBitrateKbps = Number.isFinite(rawAudioBitrate)
-    ? clampNumber(rawAudioBitrate, 64, 320)
+  const audioBitrateKbps = Number.isFinite(resolvedAudioBitrate)
+    ? clampNumber(Number(resolvedAudioBitrate), 64, 320)
     : DEFAULT_SETTINGS.BITRATE_AUDIO;
-  const defaultVolume = Number.isFinite(rawDefaultVolume)
-    ? clampNumber(rawDefaultVolume, 0, 100)
+  const defaultVolume = Number.isFinite(resolvedDefaultVolume)
+    ? clampNumber(Number(resolvedDefaultVolume), 0, 100)
     : DEFAULT_SETTINGS.DEFAULT_VOLUME;
 
-  const syncMode: SyncMode = rawSyncMode === "client" ? "client" : "server";
-  const fullDownloadMode = Boolean(ctx.settings?.get?.("fullDownloadMode") ?? false);
-  const debugMode = Boolean(ctx.settings?.get?.("debugMode") ?? false);
+  const syncMode: SyncMode = resolvedSyncMode === "client" ? "client" : "server";
+  const fullDownloadMode = parseBooleanSetting(resolvedFullDownloadMode, false);
+  const debugMode = parseBooleanSetting(resolvedDebugMode, false);
 
   return {
     videoBitrateKbps,
@@ -344,6 +423,7 @@ const startStream = async (
       streamType: "video",
       sourceUrl: item.streamUrl,
       youtubeUrl: item.youtubeUrl,
+      formatId: item.videoFormatId,
       rtpHost: rtpTargetHost,
       rtpPort: (videoTransport as any).tuple?.localPort,
       payloadType: 96,
@@ -361,6 +441,7 @@ const startStream = async (
       streamType: "audio",
       sourceUrl: item.audioUrl,
       youtubeUrl: item.youtubeUrl,
+      formatId: item.audioFormatId,
       rtpHost: rtpTargetHost,
       rtpPort: (audioTransport as any).tuple?.localPort,
       payloadType: 111,
@@ -697,6 +778,9 @@ const handleVoiceRuntimeClosed = (ctx: PluginContext) => {
 export const onLoad = async (ctx: PluginContext): Promise<void> => {
   ctx.log(`[${PLUGIN_NAME}] Loading...`);
 
+  settingsAccessor = null;
+  runtimeSettingsOverrides = {};
+
   // 1. Initialize core managers
   queueManager = new QueueManager();
   streamManager = new StreamManager();
@@ -710,7 +794,7 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
   );
 
   // 3. Register settings (REQ-018, REQ-018-A through REQ-018-H)
-  ctx.settings.register([
+  const settingsRegistrationResult = ctx.settings.register([
     {
       key: "videoBitrate",
       name: "Video-Bitrate (kbps)",
@@ -787,7 +871,25 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
         "[REQ-026, REQ-018 (Debug option)]",
       defaultValue: false,
     },
-  ]);
+  ]) as unknown;
+
+  const registrationMaybePromise = settingsRegistrationResult as { then?: (cb: (value: unknown) => unknown) => unknown };
+  if (typeof registrationMaybePromise?.then === "function") {
+    try {
+      const resolved = await Promise.resolve(settingsRegistrationResult);
+      const accessor = resolved as { get?: <T = unknown>(key: string) => T | undefined };
+      if (typeof accessor?.get === "function") {
+        settingsAccessor = { get: accessor.get.bind(accessor) };
+      }
+    } catch {
+      // fallback to ctx.settings.get only
+    }
+  } else {
+    const accessor = settingsRegistrationResult as { get?: <T = unknown>(key: string) => T | undefined };
+    if (typeof accessor?.get === "function") {
+      settingsAccessor = { get: accessor.get.bind(accessor) };
+    }
+  }
 
   // 4. Register all commands (REQ-001, REQ-004-013)
   registerPlayCommand(ctx as never, queueManager, syncController);
@@ -816,6 +918,9 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
 
   // 5b. Listen for settings changes/saves and log effective settings (REQ-039)
   ctx.events.on("settings:changed", (...args: unknown[]) => {
+    const payload = args[0];
+    const overrides = extractRuntimeSettingOverrides(payload);
+    runtimeSettingsOverrides = { ...runtimeSettingsOverrides, ...overrides };
     previousSettingsSnapshot = logSettingsSnapshot(ctx, "settings:changed", args, previousSettingsSnapshot);
   });
 
@@ -850,6 +955,9 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
  */
 export const onUnload = (ctx: PluginContext): void => {
   ctx.log(`[${PLUGIN_NAME}] Unloading...`);
+
+  settingsAccessor = null;
+  runtimeSettingsOverrides = {};
 
   if (settingsWatcher) {
     clearInterval(settingsWatcher);
