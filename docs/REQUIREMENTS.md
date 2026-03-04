@@ -27,7 +27,10 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 | REQ-034 | Pausierter Stream kann explizit fortgesetzt werden (`/resume`). Wenn kein pausiertes Video vorhanden ist, liefert der Command eine klare Rückmeldung | Must |
 | REQ-035 | Pro Voice-Channel darf nur **ein** aktives Video laufen. Ein weiterer Startversuch (`/watch`) während aktiver Wiedergabe wird abgewiesen | Must |
 | REQ-036 | Plugin-Setting **Full-Download-Modus** steuert den Startzeitpunkt: aktiviert = vollständiger Download vor Wiedergabe, deaktiviert = Wiedergabe während Download. Standardwert: deaktiviert | Should |
+| REQ-036-A | **fullDownloadMode=true (Complete Download First):** Nutzer wartet bis Video/Audio komplett heruntergeladen ist, DANN startet ffmpeg ohne `-re` Flag. Resultat: Linearer Playback ohne Buffer-Abhängigkeit, ideal für Kontrolle und kleine Videos. ffmpeg liest normal (nicht in Echtzeit), garantiert volle Duration-Unterstützung | Should |
+| REQ-036-B | **fullDownloadMode=false (Progressive With Buffer):** Video startet nach 10 MB (~2-3 Sekunden), Audio nach 100 KB Buffer mit `-re` Flag (Realtime-Simulation). Resultat: Sofortiger Spielstart, ideal für lange YouTube-Videos (100+ min), keine EOF-Fehler bei wachsender Datei | Should |
 | REQ-037 | Wenn `debugMode=false`, werden alle während der Session heruntergeladenen Video-/Audio-Dateien nach Nutzung automatisch gelöscht (Logs bleiben erhalten) | Must |
+| REQ-038 | **Conditional -re Flag:** ffmpeg `-re` Flag wird intelligenterweise gesetzt/nicht gesetzt basierend auf Download-Modus. fullDownloadMode=true (complete file): KEINE -re (entspricht REQ-036-A), fullDownloadMode=false (progressive): MIT -re (entspricht REQ-036-B). Verhindert vorzeitige Video-Terminierung aufgrund falscher Duration-Interpretation | Must |
 ### Warteschlange (Queue)
 
 | ID | Anforderung | Priorität |
