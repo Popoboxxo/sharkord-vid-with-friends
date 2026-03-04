@@ -73,4 +73,55 @@ describe("Plugin entrypoint lifecycle", () => {
 
     onUnload(ctx as never);
   });
+
+  it("[REQ-039] should log all plugin settings at startup", async () => {
+    const ctx = createMockPluginContext();
+
+    await onLoad(ctx as never);
+
+    // Find the settings log entry
+    const settingsLog = ctx.logs.find(
+      (l) => l.level === "log" && l.args.some((a) => typeof a === "string" && a.includes("[Settings]") && a.includes("plugin:loaded"))
+    );
+
+    expect(settingsLog).toBeDefined();
+
+    // The second arg should be a JSON string with all settings
+    const jsonStr = settingsLog!.args[1] as string;
+    const parsed = JSON.parse(jsonStr);
+    expect(parsed).toHaveProperty("videoBitrate");
+    expect(parsed).toHaveProperty("audioBitrate");
+    expect(parsed).toHaveProperty("defaultVolume");
+    expect(parsed).toHaveProperty("syncMode");
+    expect(parsed).toHaveProperty("fullDownloadMode");
+    expect(parsed).toHaveProperty("debugMode");
+
+    onUnload(ctx as never);
+  });
+
+  it("[REQ-039] should register settings:changed event listener", async () => {
+    const ctx = createMockPluginContext();
+
+    await onLoad(ctx as never);
+
+    // Verify the settings:changed listener was registered
+    const handlers = ctx.events.handlers.get("settings:changed");
+    expect(handlers).toBeDefined();
+    expect(handlers!.size).toBeGreaterThan(0);
+
+    // Simulate a settings change event
+    const logCountBefore = ctx.logs.length;
+    ctx.events.emit("settings:changed", { key: "debugMode", value: true });
+    const logCountAfter = ctx.logs.length;
+
+    // Should have logged the change event + snapshot
+    expect(logCountAfter).toBeGreaterThan(logCountBefore);
+
+    const changeLogs = ctx.logs.slice(logCountBefore).filter(
+      (l) => l.level === "log" && l.args.some((a) => typeof a === "string" && a.includes("[Settings]"))
+    );
+    expect(changeLogs.length).toBeGreaterThanOrEqual(1);
+
+    onUnload(ctx as never);
+  });
 });

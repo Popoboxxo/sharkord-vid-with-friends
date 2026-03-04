@@ -26,11 +26,11 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 | REQ-013 | Stream kann pausiert und fortgesetzt werden (`/pause`) | Should |
 | REQ-034 | Pausierter Stream kann explizit fortgesetzt werden (`/resume`). Wenn kein pausiertes Video vorhanden ist, liefert der Command eine klare Rückmeldung | Must |
 | REQ-035 | Pro Voice-Channel darf nur **ein** aktives Video laufen. Ein weiterer Startversuch (`/watch`) während aktiver Wiedergabe wird abgewiesen | Must |
-| REQ-036 | Plugin-Setting **Full-Download-Modus** steuert den Startzeitpunkt: aktiviert = vollständiger Download vor Wiedergabe, deaktiviert = Wiedergabe während Download. Standardwert: deaktiviert | Should |
-| REQ-036-A | **fullDownloadMode=true (Complete Download First):** Nutzer wartet bis Video/Audio komplett heruntergeladen ist, DANN startet ffmpeg ohne `-re` Flag. Resultat: Linearer Playback ohne Buffer-Abhängigkeit, ideal für Kontrolle und kleine Videos. ffmpeg liest normal (nicht in Echtzeit), garantiert volle Duration-Unterstützung | Should |
-| REQ-036-B | **fullDownloadMode=false (Progressive With Buffer):** Video startet nach 10 MB (~2-3 Sekunden), Audio nach 100 KB Buffer mit `-re` Flag (Realtime-Simulation). Resultat: Sofortiger Spielstart, ideal für lange YouTube-Videos (100+ min), keine EOF-Fehler bei wachsender Datei | Should |
+| REQ-036 | Plugin-Setting **Full-Download-Modus** steuert den Startzeitpunkt von Video und Audio: aktiviert = vollständiger Download vor Wiedergabe, deaktiviert = Wiedergabe ohne vollständigen Download (progressiv/direct). Standardwert: deaktiviert | Should |
+| REQ-036-A | **fullDownloadMode=true (Complete Download First):** Video und Audio warten bis vollständig heruntergeladen, dann startet ffmpeg ohne `-re`. Resultat: deterministischer Start und stabile Gesamtdauer | Should |
+| REQ-036-B | **fullDownloadMode=false (No Full Download Before Start):** Wiedergabe startet ohne vollständigen Download. Audio nutzt progressives Temp-File-Streaming, Video nutzt progressiven Direkt-Input. Resultat: schneller Start bei langen Videos | Should |
 | REQ-037 | Wenn `debugMode=false`, werden alle während der Session heruntergeladenen Video-/Audio-Dateien nach Nutzung automatisch gelöscht (Logs bleiben erhalten) | Must |
-| REQ-038 | **Conditional -re Flag:** ffmpeg `-re` Flag wird intelligenterweise gesetzt/nicht gesetzt basierend auf Download-Modus. fullDownloadMode=true (complete file): KEINE -re (entspricht REQ-036-A), fullDownloadMode=false (progressive): MIT -re (entspricht REQ-036-B). Verhindert vorzeitige Video-Terminierung aufgrund falscher Duration-Interpretation | Must |
+| REQ-038 | **Video-Progressive Stabilität bei fullDownloadMode=false:** Video darf ohne vollständigen Download starten, muss dabei aber eine Streaming-Methode verwenden, die das vorzeitige Stoppen (Freeze bei laufender Audio) verhindert. Bei fullDownloadMode=true bleibt Voll-Download vor Start aktiv. | Must |
 ### Warteschlange (Queue)
 
 | ID | Anforderung | Priorität |
@@ -105,6 +105,7 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 | REQ-024 | Portabilität: Plugin läuft auf Linux, macOS und Windows ohne Code-Anpassungen | Should |
 | REQ-025 | Dokumentation: README (Englisch), REQUIREMENTS und ARCHITECTURE sind aktuell | Should |
 | REQ-026 | Plugin-Setting "Debug Output" (Boolean) aktiviert/deaktiviert detailliertes Logging für Stream-Prozesse, ffmpeg stderr, yt-dlp Aufrufe, und Fehler-Diagnose | Must |
+| REQ-039 | **Settings-Logging bei Start und Änderung:** Alle Plugin-Einstellungen (videoBitrate, audioBitrate, defaultVolume, syncMode, fullDownloadMode, debugMode) werden bei Plugin-Start und bei jeder Änderung als strukturierter JSON-Log-Eintrag ausgegeben. Ermöglicht Nachvollziehbarkeit der Konfiguration in Debug-Szenarien | Must |
 | REQ-032 | **Debug-Cache für Downloads:** Im Debug-Modus wird der yt-dlp Download parallel in eine lokale Datei geschrieben (Video/Audio separat), um die Download-Funktion unabhängig vom RTP-Pfad prüfen zu können. | Should |
 | REQ-033 | **`/debug_cache` Command:** Zeigt alle gecachten Download-Dateien (Video/Audio) mit Größe und Zeitstempel an. Ermöglicht Nutzer, heruntergeladene Dateien zu inspizieren und vom Host aus (via Docker-Volume `./debug-cache/`) herunterzuladen. Nur verfügbar wenn Debug Output aktiv ist. | Should |
 

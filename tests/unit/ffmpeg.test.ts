@@ -71,7 +71,7 @@ describe("ffmpeg", () => {
       expect(args).toContain("/tmp/video.mp4");
     });
 
-    it("[REQ-002] should read input in realtime to avoid fast playback", () => {
+    it("[REQ-002] should default to realtime reading when realtimeReading not specified", () => {
       const args = buildVideoStreamArgs({
         inputPath: "/tmp/video.mp4",
         rtpHost: "127.0.0.1",
@@ -81,7 +81,22 @@ describe("ffmpeg", () => {
         bitrate: "2000k",
       });
 
+      // Function-level default is -re ON for progressive temp-file inputs
       expect(args).toContain("-re");
+    });
+
+    it("[REQ-038] should NOT use -re when realtimeReading is false", () => {
+      const args = buildVideoStreamArgs({
+        inputPath: "/tmp/video.mp4",
+        rtpHost: "127.0.0.1",
+        rtpPort: 40001,
+        payloadType: 96,
+        ssrc: 123456,
+        bitrate: "2000k",
+        realtimeReading: false,
+      });
+
+      expect(args).not.toContain("-re");
     });
 
     it("[REQ-002] should generate timestamps for piped input", () => {
@@ -189,7 +204,7 @@ describe("ffmpeg", () => {
       expect(args).toContain("/tmp/audio.webm");
     });
 
-    it("[REQ-002] should read input in realtime to avoid fast playback", () => {
+    it("[REQ-036-B] should use -re for progressive audio (default)", () => {
       const args = buildAudioStreamArgs({
         inputPath: "/tmp/audio.webm",
         rtpHost: "127.0.0.1",
@@ -201,6 +216,21 @@ describe("ffmpeg", () => {
       });
 
       expect(args).toContain("-re");
+    });
+
+    it("[REQ-036-A] should NOT use -re for complete audio download", () => {
+      const args = buildAudioStreamArgs({
+        inputPath: "/tmp/audio.webm",
+        rtpHost: "127.0.0.1",
+        rtpPort: 40002,
+        payloadType: 111,
+        ssrc: 789012,
+        bitrate: "128k",
+        volume: 1,
+        realtimeReading: false,
+      });
+
+      expect(args).not.toContain("-re");
     });
 
     it("[REQ-002] should generate timestamps for piped input", () => {

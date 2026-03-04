@@ -219,14 +219,11 @@ const startStream = async (
     const videoBitrate = `${Number.isFinite(videoBitrateKbps) ? videoBitrateKbps : DEFAULT_SETTINGS.BITRATE_VIDEO}k`;
     const audioBitrate = `${Number.isFinite(audioBitrateKbps) ? audioBitrateKbps : DEFAULT_SETTINGS.BITRATE_AUDIO}k`;
 
-    ctx.debug(`[stream:${channelId}] Settings: volume=${volume}%, videoBitrate=${videoBitrate}, audioBitrate=${audioBitrate}, fullDownloadMode=${fullDownloadMode}`);
+    ctx.log(`[stream:${channelId}] Settings: volume=${volume}%, videoBitrate=${videoBitrate}, audioBitrate=${audioBitrate}, fullDownloadMode=${fullDownloadMode}`);
 
-    // 6. Spawn ffmpeg with RTP output (using temp-file method for stability)
-    // NOTE: Video file download strategy depends on fullDownloadMode setting:
-    // - false (default): Wait for 10MB buffer, then stream progressively while downloading
-    //   → Fast start, good for long videos
-    // - true: Wait for complete download, then stream
-    //   → Slower start, but complete file available
+    // 6. Spawn ffmpeg with RTP output (using temp-file/direct-input hybrid)
+    // fullDownloadMode=true  -> complete download before start (REQ-036-A)
+    // fullDownloadMode=false -> start without full download (REQ-036-B)
     const ffmpegVideoProc = await spawnFfmpeg({
       streamType: "video",
       sourceUrl: item.streamUrl,
@@ -237,7 +234,7 @@ const startStream = async (
       ssrc: (videoProducer as any).rtpParameters?.encodings?.[0]?.ssrc || 1,
       bitrate: videoBitrate,
       debugEnabled: debugMode,
-      waitForDownloadComplete: fullDownloadMode,  // TRUE = wait for complete download, FALSE = start after buffer
+      waitForDownloadComplete: fullDownloadMode,
       loggers,
       onEnd: async () => {
         ctx.log(`[stream:${channelId}] Video ffmpeg ended`);
@@ -255,7 +252,7 @@ const startStream = async (
       bitrate: audioBitrate,
       volume: normalizedVolume,
       debugEnabled: debugMode,
-      waitForDownloadComplete: false,  // Audio can start even if download isn't complete
+      waitForDownloadComplete: fullDownloadMode,
       loggers,
       onEnd: async () => {
         ctx.log(`[stream:${channelId}] Audio ffmpeg ended, checking auto-advance`);
@@ -697,7 +694,24 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
     ctx.debug(`[${PLUGIN_NAME}] Runtime has no ctx.ui.registerComponents(); using exported components fallback.`);
   }
 
-  // 5. Listen for voice channel close events (REQ-016)
+  // 5. Log all current settings at startup (REQ-039)
+  const SETTING_KEYS = ["videoBitrate", "audioBitrate", "defaultVolume", "syncMode", "fullDownloadMode", "debugMode"] as const;
+  const logCurrentSettings = (trigger: string) => {
+    const snapshot: Record<string, unknown> = {};
+    for (const key of SETTING_KEYS) {
+      snapshot[key] = ctx.settings?.get?.(key);
+    }
+    ctx.log(`[${PLUGIN_NAME}] [Settings] (${trigger})`, JSON.stringify(snapshot));
+  };
+  logCurrentSettings("plugin:loaded");
+
+  // 5b. Listen for settings changes (REQ-039)
+  ctx.events.on("settings:changed", (...args: unknown[]) => {
+    ctx.log(`[${PLUGIN_NAME}] [Settings] Change event received:`, JSON.stringify(args));
+    logCurrentSettings("settings:changed");
+  });
+
+  // 6. Listen for voice channel close events (REQ-016)
   ctx.events.on("voice:runtime_closed", handleVoiceRuntimeClosed(ctx));
 
   ctx.log(`[${PLUGIN_NAME}] Loaded successfully.`);

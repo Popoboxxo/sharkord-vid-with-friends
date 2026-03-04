@@ -68,7 +68,8 @@ export type ServerEvent =
   | "message:updated"
   | "message:deleted"
   | "voice:runtime_initialized"
-  | "voice:runtime_closed";
+  | "voice:runtime_closed"
+  | "settings:changed";
 
 // ---- Mock Router ----
 

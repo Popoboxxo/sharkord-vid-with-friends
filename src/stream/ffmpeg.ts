@@ -326,14 +326,17 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   const cookiesPath = path.join(binDir, "cookies.txt");
   const tag = streamType.toUpperCase(); // "VIDEO" or "AUDIO"
 
-  // Generate temp file path
+  const waitForFullDownload = waitForDownloadComplete ?? shouldWaitForDownloadComplete(streamType);
+  const useDirectVideoInput = streamType === "video" && !waitForFullDownload;
+
+  // Generate temp file path (only needed when yt-dlp downloads to local file)
   const videoId = extractYouTubeId(youtubeUrl || "");
-  const tempFilePath = buildTempFilePath(videoId, streamType);
+  const tempFilePath = useDirectVideoInput ? undefined : buildTempFilePath(videoId, streamType);
 
   const cleanupDownloadedFile = (): void => {
     if (!shouldCleanupDownloadedData(debugEnabled)) return;
     try {
-      if (existsSync(tempFilePath)) {
+      if (tempFilePath && existsSync(tempFilePath)) {
         unlinkSync(tempFilePath);
         loggers.debug(`[${tag}]`, `[Cleanup] Removed downloaded temp file: ${path.basename(tempFilePath)}`);
       }
@@ -342,99 +345,103 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     }
   };
   
-  // Ensure cache directory exists
-  const cacheDir = path.dirname(tempFilePath);
-  mkdirSync(cacheDir, { recursive: true });
+  let ytDlpProc: ReturnType<typeof Bun.spawn> | null = null;
+  let ytDlpExit: Promise<number> | null = null;
 
-  loggers.log(`[${tag}]`, `Phase: DOWNLOADING — yt-dlp downloading to: ${path.basename(tempFilePath)}`);
-
-  // Build yt-dlp download command (downloads to temp file)
-  const ytDlpCmd = buildYtDlpDownloadCmd({
-    ytDlpPath,
-    ffmpegLocation: binDir,
-    sourceUrl,
-    youtubeUrl,
-    streamType,
-    cookiesPath: existsSync(cookiesPath) ? cookiesPath : undefined,
-    debug: debugEnabled,
-    outputPath: tempFilePath,
-  });
-
-  if (youtubeUrl) {
-    const formatSel = streamType === "video"
-      ? "bv[vcodec^=avc1][height<=1080]/bv[vcodec^=avc1]/bv*[vcodec^=avc1]"
-      : "ba/ba*";
-    loggers.log(`[${tag}]`, `Downloading via YouTube URL (format: ${formatSel})`);
-  } else {
-    loggers.log(`[${tag}]`, `Fallback: downloading from CDN URL (${sourceUrl.length} chars)`);
-  }
-
-  if (debugEnabled) {
-    loggers.debug(`[${tag}]`, "[yt-dlp cmd full]", ytDlpCmd.join(" "));
-  }
-
-  // Start yt-dlp to download to temp file
-  const ytDlpProc = Bun.spawn({
-    cmd: ytDlpCmd,
-    stdout: "ignore",  // yt-dlp writes to file, not stdout
-    stderr: "pipe",
-    stdin: "ignore",
-  });
-  const ytDlpExit = ytDlpProc.exited;
-
-  loggers.debug(`[${tag}]`, `[yt-dlp] Process started (PID: ${ytDlpProc.pid})`);
-
-  // Capture yt-dlp stderr for logging (REQ-027-B)
-  (async () => {
-    if (!ytDlpProc.stderr) return;
-    const reader = (ytDlpProc.stderr as ReadableStream<Uint8Array>).getReader();
-    const decoder = new TextDecoder();
-    let lineBuffer = "";
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          if (lineBuffer.trim()) loggers.debug(`[${tag}]`, "[yt-dlp]", lineBuffer.trim());
-          break;
-        }
-        lineBuffer += decoder.decode(value, { stream: true });
-        const lines = lineBuffer.split("\n");
-        for (let i = 0; i < lines.length - 1; i++) {
-          const line = lines[i]!.trim();
-          if (line) loggers.debug(`[${tag}]`, "[yt-dlp]", line);
-        }
-        lineBuffer = lines[lines.length - 1] ?? "";
-      }
-    } catch { /* ignore */ }
-    finally { try { reader.releaseLock(); } catch { /* */ } }
-  })();
-
-  // Monitor yt-dlp exit + log final file size
-  ytDlpExit.then(async (code) => {
-    if (code !== 0 && code !== 143) {  // 143 = SIGTERM (expected on cleanup)
-      loggers.error(`[${tag}]`, `[yt-dlp] FAILED (exit code ${code}) — download did not complete!`);
-    } else if (code === 0) {
-      // Log final file size
-      try {
-        const fileSize = existsSync(tempFilePath) ? Bun.file(tempFilePath).size : 0;
-        loggers.log(`[${tag}]`, `[yt-dlp] Download completed (exit 0) — file size: ${Math.round(fileSize / 1024)} KB`);
-      } catch {
-        loggers.log(`[${tag}]`, "[yt-dlp] Download completed (exit 0)");
-      }
-    } else {
-      loggers.debug(`[${tag}]`, `[yt-dlp] Stopped (exit ${code})`);
+  if (!useDirectVideoInput) {
+    if (!tempFilePath) {
+      throw new Error(`${tag}: temp file path missing for download mode`);
     }
-  });
 
-  // REQ-027-B: Phase DOWNLOADING — yt-dlp has begun
-  loggers.log(`[Phase] DOWNLOADING — yt-dlp pipe started on temp file: ${tempFilePath.substring(Math.max(0, tempFilePath.length - 40))}`);
+    // Ensure cache directory exists
+    const cacheDir = path.dirname(tempFilePath);
+    mkdirSync(cacheDir, { recursive: true });
+
+    loggers.log(`[${tag}]`, `Phase: DOWNLOADING — yt-dlp downloading to: ${path.basename(tempFilePath)}`);
+
+    const ytDlpCmd = buildYtDlpDownloadCmd({
+      ytDlpPath,
+      ffmpegLocation: binDir,
+      sourceUrl,
+      youtubeUrl,
+      streamType,
+      cookiesPath: existsSync(cookiesPath) ? cookiesPath : undefined,
+      debug: debugEnabled,
+      outputPath: tempFilePath,
+    });
+
+    if (youtubeUrl) {
+      const formatSel = streamType === "video"
+        ? "bv[vcodec^=avc1][height<=1080]/bv[vcodec^=avc1]/bv*[vcodec^=avc1]"
+        : "ba/ba*";
+      loggers.log(`[${tag}]`, `Downloading via YouTube URL (format: ${formatSel})`);
+    } else {
+      loggers.log(`[${tag}]`, `Fallback: downloading from CDN URL (${sourceUrl.length} chars)`);
+    }
+
+    if (debugEnabled) {
+      loggers.debug(`[${tag}]`, "[yt-dlp cmd full]", ytDlpCmd.join(" "));
+    }
+
+    ytDlpProc = Bun.spawn({
+      cmd: ytDlpCmd,
+      stdout: "ignore",
+      stderr: "pipe",
+      stdin: "ignore",
+    });
+    ytDlpExit = ytDlpProc.exited;
+
+    loggers.debug(`[${tag}]`, `[yt-dlp] Process started (PID: ${ytDlpProc.pid})`);
+
+    (async () => {
+      if (!ytDlpProc?.stderr) return;
+      const reader = (ytDlpProc.stderr as ReadableStream<Uint8Array>).getReader();
+      const decoder = new TextDecoder();
+      let lineBuffer = "";
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            if (lineBuffer.trim()) loggers.debug(`[${tag}]`, "[yt-dlp]", lineBuffer.trim());
+            break;
+          }
+          lineBuffer += decoder.decode(value, { stream: true });
+          const lines = lineBuffer.split("\n");
+          for (let i = 0; i < lines.length - 1; i++) {
+            const line = lines[i]!.trim();
+            if (line) loggers.debug(`[${tag}]`, "[yt-dlp]", line);
+          }
+          lineBuffer = lines[lines.length - 1] ?? "";
+        }
+      } catch { /* ignore */ }
+      finally { try { reader.releaseLock(); } catch { /* */ } }
+    })();
+
+    ytDlpExit.then(async (code) => {
+      if (code !== 0 && code !== 143) {
+        loggers.error(`[${tag}]`, `[yt-dlp] FAILED (exit code ${code}) — download did not complete!`);
+      } else if (code === 0) {
+        try {
+          const fileSize = existsSync(tempFilePath) ? Bun.file(tempFilePath).size : 0;
+          loggers.log(`[${tag}]`, `[yt-dlp] Download completed (exit 0) — file size: ${Math.round(fileSize / 1024)} KB`);
+        } catch {
+          loggers.log(`[${tag}]`, "[yt-dlp] Download completed (exit 0)");
+        }
+      } else {
+        loggers.debug(`[${tag}]`, `[yt-dlp] Stopped (exit ${code})`);
+      }
+    });
+
+    loggers.log(`[Phase] DOWNLOADING — yt-dlp pipe started on temp file: ${tempFilePath.substring(Math.max(0, tempFilePath.length - 40))}`);
+  } else {
+    loggers.log(`[${tag}]`, "Phase: DOWNLOADING — direct source streaming (no full pre-download)");
+    loggers.log(`[Phase] DOWNLOADING — direct source URL input selected for progressive video mode`);
+  }
 
   // Log RTP summary for diagnostics
   loggers.log(`[${tag}]`, `[RTP Config] PT=${options.payloadType}, SSRC=${options.ssrc}, dest=rtp://${rtpHost}:${rtpPort}`);
 
-  const waitForFullDownload = waitForDownloadComplete ?? shouldWaitForDownloadComplete(streamType);
-  
-  if (waitForFullDownload) {
+  if (!useDirectVideoInput && waitForFullDownload) {
     // ---- Complete Download Mode ----
     loggers.log(`[${tag}]`, "Waiting for full download before starting ffmpeg...");
     const code = await ytDlpExit;
@@ -443,7 +450,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
       throw new Error(`${tag}: yt-dlp failed — exit ${code}`);
     }
     loggers.log(`[${tag}]`, "Download complete, starting ffmpeg...");
-  } else {
+  } else if (!useDirectVideoInput) {
     // ---- Progressive Mode: Buffer & Start ----
     const minInitialBytes = streamType === "video" ? 10_000_000 : 100_000;  // 10 MB video, 100 KB audio
     loggers.log(`[${tag}]`, "Waiting for initial buffer...");
@@ -461,7 +468,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     }
     if (!fileReady) {
       loggers.error(`[${tag}]`, `Temp file not ready after 30s! yt-dlp may have failed.`);
-      try { ytDlpProc.kill("SIGTERM"); } catch { /* */ }
+      try { ytDlpProc?.kill("SIGTERM"); } catch { /* */ }
       cleanupDownloadedFile();
       throw new Error(`${tag}: yt-dlp download failed — no data received after 30s`);
     }
@@ -469,18 +476,23 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
 
   // ---- Start ffmpeg (file has data now) ----
   // Determine if we should use -re flag:
-  // - fullDownloadMode=true (complete file): NO -re (normal file reading)
-  // - fullDownloadMode=false (progressive): YES -re (simulate realtime reading from growing file)
+  // - progressive mode: -re ON (realtime pacing)
+  // - complete download mode: -re OFF
   const useRealtimeReading = !waitForFullDownload;
+  const ffmpegInput = useDirectVideoInput ? sourceUrl : tempFilePath;
+  if (!ffmpegInput) {
+    cleanupDownloadedFile();
+    throw new Error(`${tag}: missing ffmpeg input`);
+  }
   
   // REQ-027-B: Phase PIPING — ffmpeg will receive data on stdin
-  loggers.log(`[Phase] PIPING — ffmpeg process spawned, will read from temp file`);
+  loggers.log(`[Phase] PIPING — ffmpeg process spawned, input mode: ${useDirectVideoInput ? "direct-url" : "temp-file"}`);
   loggers.log(`[${tag}]`, `[FFmpeg config] -re flag: ${useRealtimeReading ? "ON (progressive)" : "OFF (complete file)"}`);
 
   // Build ffmpeg args with appropriate realtime reading setting
   const args = streamType === "video"
-    ? buildVideoStreamArgs({ inputPath: tempFilePath, rtpHost, rtpPort, payloadType, ssrc, bitrate, realtimeReading: useRealtimeReading })
-    : buildAudioStreamArgs({ inputPath: tempFilePath, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume, realtimeReading: useRealtimeReading });
+    ? buildVideoStreamArgs({ inputPath: ffmpegInput, rtpHost, rtpPort, payloadType, ssrc, bitrate, realtimeReading: useRealtimeReading })
+    : buildAudioStreamArgs({ inputPath: ffmpegInput, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume, realtimeReading: useRealtimeReading });
 
   if (debugEnabled) {
     loggers.debug(`[${tag}]`, "[FFmpeg cmd]", ffmpegPath, ...args);
@@ -610,13 +622,13 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
 
   return {
     process: proc,
-    tempFilePath,  // Return path for later cleanup by StreamManager
+    tempFilePath,  // Return path for later cleanup by StreamManager (undefined for direct-url mode)
     kill() {
       killed = true;
       try {
         proc.kill("SIGTERM");
-        ytDlpProc.kill("SIGTERM");
-        loggers.debug(`[${tag}]`, "[Kill] SIGTERM sent to ffmpeg + yt-dlp");
+        ytDlpProc?.kill("SIGTERM");
+        loggers.debug(`[${tag}]`, "[Kill] SIGTERM sent to ffmpeg and optional yt-dlp process");
       } catch {
         // Process may already be dead
       }

@@ -53,7 +53,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
     4. `transport.produce(...)` für Audio (Opus/PT111) + Video (H264/PT96)
     5. Settings lesen (`videoBitrate`, `audioBitrate`, `fullDownloadMode`) + Volume aus `syncController` (0..100)
     6. Audio-Volume via `normalizeVolume(...)` auf 0..1 für ffmpeg normalisieren
-    7. `spawnFfmpeg(...)` Video + Audio (Video wartet nur bei `fullDownloadMode=true` auf Voll-Download)
+    7. `spawnFfmpeg(...)` Video + Audio (`fullDownloadMode=true`: Voll-Download; `false`: Start ohne vollständigen Download, Video per Direkt-Input)
     8. `ctx.actions.voice.createStream(...)`
     9. Ressourcen via `streamManager.setActive(...)`
     10. Producer-Monitoring + Health-Check
@@ -217,9 +217,10 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 ### Exportierte Runtime-Funktionen
 
 - `spawnFfmpeg(options): Promise<SpawnedProcess>`
-  - startet yt-dlp Download in Temp-Datei
-  - wartet optional auf Voll-Download (abhängig von Setting/Caller)
-  - wartet auf minimale Dateigröße
+  - nutzt je nach Modus Temp-Datei-Download oder Direkt-Input
+  - `fullDownloadMode=true`: yt-dlp Temp-Datei + Voll-Download vor Start
+  - `fullDownloadMode=false`: Video per Direkt-Input ohne vollständigen Download, Audio progressiv per Temp-Datei
+  - wartet im progressiven Temp-Datei-Modus auf minimale Dateigröße
   - startet ffmpeg RTP-Prozess
   - parsed/loggt ffmpeg Fortschritt (`frame`, `time`, `speed`, `bitrate`)
   - killt bei Cleanup ffmpeg + yt-dlp
