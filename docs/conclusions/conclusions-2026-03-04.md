@@ -220,3 +220,21 @@ Probesize (50MB Video / 30MB Audio):
 ### Erwarteter Effekt
 - Der aktivierte Full-Download-Modus wird sofort im nächsten Streamlauf wirksam.
 - Der Video-Pfad verwendet konsistent das aufgelöste Format und reduziert den vorzeitigen Video-Ende-Effekt durch abweichende Re-Selektion.
+
+---
+
+## 11. Session-Zusammenfassung (kompakt)
+
+### Kern-Erkenntnisse
+- **Plugin-Discovery:** `version` mit `:`/`+` war loader-inkompatibel; final stabil mit `<base>-<commit>` plus `sharkordVersionTrace`.
+- **Settings-Laufzeit:** `settings.get` kann unmittelbar nach Save stale sein; Event-Payload-Fallback ist nötig, damit `fullDownloadMode` sofort wirksam ist.
+- **Video-Stabilität:** Vorzeitiges Video-Ende trat trotz laufendem Audio auf; ein konsistenter Downloadpfad mit `formatId`-Lock reduziert Re-Selektion und Instabilitäten.
+
+### Implementierungsresultat
+- Runtime-Settings-Overrides in `src/index.ts` (inkl. robuster Boolean-Normalisierung)
+- Format-IDs durchgereicht (`play.ts` → `queue/types.ts` → `index.ts` → `ffmpeg.ts`)
+- yt-dlp Download bevorzugt `-f <formatId>` in `buildYtDlpDownloadCmd`
+
+### Verifikation
+- Zieltests grün: `tests/unit/ffmpeg.test.ts`, `tests/integration/index-onload.test.ts`
+- Build erfolgreich, Dist-Version loader-kompatibel und Plugin wieder sichtbar/ladbar

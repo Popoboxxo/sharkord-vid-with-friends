@@ -1,6 +1,6 @@
 # Codebase Overview — sharkord-vid-with-friends
 
-Stand: **03.03.2026**
+Stand: **04.03.2026**
 
 Diese Übersicht ist eine **codegenaue Bestandsaufnahme** des aktuellen Implementierungsstands in `src/`.
 Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung (nicht nur Ziel-Architektur).
@@ -29,6 +29,8 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 - `onLoad(ctx: PluginContext): Promise<void>`
   - Initialisiert `QueueManager`, `StreamManager`, `SyncController`
   - Registriert Settings (`videoBitrate`, `audioBitrate`, `defaultVolume`, `syncMode`, `fullDownloadMode`, `debugMode`)
+  - Initialisiert optionalen Settings-Accessor aus `settings.register(...)` Rückgabewert (falls Runtime diesen liefert)
+  - Initialisiert Runtime-Overrides für Settings aus `settings:changed` Event-Payload
   - Registriert Commands: `watch`, `queue`, `skip`, `remove`, `watch_stop`, `nowplaying`, `pause`, `volume`, `debug_cache`
   - Registriert UI-Komponenten (`ctx.ui.registerComponents(...)` falls verfügbar)
   - Loggt Settings-Snapshot bei Start (`plugin:loaded`) und bei Änderungen (`settings:changed`) als strukturierte JSON + lesbare Zeile (immer aktiv, unabhängig von Debug-Modus)
@@ -57,7 +59,8 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
     4. `transport.produce(...)` für Audio (Opus/PT111) + Video (H264/PT96)
     5. Settings lesen (`videoBitrate`, `audioBitrate`, `fullDownloadMode`) + Volume aus `syncController` (0..100)
     6. Audio-Volume via `normalizeVolume(...)` auf 0..1 für ffmpeg normalisieren
-    7. `spawnFfmpeg(...)` Video + Audio (`fullDownloadMode=true`: Voll-Download; `false`: Start ohne vollständigen Download per progressivem Temp-File)
+     7. `spawnFfmpeg(...)` Video + Audio (`fullDownloadMode=true`: Voll-Download; `false`: Start ohne vollständigen Download per progressivem Temp-File)
+       inkl. Format-Lock via `item.videoFormatId` / `item.audioFormatId`
     8. `ctx.actions.voice.createStream(...)`
     9. Ressourcen via `streamManager.setActive(...)`
     10. Producer-Monitoring + Health-Check
@@ -94,7 +97,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 ## `src/queue/types.ts`
 
 - `QueueItem`
-  - Felder: `id`, `query`, `title`, `youtubeUrl`, `streamUrl`, `audioUrl`, `duration`, `thumbnail`, `addedBy`, `addedAt`
+  - Felder: `id`, `query`, `title`, `youtubeUrl`, `streamUrl`, `audioUrl`, `videoFormatId?`, `audioFormatId?`, `duration`, `thumbnail`, `addedBy`, `addedAt`
 - `QueueAddInput`
 - `ResolvedVideo`
   - inkl. `videoFormatId`, `audioFormatId`
@@ -210,6 +213,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 - `shouldWaitForDownloadComplete(streamType): boolean`
 - `shouldCleanupDownloadedData(debugEnabled): boolean`
 - `buildYtDlpDownloadCmd(options): string[]`
+  - unterstützt optionales `formatId` für Lock auf exakt aufgelöstes yt-dlp Format
 - `buildDebugCacheFileName(options): string`
 - `buildTempFilePath(videoId, streamType): string`
 - `buildVideoStreamArgs(options): string[]`
@@ -225,6 +229,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
   - `fullDownloadMode=true`: Voll-Download vor Start
   - `fullDownloadMode=false`: progressiver Start ohne vollständigen Download (Initial-Buffer)
   - wartet im progressiven Temp-Datei-Modus auf minimale Dateigröße
+  - nutzt bei vorhandenem Wert `formatId` im yt-dlp Download (`-f <formatId>`)
   - startet ffmpeg RTP-Prozess
   - parsed/loggt ffmpeg Fortschritt (`frame`, `time`, `speed`, `bitrate`)
   - killt bei Cleanup ffmpeg + yt-dlp
@@ -361,6 +366,7 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
   - `/watch <query>`
   - blockiert zweiten Startversuch bei aktiver Wiedergabe im selben Channel
   - Resolve via `resolveVideo`, Queue add, Start (nur wenn kein aktiver Stream)
+  - persistiert `videoFormatId` / `audioFormatId` im Queue-Item für stabilen Downloadpfad
   - Fehlerpfad entfernt erstes Queue-Item bei Startfehler
   - **REQ:** REQ-001, REQ-004, REQ-035
 
@@ -465,11 +471,11 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 
 1. User ruft `/watch <query>`
 2. `registerPlayCommand` normalisiert Query (`ytsearch:` bei Suchtext)
-3. `resolveVideo(...)` liefert Metadaten + URLs
+3. `resolveVideo(...)` liefert Metadaten + URLs + `videoFormatId`/`audioFormatId`
 4. Queue add via `queueManager.add(...)`
 5. Wenn nicht playing: `syncController.play(channelId)`
 6. `SyncController.play` ruft injiziertes `startStream(...)`
-7. `startStream` erstellt Transports/Producer, startet ffmpeg-Prozesse, registriert Stream
+7. `startStream` erstellt Transports/Producer, startet ffmpeg-Prozesse mit effektivem Setting-Stand + Format-Lock, registriert Stream
 8. Stream läuft; Monitoring + HealthCheck aktiv
 
 ### Flow B: Auto-Advance
