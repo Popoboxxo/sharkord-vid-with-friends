@@ -79,22 +79,30 @@ describe("Plugin entrypoint lifecycle", () => {
 
     await onLoad(ctx as never);
 
-    // Find the settings log entry
+    // Find structured startup settings log entry
     const settingsLog = ctx.logs.find(
       (l) => l.level === "log" && l.args.some((a) => typeof a === "string" && a.includes("[Settings]") && a.includes("plugin:loaded"))
     );
 
     expect(settingsLog).toBeDefined();
 
-    // The second arg should be a JSON string with all settings
+    // The second arg should be a JSON string with structured payload
     const jsonStr = settingsLog!.args[1] as string;
     const parsed = JSON.parse(jsonStr);
-    expect(parsed).toHaveProperty("videoBitrate");
-    expect(parsed).toHaveProperty("audioBitrate");
-    expect(parsed).toHaveProperty("defaultVolume");
-    expect(parsed).toHaveProperty("syncMode");
-    expect(parsed).toHaveProperty("fullDownloadMode");
-    expect(parsed).toHaveProperty("debugMode");
+    expect(parsed).toHaveProperty("trigger", "plugin:loaded");
+    expect(parsed).toHaveProperty("settings");
+    expect(parsed.settings).toHaveProperty("videoBitrate");
+    expect(parsed.settings).toHaveProperty("audioBitrate");
+    expect(parsed.settings).toHaveProperty("defaultVolume");
+    expect(parsed.settings).toHaveProperty("syncMode");
+    expect(parsed.settings).toHaveProperty("fullDownloadMode");
+    expect(parsed.settings).toHaveProperty("debugMode");
+
+    // Readable companion log should also be present
+    const readableLog = ctx.logs.find(
+      (l) => l.level === "log" && l.args.some((a) => typeof a === "string" && a.includes("[Settings:Readable]"))
+    );
+    expect(readableLog).toBeDefined();
 
     onUnload(ctx as never);
   });
@@ -114,13 +122,18 @@ describe("Plugin entrypoint lifecycle", () => {
     ctx.events.emit("settings:changed", { key: "debugMode", value: true });
     const logCountAfter = ctx.logs.length;
 
-    // Should have logged the change event + snapshot
+    // Should have logged at least structured + readable settings logs
     expect(logCountAfter).toBeGreaterThan(logCountBefore);
 
     const changeLogs = ctx.logs.slice(logCountBefore).filter(
       (l) => l.level === "log" && l.args.some((a) => typeof a === "string" && a.includes("[Settings]"))
     );
     expect(changeLogs.length).toBeGreaterThanOrEqual(1);
+
+    const readableChangeLogs = ctx.logs.slice(logCountBefore).filter(
+      (l) => l.level === "log" && l.args.some((a) => typeof a === "string" && a.includes("[Settings:Readable]"))
+    );
+    expect(readableChangeLogs.length).toBeGreaterThanOrEqual(1);
 
     onUnload(ctx as never);
   });

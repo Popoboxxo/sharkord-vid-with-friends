@@ -105,7 +105,7 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 | REQ-024 | Portabilität: Plugin läuft auf Linux, macOS und Windows ohne Code-Anpassungen | Should |
 | REQ-025 | Dokumentation: README (Englisch), REQUIREMENTS und ARCHITECTURE sind aktuell | Should |
 | REQ-026 | Plugin-Setting "Debug Output" (Boolean) aktiviert/deaktiviert detailliertes Logging für Stream-Prozesse, ffmpeg stderr, yt-dlp Aufrufe, und Fehler-Diagnose | Must |
-| REQ-039 | **Settings-Logging bei Start und Änderung:** Alle Plugin-Einstellungen (videoBitrate, audioBitrate, defaultVolume, syncMode, fullDownloadMode, debugMode) werden bei Plugin-Start und bei jeder Änderung als strukturierter JSON-Log-Eintrag ausgegeben. Ermöglicht Nachvollziehbarkeit der Konfiguration in Debug-Szenarien | Must |
+| REQ-039 | **Settings-Logging bei Start und Änderung:** Alle Plugin-Einstellungen (videoBitrate, audioBitrate, defaultVolume, syncMode, fullDownloadMode, debugMode) werden bei Plugin-Start und bei jeder Änderung/Speicherung als strukturierter UND lesbarer Log-Eintrag ausgegeben. Das Logging erfolgt immer, unabhängig vom Debug-Modus. | Must |
 | REQ-032 | **Debug-Cache für Downloads:** Im Debug-Modus wird der yt-dlp Download parallel in eine lokale Datei geschrieben (Video/Audio separat), um die Download-Funktion unabhängig vom RTP-Pfad prüfen zu können. | Should |
 | REQ-033 | **`/debug_cache` Command:** Zeigt alle gecachten Download-Dateien (Video/Audio) mit Größe und Zeitstempel an. Ermöglicht Nutzer, heruntergeladene Dateien zu inspizieren und vom Host aus (via Docker-Volume `./debug-cache/`) herunterzuladen. Nur verfügbar wenn Debug Output aktiv ist. | Should |
 

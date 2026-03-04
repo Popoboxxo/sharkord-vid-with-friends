@@ -104,6 +104,73 @@ type PluginContext = {
   };
 };
 
+type SyncMode = "server" | "client";
+
+type EffectivePluginSettings = {
+  videoBitrateKbps: number;
+  audioBitrateKbps: number;
+  defaultVolume: number;
+  syncMode: SyncMode;
+  fullDownloadMode: boolean;
+  debugMode: boolean;
+};
+
+const clampNumber = (value: number, min: number, max: number): number =>
+  Math.max(min, Math.min(max, value));
+
+const resolveEffectiveSettings = (ctx: PluginContext): EffectivePluginSettings => {
+  const rawVideoBitrate = Number(ctx.settings?.get?.("videoBitrate"));
+  const rawAudioBitrate = Number(ctx.settings?.get?.("audioBitrate"));
+  const rawDefaultVolume = Number(ctx.settings?.get?.("defaultVolume"));
+  const rawSyncMode = ctx.settings?.get?.("syncMode");
+
+  const videoBitrateKbps = Number.isFinite(rawVideoBitrate)
+    ? clampNumber(rawVideoBitrate, 1000, 12000)
+    : DEFAULT_SETTINGS.BITRATE_VIDEO;
+  const audioBitrateKbps = Number.isFinite(rawAudioBitrate)
+    ? clampNumber(rawAudioBitrate, 64, 320)
+    : DEFAULT_SETTINGS.BITRATE_AUDIO;
+  const defaultVolume = Number.isFinite(rawDefaultVolume)
+    ? clampNumber(rawDefaultVolume, 0, 100)
+    : DEFAULT_SETTINGS.DEFAULT_VOLUME;
+
+  const syncMode: SyncMode = rawSyncMode === "client" ? "client" : "server";
+  const fullDownloadMode = Boolean(ctx.settings?.get?.("fullDownloadMode") ?? false);
+  const debugMode = Boolean(ctx.settings?.get?.("debugMode") ?? false);
+
+  return {
+    videoBitrateKbps,
+    audioBitrateKbps,
+    defaultVolume,
+    syncMode,
+    fullDownloadMode,
+    debugMode,
+  };
+};
+
+const logSettingsSnapshot = (ctx: PluginContext, trigger: string, eventPayload?: unknown): void => {
+  const effective = resolveEffectiveSettings(ctx);
+  const structured = {
+    trigger,
+    timestamp: new Date().toISOString(),
+    eventPayload,
+    settings: {
+      videoBitrate: effective.videoBitrateKbps,
+      audioBitrate: effective.audioBitrateKbps,
+      defaultVolume: effective.defaultVolume,
+      syncMode: effective.syncMode,
+      fullDownloadMode: effective.fullDownloadMode,
+      debugMode: effective.debugMode,
+    },
+  };
+
+  ctx.log(`[${PLUGIN_NAME}] [Settings] (${trigger})`, JSON.stringify(structured));
+  ctx.log(
+    `[${PLUGIN_NAME}] [Settings:Readable]`,
+    `video=${effective.videoBitrateKbps}kbps | audio=${effective.audioBitrateKbps}kbps | volume=${effective.defaultVolume}% | syncMode=${effective.syncMode} | fullDownloadMode=${effective.fullDownloadMode} | debugMode=${effective.debugMode}`
+  );
+};
+
 // ---- Streaming orchestration ----
 
 /**
@@ -117,7 +184,8 @@ const startStream = async (
   item: QueueItem
 ): Promise<void> => {
   try {
-    const debugMode = ctx.settings?.get?.("debugMode") ?? false;
+    const settings = resolveEffectiveSettings(ctx);
+    const debugMode = settings.debugMode;
     const loggers: FfmpegLoggers = {
       log: (...m) => ctx.log(`[stream:${channelId}]`, ...m),
       error: (...m) => ctx.error(`[stream:${channelId}]`, ...m),
@@ -213,11 +281,9 @@ const startStream = async (
     // Use optional chaining to safely access settings API (may not be available in all Sharkord versions)
     const volume = syncController.getVolume(channelId);  // 0-100 from sync state
     const normalizedVolume = normalizeVolume(volume);
-    const fullDownloadMode = Boolean(ctx.settings?.get?.("fullDownloadMode") ?? false);
-    const videoBitrateKbps = Number(ctx.settings?.get?.("videoBitrate") ?? DEFAULT_SETTINGS.BITRATE_VIDEO);
-    const audioBitrateKbps = Number(ctx.settings?.get?.("audioBitrate") ?? DEFAULT_SETTINGS.BITRATE_AUDIO);
-    const videoBitrate = `${Number.isFinite(videoBitrateKbps) ? videoBitrateKbps : DEFAULT_SETTINGS.BITRATE_VIDEO}k`;
-    const audioBitrate = `${Number.isFinite(audioBitrateKbps) ? audioBitrateKbps : DEFAULT_SETTINGS.BITRATE_AUDIO}k`;
+    const fullDownloadMode = settings.fullDownloadMode;
+    const videoBitrate = `${settings.videoBitrateKbps}k`;
+    const audioBitrate = `${settings.audioBitrateKbps}k`;
 
     ctx.log(`[stream:${channelId}] Settings: volume=${volume}%, videoBitrate=${videoBitrate}, audioBitrate=${audioBitrate}, fullDownloadMode=${fullDownloadMode}`);
 
@@ -695,20 +761,12 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
   }
 
   // 5. Log all current settings at startup (REQ-039)
-  const SETTING_KEYS = ["videoBitrate", "audioBitrate", "defaultVolume", "syncMode", "fullDownloadMode", "debugMode"] as const;
-  const logCurrentSettings = (trigger: string) => {
-    const snapshot: Record<string, unknown> = {};
-    for (const key of SETTING_KEYS) {
-      snapshot[key] = ctx.settings?.get?.(key);
-    }
-    ctx.log(`[${PLUGIN_NAME}] [Settings] (${trigger})`, JSON.stringify(snapshot));
-  };
-  logCurrentSettings("plugin:loaded");
+  // Must always log, independent of debug mode.
+  logSettingsSnapshot(ctx, "plugin:loaded");
 
-  // 5b. Listen for settings changes (REQ-039)
+  // 5b. Listen for settings changes/saves and log effective settings (REQ-039)
   ctx.events.on("settings:changed", (...args: unknown[]) => {
-    ctx.log(`[${PLUGIN_NAME}] [Settings] Change event received:`, JSON.stringify(args));
-    logCurrentSettings("settings:changed");
+    logSettingsSnapshot(ctx, "settings:changed", args);
   });
 
   // 6. Listen for voice channel close events (REQ-016)

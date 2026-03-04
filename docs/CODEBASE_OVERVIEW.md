@@ -28,8 +28,9 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
   - Registriert Settings (`videoBitrate`, `audioBitrate`, `defaultVolume`, `syncMode`, `fullDownloadMode`, `debugMode`)
   - Registriert Commands: `watch`, `queue`, `skip`, `remove`, `watch_stop`, `nowplaying`, `pause`, `volume`, `debug_cache`
   - Registriert UI-Komponenten (`ctx.ui.registerComponents(...)` falls verfügbar)
+  - Loggt Settings-Snapshot bei Start (`plugin:loaded`) und bei Änderungen (`settings:changed`) als strukturierte JSON + lesbare Zeile (immer aktiv, unabhängig von Debug-Modus)
   - Registriert Event-Handler für `voice:runtime_closed`
-  - **REQ:** REQ-014, REQ-015, REQ-016, REQ-018, REQ-026
+  - **REQ:** REQ-014, REQ-015, REQ-016, REQ-018, REQ-026, REQ-039
 
 - `onUnload(ctx: PluginContext): void`
   - Ruft `streamManager.cleanupAll()` und `syncController.cleanupAll()` auf
