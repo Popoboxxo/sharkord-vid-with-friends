@@ -119,6 +119,7 @@ describe("Plugin entrypoint lifecycle", () => {
 
     // Simulate a settings change event
     const logCountBefore = ctx.logs.length;
+    ctx.settings.set("fullDownloadMode", true);
     ctx.events.emit("settings:changed", { key: "debugMode", value: true });
     const logCountAfter = ctx.logs.length;
 
@@ -129,6 +130,27 @@ describe("Plugin entrypoint lifecycle", () => {
       (l) => l.level === "log" && l.args.some((a) => typeof a === "string" && a.includes("[Settings]"))
     );
     expect(changeLogs.length).toBeGreaterThanOrEqual(1);
+
+    const structuredChangeLog = ctx.logs.slice(logCountBefore).find(
+      (l) => l.level === "log" && l.args.some((a) => typeof a === "string" && a.includes("[Settings]") && a.includes("settings:changed"))
+    );
+    expect(structuredChangeLog).toBeDefined();
+    const structuredPayload = JSON.parse(String(structuredChangeLog!.args[1]));
+    expect(structuredPayload).toHaveProperty("settings");
+    expect(structuredPayload.settings).toHaveProperty("videoBitrate");
+    expect(structuredPayload.settings).toHaveProperty("audioBitrate");
+    expect(structuredPayload.settings).toHaveProperty("defaultVolume");
+    expect(structuredPayload.settings).toHaveProperty("syncMode");
+    expect(structuredPayload.settings).toHaveProperty("fullDownloadMode", true);
+    expect(structuredPayload.settings).toHaveProperty("debugMode");
+    expect(Array.isArray(structuredPayload.changed)).toBe(true);
+
+    const changedReadable = ctx.logs.slice(logCountBefore).find(
+      (l) => l.level === "log" && l.args.some((a) => typeof a === "string" && a.includes("[Settings:Changed]"))
+    );
+    expect(changedReadable).toBeDefined();
+    expect(String(changedReadable!.args[1])).toContain("fullDownloadMode:");
+    expect(String(changedReadable!.args[1])).toContain("false -> true");
 
     const readableChangeLogs = ctx.logs.slice(logCountBefore).filter(
       (l) => l.level === "log" && l.args.some((a) => typeof a === "string" && a.includes("[Settings:Readable]"))

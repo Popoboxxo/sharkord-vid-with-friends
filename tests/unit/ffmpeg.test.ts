@@ -364,6 +364,23 @@ describe("ffmpeg", () => {
       expect(cmd).toContain("-f");
       expect(cmd.some((part) => part.includes("ba/ba*"))).toBe(true);
     });
+
+    it("[REQ-038] should enable mpegts output hint for progressive video stability", () => {
+      const cmd = buildYtDlpDownloadCmd({
+        ytDlpPath: "/bin/yt-dlp",
+        ffmpegLocation: "/bin",
+        sourceUrl: "https://example.com/video",
+        youtubeUrl: "https://www.youtube.com/watch?v=H6P3kJ8nrR8",
+        streamType: "video",
+        useMpegTsOutput: true,
+        debug: false,
+        outputPath: "/tmp/output.ts",
+      });
+
+      expect(cmd).toContain("--hls-use-mpegts");
+      expect(cmd).toContain("-f");
+      expect(cmd.some((part) => part.includes("bv[vcodec^=avc1]"))).toBe(true);
+    });
   });
 
   describe("buildDebugCacheFileName", () => {

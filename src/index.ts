@@ -40,6 +40,7 @@ import { components as pluginComponents } from "./ui/components";
 let queueManager: QueueManager;
 let streamManager: StreamManager;
 let syncController: SyncController;
+let settingsWatcher: ReturnType<typeof setInterval> | null = null;
 
 // ---- Debug Mode Helper (REQ-026) ----
 
@@ -115,6 +116,15 @@ type EffectivePluginSettings = {
   debugMode: boolean;
 };
 
+type EffectiveSettingsSnapshot = {
+  videoBitrate: number;
+  audioBitrate: number;
+  defaultVolume: number;
+  syncMode: SyncMode;
+  fullDownloadMode: boolean;
+  debugMode: boolean;
+};
+
 const clampNumber = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));
 
@@ -148,20 +158,53 @@ const resolveEffectiveSettings = (ctx: PluginContext): EffectivePluginSettings =
   };
 };
 
-const logSettingsSnapshot = (ctx: PluginContext, trigger: string, eventPayload?: unknown): void => {
+const toSettingsSnapshot = (effective: EffectivePluginSettings): EffectiveSettingsSnapshot => ({
+  videoBitrate: effective.videoBitrateKbps,
+  audioBitrate: effective.audioBitrateKbps,
+  defaultVolume: effective.defaultVolume,
+  syncMode: effective.syncMode,
+  fullDownloadMode: effective.fullDownloadMode,
+  debugMode: effective.debugMode,
+});
+
+const diffSettingsSnapshot = (
+  previous: EffectiveSettingsSnapshot,
+  current: EffectiveSettingsSnapshot
+): Array<{ key: keyof EffectiveSettingsSnapshot; from: EffectiveSettingsSnapshot[keyof EffectiveSettingsSnapshot]; to: EffectiveSettingsSnapshot[keyof EffectiveSettingsSnapshot] }> => {
+  const keys: Array<keyof EffectiveSettingsSnapshot> = [
+    "videoBitrate",
+    "audioBitrate",
+    "defaultVolume",
+    "syncMode",
+    "fullDownloadMode",
+    "debugMode",
+  ];
+
+  const changes: Array<{ key: keyof EffectiveSettingsSnapshot; from: EffectiveSettingsSnapshot[keyof EffectiveSettingsSnapshot]; to: EffectiveSettingsSnapshot[keyof EffectiveSettingsSnapshot] }> = [];
+  for (const key of keys) {
+    if (previous[key] !== current[key]) {
+      changes.push({ key, from: previous[key], to: current[key] });
+    }
+  }
+  return changes;
+};
+
+const logSettingsSnapshot = (
+  ctx: PluginContext,
+  trigger: string,
+  eventPayload?: unknown,
+  previousSnapshot?: EffectiveSettingsSnapshot
+): EffectiveSettingsSnapshot => {
   const effective = resolveEffectiveSettings(ctx);
+  const currentSnapshot = toSettingsSnapshot(effective);
+  const changes = previousSnapshot ? diffSettingsSnapshot(previousSnapshot, currentSnapshot) : [];
   const structured = {
     trigger,
     timestamp: new Date().toISOString(),
     eventPayload,
-    settings: {
-      videoBitrate: effective.videoBitrateKbps,
-      audioBitrate: effective.audioBitrateKbps,
-      defaultVolume: effective.defaultVolume,
-      syncMode: effective.syncMode,
-      fullDownloadMode: effective.fullDownloadMode,
-      debugMode: effective.debugMode,
-    },
+    changedCount: changes.length,
+    changed: changes,
+    settings: currentSnapshot,
   };
 
   ctx.log(`[${PLUGIN_NAME}] [Settings] (${trigger})`, JSON.stringify(structured));
@@ -169,6 +212,13 @@ const logSettingsSnapshot = (ctx: PluginContext, trigger: string, eventPayload?:
     `[${PLUGIN_NAME}] [Settings:Readable]`,
     `video=${effective.videoBitrateKbps}kbps | audio=${effective.audioBitrateKbps}kbps | volume=${effective.defaultVolume}% | syncMode=${effective.syncMode} | fullDownloadMode=${effective.fullDownloadMode} | debugMode=${effective.debugMode}`
   );
+
+  if (changes.length > 0) {
+    const diffReadable = changes.map((entry) => `${entry.key}: ${String(entry.from)} -> ${String(entry.to)}`).join(" | ");
+    ctx.log(`[${PLUGIN_NAME}] [Settings:Changed]`, diffReadable);
+  }
+
+  return currentSnapshot;
 };
 
 // ---- Streaming orchestration ----
@@ -287,7 +337,7 @@ const startStream = async (
 
     ctx.log(`[stream:${channelId}] Settings: volume=${volume}%, videoBitrate=${videoBitrate}, audioBitrate=${audioBitrate}, fullDownloadMode=${fullDownloadMode}`);
 
-    // 6. Spawn ffmpeg with RTP output (using temp-file/direct-input hybrid)
+    // 6. Spawn ffmpeg with RTP output (using temp-file buffering)
     // fullDownloadMode=true  -> complete download before start (REQ-036-A)
     // fullDownloadMode=false -> start without full download (REQ-036-B)
     const ffmpegVideoProc = await spawnFfmpeg({
@@ -762,12 +812,31 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
 
   // 5. Log all current settings at startup (REQ-039)
   // Must always log, independent of debug mode.
-  logSettingsSnapshot(ctx, "plugin:loaded");
+  let previousSettingsSnapshot = logSettingsSnapshot(ctx, "plugin:loaded");
 
   // 5b. Listen for settings changes/saves and log effective settings (REQ-039)
   ctx.events.on("settings:changed", (...args: unknown[]) => {
-    logSettingsSnapshot(ctx, "settings:changed", args);
+    previousSettingsSnapshot = logSettingsSnapshot(ctx, "settings:changed", args, previousSettingsSnapshot);
   });
+
+  // 5c. Fallback watcher: some runtimes may not emit `settings:changed` reliably.
+  // Always-on detection ensures persisted setting changes are logged regardless of debug mode.
+  if (settingsWatcher) {
+    clearInterval(settingsWatcher);
+    settingsWatcher = null;
+  }
+  settingsWatcher = setInterval(() => {
+    const currentSnapshot = toSettingsSnapshot(resolveEffectiveSettings(ctx));
+    const changes = diffSettingsSnapshot(previousSettingsSnapshot, currentSnapshot);
+    if (changes.length > 0) {
+      previousSettingsSnapshot = logSettingsSnapshot(
+        ctx,
+        "settings:detected",
+        { source: "poll" },
+        previousSettingsSnapshot
+      );
+    }
+  }, 2000);
 
   // 6. Listen for voice channel close events (REQ-016)
   ctx.events.on("voice:runtime_closed", handleVoiceRuntimeClosed(ctx));
@@ -781,6 +850,11 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
  */
 export const onUnload = (ctx: PluginContext): void => {
   ctx.log(`[${PLUGIN_NAME}] Unloading...`);
+
+  if (settingsWatcher) {
+    clearInterval(settingsWatcher);
+    settingsWatcher = null;
+  }
 
   // Clean up all active streams (kills ffmpeg, closes transports/producers)
   streamManager.cleanupAll();

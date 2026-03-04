@@ -14,7 +14,7 @@
   },
   "type": "module",
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist/sharkord-vid-with-friends --target bun --minify --format esm && cp package.json dist/sharkord-vid-with-friends/ && mkdir -p dist/sharkord-vid-with-friends/bin",
+    "build": "bun build src/index.ts --outdir dist/sharkord-vid-with-friends --target bun --minify --format esm && bun run scripts/write-dist-package.ts && mkdir -p dist/sharkord-vid-with-friends/bin",
     "build:dev": "bun run build",
     "test": "bun test",
     "test:unit": "bun test tests/unit/",

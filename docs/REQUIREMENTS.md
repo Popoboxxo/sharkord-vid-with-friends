@@ -28,7 +28,7 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 | REQ-035 | Pro Voice-Channel darf nur **ein** aktives Video laufen. Ein weiterer Startversuch (`/watch`) während aktiver Wiedergabe wird abgewiesen | Must |
 | REQ-036 | Plugin-Setting **Full-Download-Modus** steuert den Startzeitpunkt von Video und Audio: aktiviert = vollständiger Download vor Wiedergabe, deaktiviert = Wiedergabe ohne vollständigen Download (progressiv/direct). Standardwert: deaktiviert | Should |
 | REQ-036-A | **fullDownloadMode=true (Complete Download First):** Video und Audio warten bis vollständig heruntergeladen, dann startet ffmpeg ohne `-re`. Resultat: deterministischer Start und stabile Gesamtdauer | Should |
-| REQ-036-B | **fullDownloadMode=false (No Full Download Before Start):** Wiedergabe startet ohne vollständigen Download. Audio nutzt progressives Temp-File-Streaming, Video nutzt progressiven Direkt-Input. Resultat: schneller Start bei langen Videos | Should |
+| REQ-036-B | **fullDownloadMode=false (No Full Download Before Start):** Wiedergabe startet ohne vollständigen Download. Audio und Video nutzen progressives Temp-File-Streaming mit initialem Buffer-Start. Resultat: schneller Start bei langen Videos | Should |
 | REQ-037 | Wenn `debugMode=false`, werden alle während der Session heruntergeladenen Video-/Audio-Dateien nach Nutzung automatisch gelöscht (Logs bleiben erhalten) | Must |
 | REQ-038 | **Video-Progressive Stabilität bei fullDownloadMode=false:** Video darf ohne vollständigen Download starten, muss dabei aber eine Streaming-Methode verwenden, die das vorzeitige Stoppen (Freeze bei laufender Audio) verhindert. Bei fullDownloadMode=true bleibt Voll-Download vor Start aktiv. | Must |
 ### Warteschlange (Queue)
@@ -106,6 +106,7 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 | REQ-025 | Dokumentation: README (Englisch), REQUIREMENTS und ARCHITECTURE sind aktuell | Should |
 | REQ-026 | Plugin-Setting "Debug Output" (Boolean) aktiviert/deaktiviert detailliertes Logging für Stream-Prozesse, ffmpeg stderr, yt-dlp Aufrufe, und Fehler-Diagnose | Must |
 | REQ-039 | **Settings-Logging bei Start und Änderung:** Alle Plugin-Einstellungen (videoBitrate, audioBitrate, defaultVolume, syncMode, fullDownloadMode, debugMode) werden bei Plugin-Start und bei jeder Änderung/Speicherung als strukturierter UND lesbarer Log-Eintrag ausgegeben. Das Logging erfolgt immer, unabhängig vom Debug-Modus. | Must |
+| REQ-040 | **Build-Version enthält Commit:** Die in `dist/sharkord-vid-with-friends/package.json` geschriebene Plugin-Version enthält den aktuellen Git-Commit als Suffix im Format `<basisversion>:<short-commit>`. Damit ist der Build eindeutig rückverfolgbar. | Must |
 | REQ-032 | **Debug-Cache für Downloads:** Im Debug-Modus wird der yt-dlp Download parallel in eine lokale Datei geschrieben (Video/Audio separat), um die Download-Funktion unabhängig vom RTP-Pfad prüfen zu können. | Should |
 | REQ-033 | **`/debug_cache` Command:** Zeigt alle gecachten Download-Dateien (Video/Audio) mit Größe und Zeitstempel an. Ermöglicht Nutzer, heruntergeladene Dateien zu inspizieren und vom Host aus (via Docker-Volume `./debug-cache/`) herunterzuladen. Nur verfügbar wenn Debug Output aktiv ist. | Should |
 

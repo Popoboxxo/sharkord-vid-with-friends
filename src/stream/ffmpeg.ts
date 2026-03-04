@@ -57,6 +57,7 @@ export type YtDlpDownloadOptions = {
   sourceUrl: string;
   youtubeUrl?: string;
   streamType: "video" | "audio";
+  useMpegTsOutput?: boolean;
   cookiesPath?: string;
   debug: boolean;
 };
@@ -129,6 +130,7 @@ export const buildYtDlpDownloadCmd = (options: YtDlpDownloadOptions & { outputPa
     sourceUrl,
     youtubeUrl,
     streamType,
+    useMpegTsOutput = false,
     cookiesPath,
     debug,
     outputPath,
@@ -145,6 +147,9 @@ export const buildYtDlpDownloadCmd = (options: YtDlpDownloadOptions & { outputPa
   if (debug) cmd.push("--verbose");
   if (cookiesPath) cmd.push("--cookies", cookiesPath);
   cmd.push("--ffmpeg-location", ffmpegLocation);
+  if (streamType === "video" && useMpegTsOutput) {
+    cmd.push("--hls-use-mpegts");
+  }
 
   // ALWAYS prefer youtubeUrl over pre-resolved CDN URL
   if (youtubeUrl) {
@@ -167,11 +172,15 @@ export const buildDebugCacheFileName = (options: DebugCacheFileOptions): string 
 };
 
 /** Build a temp file path for yt-dlp downloads. (REQ-002) */
-export const buildTempFilePath = (videoId: string, streamType: "video" | "audio"): string => {
+export const buildTempFilePath = (
+  videoId: string,
+  streamType: "video" | "audio",
+  videoExtension?: "mp4" | "ts"
+): string => {
   const safeId = videoId.replace(/[^a-zA-Z0-9_-]/g, "") || "unknown";
   const timestamp = Date.now();
   const cacheDir = getDebugCacheDir();
-  const extension = streamType === "video" ? "mp4" : "webm";
+  const extension = streamType === "video" ? (videoExtension ?? "mp4") : "webm";
   return path.join(cacheDir, `temp-${streamType}-${safeId}-${timestamp}.${extension}`);
 };
 
@@ -327,11 +336,16 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   const tag = streamType.toUpperCase(); // "VIDEO" or "AUDIO"
 
   const waitForFullDownload = waitForDownloadComplete ?? shouldWaitForDownloadComplete(streamType);
-  const useDirectVideoInput = streamType === "video" && !waitForFullDownload;
+  const progressiveVideoMode = streamType === "video" && !waitForFullDownload;
+  // Direct URL input for video is currently unstable with the bundled static ffmpeg (exit 139).
+  // Keep progressive startup via temp-file buffering when fullDownloadMode=false.
+  const useDirectVideoInput = false;
 
   // Generate temp file path (only needed when yt-dlp downloads to local file)
   const videoId = extractYouTubeId(youtubeUrl || "");
-  const tempFilePath = useDirectVideoInput ? undefined : buildTempFilePath(videoId, streamType);
+  const tempFilePath = useDirectVideoInput
+    ? undefined
+    : buildTempFilePath(videoId, streamType, progressiveVideoMode ? "ts" : "mp4");
 
   const cleanupDownloadedFile = (): void => {
     if (!shouldCleanupDownloadedData(debugEnabled)) return;
@@ -365,6 +379,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
       sourceUrl,
       youtubeUrl,
       streamType,
+      useMpegTsOutput: progressiveVideoMode,
       cookiesPath: existsSync(cookiesPath) ? cookiesPath : undefined,
       debug: debugEnabled,
       outputPath: tempFilePath,
@@ -374,7 +389,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
       const formatSel = streamType === "video"
         ? "bv[vcodec^=avc1][height<=1080]/bv[vcodec^=avc1]/bv*[vcodec^=avc1]"
         : "ba/ba*";
-      loggers.log(`[${tag}]`, `Downloading via YouTube URL (format: ${formatSel})`);
+      loggers.log(`[${tag}]`, `Downloading via YouTube URL (format: ${formatSel}${progressiveVideoMode ? ", hls-use-mpegts=true" : ""})`);
     } else {
       loggers.log(`[${tag}]`, `Fallback: downloading from CDN URL (${sourceUrl.length} chars)`);
     }
@@ -433,9 +448,6 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     });
 
     loggers.log(`[Phase] DOWNLOADING — yt-dlp pipe started on temp file: ${tempFilePath.substring(Math.max(0, tempFilePath.length - 40))}`);
-  } else {
-    loggers.log(`[${tag}]`, "Phase: DOWNLOADING — direct source streaming (no full pre-download)");
-    loggers.log(`[Phase] DOWNLOADING — direct source URL input selected for progressive video mode`);
   }
 
   // Log RTP summary for diagnostics
