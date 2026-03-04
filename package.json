@@ -20,6 +20,8 @@
     "test:unit": "bun test tests/unit/",
     "test:integration": "bun test tests/integration/",
     "test:docker": "docker compose -f tests/docker/docker-compose.yml up --build --abort-on-container-exit",
+    "session:start": "bun run build && bun test",
+    "session:dev": "bun run build && bun test && echo '--- Session ready for development ---'",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

@@ -426,6 +426,9 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     }
   });
 
+  // REQ-027-B: Phase DOWNLOADING — yt-dlp has begun
+  loggers.log(`[Phase] DOWNLOADING — yt-dlp pipe started on temp file: ${tempFilePath.substring(Math.max(0, tempFilePath.length - 40))}`);
+
   // Log RTP summary for diagnostics
   loggers.log(`[${tag}]`, `[RTP Config] PT=${options.payloadType}, SSRC=${options.ssrc}, dest=rtp://${rtpHost}:${rtpPort}`);
 
@@ -465,12 +468,13 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   }
 
   // ---- Start ffmpeg (file has data now) ----
-  loggers.log(`[${tag}]`, "Phase: STREAMING — ffmpeg reading from temp file...");
-
   // Determine if we should use -re flag:
   // - fullDownloadMode=true (complete file): NO -re (normal file reading)
   // - fullDownloadMode=false (progressive): YES -re (simulate realtime reading from growing file)
   const useRealtimeReading = !waitForFullDownload;
+  
+  // REQ-027-B: Phase PIPING — ffmpeg will receive data on stdin
+  loggers.log(`[Phase] PIPING — ffmpeg process spawned, will read from temp file`);
   loggers.log(`[${tag}]`, `[FFmpeg config] -re flag: ${useRealtimeReading ? "ON (progressive)" : "OFF (complete file)"}`);
 
   // Build ffmpeg args with appropriate realtime reading setting
@@ -520,7 +524,8 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
 
         if (!firstOutputLogged) {
           firstOutputLogged = true;
-          loggers.log(`[${tag}]`, "Phase: RTP OUTPUT — ffmpeg producing RTP packets");
+          // REQ-027-B: Phase STREAMING — first RTP packets sent
+          loggers.log(`[Phase] STREAMING — ffmpeg producing RTP packets, RTP encoder active`);
         }
         
         lineBuffer += text;
