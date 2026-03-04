@@ -238,3 +238,125 @@ Probesize (50MB Video / 30MB Audio):
 ### Verifikation
 - Zieltests grün: `tests/unit/ffmpeg.test.ts`, `tests/integration/index-onload.test.ts`
 - Build erfolgreich, Dist-Version loader-kompatibel und Plugin wieder sichtbar/ladbar
+
+---
+
+## 12. Arch Linux vs. Windows — Plugin scheinbar „nicht installiert"
+
+### Beobachtung
+- Unter Arch Linux wurde im UI zeitweise angezeigt, dass das Plugin nicht installiert sei.
+- Unter Windows trat dieses Verhalten so nicht auf.
+
+### Verifizierter Ist-Zustand (Docker)
+- Container-Pfad enthält das Plugin korrekt: `/root/.config/sharkord/plugins/sharkord-vid-with-friends`
+- Relevante Dateien vorhanden: `index.js`, `package.json`, `bin/`
+- Sharkord-Logs melden: `Found 1 plugins`
+
+### Wahrscheinlicher Unterschied Linux vs. Windows
+- Unter Linux (Arch) greifen Docker-Befehle in manchen Shells erst nach aktivierter `docker`-Gruppenzugehörigkeit.
+- Ergebnis: Compose/Restart/Reload kann lokal "nicht sauber" durchlaufen, obwohl Build/Dist korrekt ist.
+- Dadurch wirkt das Plugin im UI wie "nicht installiert", obwohl es im Container bereits liegt.
+
+### Praktische Linux-Workarounds
+- Für aktuelle Shell ohne Re-Login: `sg docker -c 'docker compose -f docker-compose.dev.yml ...'`
+- Dauerhaft: `sudo usermod -aG docker $USER` + neue Login-Session
+- Nach Plugin-Änderungen immer: `bun run build` und `docker compose -f docker-compose.dev.yml restart sharkord`
+- Danach UI einmal hart neu laden und ggf. mit frischem Token neu einloggen
+
+---
+
+## 13. Einheitlicher Dev-Stack Start für Linux + Windows (REQ-041)
+
+### Umsetzung
+- Neues Script: `scripts/dev-stack.ts`
+- Neue npm/bun Scripts in `package.json`:
+  - `dev:stack` → build + docker up + ps + logs + Token-Ausgabe
+  - `dev:reload` → build + docker restart sharkord + ps + logs + Token-Ausgabe
+  - `dev:stack:fresh` → build + down --volumes + up + ps + logs + Token-Ausgabe
+
+### Cross-Platform Verhalten
+- Unterstützt sowohl `docker compose` als auch `docker-compose` (Fallback)
+- Linux-spezifisch: erkennt Docker-Socket Permission-Fehler und versucht `sg docker` Fallback
+- Gibt bei Permission-Issue klare Anweisungen (`usermod -aG docker`, `newgrp docker`)
+
+### Verifikation
+- Unit-Tests für Command-Building, Permission-Detection und Token-Parsing hinzugefügt
+- TDD-Ablauf eingehalten: Test zuerst rot (fehlendes Modul), danach grün
+
+---
+
+## 14. yt-dlp Format-Lock Regression behoben (REQ-038)
+
+### Problem
+- Beim `/watch` konnte der Resolve-Schritt eine `videoFormatId` liefern (z.B. `96`), die beim späteren Download nicht mehr verfügbar war.
+- Folge: yt-dlp Fehler `Requested format is not available`, Temp-Datei blieb leer, Stream-Start brach nach 30s ab.
+
+### Fix
+- In `spawnFfmpeg` wurde ein gezielter Retry-Mechanismus ergänzt:
+  - erster Versuch mit Format-Lock (`-f <formatId>`)
+  - bei genau diesem yt-dlp-Fehler: automatischer zweiter Versuch **ohne** Format-Lock
+- Neue pure Helper-Funktion: `shouldRetryWithoutFormatLock(exitCode, stderrOutput)`
+
+### Tests
+- Neue Unit-Tests in `tests/unit/ffmpeg.test.ts`:
+  - Retry bei `Requested format is not available` = `true`
+  - Kein Retry bei anderen Fehlern = `false`
+
+### Ergebnis
+- Kein harter Abbruch mehr bei kurzlebig ungültigen YouTube-Format-IDs.
+- Progressive Wiedergabe bleibt robust, während Format-Lock weiterhin bevorzugt genutzt wird.
+
+---
+
+## 15. Black-Screen bei laufendem RTP-Video: Codec-Parameter-Mismatch abgesichert
+
+### Symptom
+- Audio und Video-RTP flossen laut Health-Check (`bytes/packets > 0`, Producer score=10), aber Client zeigte schwarzes Bild.
+
+### Umsetzung
+- Neue Funktion `resolveRtpCodecConfig(router)` in `src/index.ts`.
+- Producer und ffmpeg nutzen jetzt konsistent:
+  - Payload-Type aus `router.rtpCapabilities` (wenn vorhanden)
+  - H264-Codec-Parameter (insb. `profile-level-id`) aus Router-Capabilities
+- Fallback bleibt aktiv, wenn Router keine H264-Capabilities liefert.
+
+### Testabdeckung
+- Neuer Unit-Test `tests/unit/index-rtp-codec.test.ts`:
+  - Router-Präferenzen werden übernommen
+  - Fallback auf Defaults funktioniert
+
+---
+
+## 16. Progressive Video EOF unter Linux (Audio läuft weiter, Bild schwarz)
+
+### Befund
+- Logs zeigten: Video-ffmpeg beendet sich mit `exit 0`, während Audio-ffmpeg weiterläuft.
+- yt-dlp-Video-Download lief dabei weiter → klassischer EOF auf wachsender Datei im progressiven Modus.
+
+### Gegenmaßnahme
+- Neue Funktion `resolveEffectiveWaitForDownloadComplete(streamType, requested)` in `src/stream/ffmpeg.ts`.
+- Auf Linux wird für Video ein Stabilitätsfallback aktiviert: Voll-Download vor Start, selbst wenn `fullDownloadMode=false` gesetzt ist.
+- Audio bleibt unverändert im angeforderten Modus.
+
+### Ziel
+- Verhindert Black-Screen-Szenario „Video stoppt, Audio läuft weiter" durch konservativen, robusten Startpfad auf Linux.
+
+---
+
+## 17. Root Cause für neues `yt-dlp exit 1`: Retry-Lücke im Full-Download-Zweig
+
+### Befund
+- Die Logs zeigen mehrfach: `Requested format is not available` gefolgt von `yt-dlp failed — exit 1`.
+- Der bestehende Retry ohne Format-Lock war nur im progressiven Startpfad aktiv.
+- Durch den Linux-Stabilitätsfallback landet Video häufig im Voll-Download-Modus; dort fehlte der Retry.
+
+### Fix (REQ-038)
+- Neuer Helper `shouldRetryLockedFormatDownload(usingFormatLock, exitCode, stderrOutput)` in `src/stream/ffmpeg.ts`.
+- Retry ohne Format-Lock jetzt in **beiden** Pfaden:
+  - progressiver Temp-File-Start
+  - Voll-Download-vor-ffmpeg-Start
+
+### Verifikation
+- Neuer Unit-Test in `tests/unit/ffmpeg.test.ts`:
+  - `[REQ-038] should retry locked format failures in full-download mode`
+- Zieltests grün (`ffmpeg.test.ts`, `index-rtp-codec.test.ts`).

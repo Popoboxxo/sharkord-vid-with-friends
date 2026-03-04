@@ -140,6 +140,15 @@ docker compose -f tests/docker/docker-compose.yml up --build
 
 # Build
 bun run build
+
+# Cross-platform session bootstrap (Linux/Windows)
+bun run dev:stack
+
+# Reload Sharkord service after plugin changes
+bun run dev:reload
+
+# Fresh stack reset (down --volumes + up)
+bun run dev:stack:fresh
 ```
 
 ## Test-Driven Development

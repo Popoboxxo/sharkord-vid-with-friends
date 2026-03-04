@@ -16,6 +16,9 @@
   "scripts": {
     "build": "bun build src/index.ts --outdir dist/sharkord-vid-with-friends --target bun --minify --format esm && bun run scripts/write-dist-package.ts && mkdir -p dist/sharkord-vid-with-friends/bin",
     "build:dev": "bun run build",
+    "dev:stack": "bun run scripts/dev-stack.ts",
+    "dev:reload": "bun run scripts/dev-stack.ts reload",
+    "dev:stack:fresh": "bun run scripts/dev-stack.ts fresh",
     "test": "bun test",
     "test:unit": "bun test tests/unit/",
     "test:integration": "bun test tests/integration/",
