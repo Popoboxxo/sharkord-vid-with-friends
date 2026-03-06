@@ -15,14 +15,16 @@ export const formatTimestampPostfix = (date: Date = new Date()): string => {
   const hour = pad2(date.getHours());
   const minute = pad2(date.getMinutes());
   const second = pad2(date.getSeconds());
-  return `${day}${month}${year}_${hour}_${minute}_${second}`;
+  return `${day}${month}${year}-${hour}-${minute}-${second}`;
 };
 
 export const normalizeTimestampPostfix = (value: string): string => {
   const trimmed = value.trim();
-  const match = trimmed.match(/\b\d{6}_\d{2}_\d{2}_\d{2}\b/);
+  const match = trimmed.match(/\b\d{6}-\d{2}-\d{2}-\d{2}\b/);
   return match?.[0] ?? "unknown";
 };
+
+const toReadableTimestampPostfix = (postfix: string): string => postfix.replace(/-/g, "_");
 
 export const buildVersionWithTimestamp = (baseVersion: string, timestampPostfix: string): string => {
   const safeBase = baseVersion.trim() || "0.0.0";
@@ -33,7 +35,7 @@ export const buildVersionWithTimestamp = (baseVersion: string, timestampPostfix:
 export const buildTraceVersionLabel = (baseVersion: string, timestampPostfix: string): string => {
   const safeBase = baseVersion.trim() || "0.0.0";
   const safePostfix = normalizeTimestampPostfix(timestampPostfix);
-  return `${safeBase}:${safePostfix}`;
+  return `${safeBase}:${toReadableTimestampPostfix(safePostfix)}`;
 };
 
 export const resolveBuildTimestampPostfix = (): string => formatTimestampPostfix(new Date());

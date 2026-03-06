@@ -18,7 +18,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 - **Format-Lock Retry:** Falls ein gelocktes `format_id` beim späteren yt-dlp Download nicht mehr verfügbar ist, erfolgt ein einmaliger Retry ohne `format_id`-Lock statt hartem Abbruch (REQ-027-D)
 - **Settings-Runtime-Fallback:** `settings:changed` Payloads werden als Override ausgewertet, falls `ctx.settings.get()` zur Laufzeit verzögert/stale ist; `startStream` nutzt diese effektiven Werte (REQ-039)
 - **Alternative vorhanden:** HLS-Server + HLS-ffmpeg-Path (`src/stream/hls-server.ts`, `spawnFfmpegForHLS`)
-- **Build-Metadaten:** Dist-`package.json` Version wird loader-kompatibel als `<basis>-<DDMMYY_HH_MM_SS>` geschrieben; zusätzlich enthält `sharkordVersionTrace` das lesbare Format `<basis>:<DDMMYY_HH_MM_SS>` (REQ-040)
+- **Build-Metadaten:** Dist-`package.json` Version wird loader-kompatibel als `<basis>-<DDMMYY-HH-MM-SS>` geschrieben; zusätzlich enthält `sharkordVersionTrace` das lesbare Format `<basis>:<DDMMYY_HH_MM_SS>` (REQ-040)
 
 ---
 
