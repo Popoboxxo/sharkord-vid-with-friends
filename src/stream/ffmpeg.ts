@@ -87,6 +87,7 @@ export type SpawnFfmpegOptions = {
   expectedDurationSeconds?: number;
   waitForSyncStartSignal?: Promise<void>;
   notifyReadyForSyncStart?: () => void;
+  onProgressTimeSeconds?: (seconds: number) => void;
   loggers: FfmpegLoggers;
   onEnd?: () => void;
 };
@@ -132,13 +133,15 @@ const parseFfmpegDurationToSeconds = (line: string): number | null => {
   return hours * 3600 + minutes * 60 + seconds;
 };
 
-const parseProgressTimeToSeconds = (timeText: string): number | null => {
-  const match = timeText.match(/(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?/);
+export const parseProgressTimeToSeconds = (timeText: string): number | null => {
+  const match = timeText.match(/(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
   if (!match) return null;
   const hours = parseInt(match[1]!, 10);
   const minutes = parseInt(match[2]!, 10);
   const seconds = parseInt(match[3]!, 10);
-  return hours * 3600 + minutes * 60 + seconds;
+  const fractionalRaw = match[4] ?? "0";
+  const fractionalSeconds = Number.parseFloat(`0.${fractionalRaw}`);
+  return hours * 3600 + minutes * 60 + seconds + (Number.isFinite(fractionalSeconds) ? fractionalSeconds : 0);
 };
 
 /** Use locked format ids only for full-download mode; progressive mode keeps adaptive selection. */
@@ -420,6 +423,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     expectedDurationSeconds,
     waitForSyncStartSignal,
     notifyReadyForSyncStart,
+    onProgressTimeSeconds,
     loggers,
     onEnd,
   } = options;
@@ -783,7 +787,10 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
             if (frameMatch) totalFrames = parseInt(frameMatch[1]!);
             if (timeMatch) {
               const parsedTime = parseProgressTimeToSeconds(timeMatch[1]!);
-              if (parsedTime !== null) streamedDurationSeconds = parsedTime;
+              if (parsedTime !== null) {
+                streamedDurationSeconds = parsedTime;
+                onProgressTimeSeconds?.(parsedTime);
+              }
             }
             // Log progress every 3 seconds
             if (now - lastProgressLog >= 3000) {

@@ -18,7 +18,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 - **Format-Lock Retry:** Falls ein gelocktes `format_id` beim späteren yt-dlp Download nicht mehr verfügbar ist, erfolgt ein einmaliger Retry ohne `format_id`-Lock statt hartem Abbruch (REQ-027-D)
 - **Settings-Runtime-Fallback:** `settings:changed` Payloads werden als Override ausgewertet, falls `ctx.settings.get()` zur Laufzeit verzögert/stale ist; `startStream` nutzt diese effektiven Werte (REQ-039)
 - **Alternative vorhanden:** HLS-Server + HLS-ffmpeg-Path (`src/stream/hls-server.ts`, `spawnFfmpegForHLS`)
-- **Build-Metadaten:** Dist-`package.json` Version wird loader-kompatibel als `<basis>-<commit>` geschrieben; zusätzlich enthält `sharkordVersionTrace` das lesbare Format `<basis>:<commit>` (REQ-040)
+- **Build-Metadaten:** Dist-`package.json` Version wird loader-kompatibel als `<basis>-<DDMMYY_HH_MM_SS>` geschrieben; zusätzlich enthält `sharkordVersionTrace` das lesbare Format `<basis>:<DDMMYY_HH_MM_SS>` (REQ-040)
 
 ---
 
@@ -64,7 +64,9 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
     7. `spawnFfmpeg(...)` Video + Audio (`fullDownloadMode=true`: Voll-Download; `false`: Start ohne vollständigen Download per progressivem Temp-File)
       - beide Tracks laden parallel und warten auf gemeinsames Sync-Start-Signal
       - erst wenn beide `ready` sind, wird der ffmpeg-Start freigegeben (REQ-003)
-      - im progressiven Modus wird zusaetzlich eine kleine Audio-Delay-Kompensation gesetzt, um den restlichen konstanten Startversatz auszugleichen
+      - im progressiven Modus wird zusaetzlich eine Audio-Delay-Kompensation gesetzt, um den restlichen konstanten Startversatz auszugleichen
+      - der Delay-Wert wird pro Channel dynamisch anhand millisekundengenauer ffmpeg-Progressdrifts fuer Folge-Streams nachkalibriert
+      - die Drift-Adaption nutzt robuste Paarbildung (Zeitnahe Audio/Video-Samples), Ausreisserfilter und ein Step-Limit pro Stream fuer stabilere Konvergenz
       - wenn ein Track unerwartet vorzeitig endet, wird der Gegen-Track kontrolliert beendet und Auto-Advance ausgelöst
     8. `ctx.actions.voice.createStream(...)`
     9. Ressourcen via `streamManager.setActive(...)`

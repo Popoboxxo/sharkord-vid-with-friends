@@ -58,9 +58,35 @@ Bugfix fuer vorzeitige Stream-Abbrueche im progressiven Modus (`fullDownloadMode
 
 ### Optimierung
 - Audio-Pfad erhaelt optionalen `syncDelayMs` und setzt `adelay=<ms>|<ms>` im ffmpeg Filtergraph.
-- Im progressiven Modus wird aktuell eine Delay-Kompensation von `450ms` gesetzt.
+- Im progressiven Modus wird aktuell eine Delay-Kompensation von `650ms` als Startwert gesetzt.
+- Neu: Der Delay-Wert wird waehrend der ersten Sekunden aus realem A/V-Progressdrift gemessen und pro Channel fuer den naechsten Stream dynamisch angepasst.
+
+### Nachschaerfung (07.03, spaete Session)
+- Drift-Parser auf millisekundengenaue `time=` Auswertung umgestellt (keine Rundung auf volle Sekunden mehr).
+- Dynamische Adaption robustifiziert:
+- nur zeitnahe Audio/Video Sample-Paare werden verwendet
+- Ausreisser (`|drift| > 2000ms`) werden ignoriert
+- pro Stream nur begrenzte Delay-Aenderung (Step-Limit), um Overshoot/Oszillation zu vermeiden
 
 ### Referenzen
 - `src/stream/ffmpeg.ts`
 - `src/index.ts`
 - `tests/unit/ffmpeg.test.ts`
+
+## 6. Build-Version Postfix von Commit auf Zeitstempel
+
+### Anlass
+- Gewuenscht war ein menschenlesbarer, zeitbasierter Build-Postfix statt Commit-Hash.
+
+### Umsetzung
+- Dist-Versionierung in `scripts/write-dist-package.ts` auf Zeitstempel umgestellt.
+- Neues Postfix-Format: `DDMMYY_HH_MM_SS`.
+- Ausgabeformate:
+- `version`: `<basis>-<DDMMYY_HH_MM_SS>`
+- `sharkordVersionTrace`: `<basis>:<DDMMYY_HH_MM_SS>`
+- Unit-Tests auf neues Verhalten angepasst und erweitert.
+
+### Referenzen
+- `scripts/write-dist-package.ts`
+- `tests/unit/write-dist-package.test.ts`
+- `docs/REQUIREMENTS.md` (REQ-040)

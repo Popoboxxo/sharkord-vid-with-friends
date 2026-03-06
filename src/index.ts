@@ -43,6 +43,16 @@ let syncController: SyncController;
 let settingsWatcher: ReturnType<typeof setInterval> | null = null;
 let settingsAccessor: { get: <T = unknown>(key: string) => T | undefined } | null = null;
 let runtimeSettingsOverrides: Partial<EffectiveSettingsSnapshot> = {};
+const adaptiveAudioDelayMsByChannel = new Map<number, number>();
+
+const DEFAULT_PROGRESSIVE_AUDIO_DELAY_MS = 650;
+const MIN_AUDIO_DELAY_MS = 0;
+const MAX_AUDIO_DELAY_MS = 1800;
+const DRIFT_ADAPT_WINDOW_SECONDS = 25;
+const DRIFT_SAMPLE_MIN_COUNT = 8;
+const DRIFT_ADAPT_GAIN = 0.5;
+const DRIFT_PAIR_MAX_AGE_MS = 1200;
+const MAX_DELAY_STEP_PER_STREAM_MS = 220;
 
 // ---- Debug Mode Helper (REQ-026) ----
 
@@ -246,6 +256,30 @@ const toSettingsSnapshot = (effective: EffectivePluginSettings): EffectiveSettin
   debugMode: effective.debugMode,
 });
 
+const getAdaptiveAudioDelayMs = (channelId: number, fullDownloadMode: boolean): number => {
+  if (fullDownloadMode) return 0;
+  const storedDelay = adaptiveAudioDelayMsByChannel.get(channelId);
+  if (typeof storedDelay === "number" && Number.isFinite(storedDelay)) {
+    return clampNumber(Math.round(storedDelay), MIN_AUDIO_DELAY_MS, MAX_AUDIO_DELAY_MS);
+  }
+  return DEFAULT_PROGRESSIVE_AUDIO_DELAY_MS;
+};
+
+const computeTrimmedAverageMs = (samples: number[]): number => {
+  if (samples.length === 0) return 0;
+  if (samples.length < 5) {
+    return samples.reduce((sum, value) => sum + value, 0) / samples.length;
+  }
+
+  const sorted = [...samples].sort((a, b) => a - b);
+  const trimCount = Math.floor(sorted.length * 0.2);
+  const trimmed = sorted.slice(trimCount, sorted.length - trimCount);
+  if (trimmed.length === 0) {
+    return sorted.reduce((sum, value) => sum + value, 0) / sorted.length;
+  }
+  return trimmed.reduce((sum, value) => sum + value, 0) / trimmed.length;
+};
+
 const diffSettingsSnapshot = (
   previous: EffectiveSettingsSnapshot,
   current: EffectiveSettingsSnapshot
@@ -433,7 +467,7 @@ const startStream = async (
     const fullDownloadMode = settings.fullDownloadMode;
     const videoBitrate = `${settings.videoBitrateKbps}k`;
     const audioBitrate = `${settings.audioBitrateKbps}k`;
-    const audioSyncDelayMs = fullDownloadMode ? 0 : 450;
+    const audioSyncDelayMs = getAdaptiveAudioDelayMs(channelId, fullDownloadMode);
 
     ctx.log(`[stream:${channelId}] Settings: volume=${volume}%, videoBitrate=${videoBitrate}, audioBitrate=${audioBitrate}, fullDownloadMode=${fullDownloadMode}`);
     ctx.log(`[stream:${channelId}] [SYNC] Audio delay compensation: ${audioSyncDelayMs}ms`);
@@ -454,8 +488,53 @@ const startStream = async (
     let videoEnded = false;
     let audioEnded = false;
     let streamEndHandled = false;
+    let audioProgressSeconds: number | null = null;
+    let videoProgressSeconds: number | null = null;
+    let audioProgressUpdatedAtMs: number | null = null;
+    let videoProgressUpdatedAtMs: number | null = null;
+    let lastDriftSampleSecond = -1;
+    const driftSamplesMs: number[] = [];
+    let driftAdapted = false;
     let ffmpegVideoProcRef: SpawnedProcess | null = null;
     let ffmpegAudioProcRef: SpawnedProcess | null = null;
+
+    const collectDriftSample = (): void => {
+      if (fullDownloadMode || driftAdapted) return;
+      if (audioProgressSeconds === null || videoProgressSeconds === null) return;
+      if (audioProgressUpdatedAtMs === null || videoProgressUpdatedAtMs === null) return;
+
+      const pairAgeMs = Math.abs(audioProgressUpdatedAtMs - videoProgressUpdatedAtMs);
+      if (pairAgeMs > DRIFT_PAIR_MAX_AGE_MS) return;
+
+      const progressFloor = Math.min(audioProgressSeconds, videoProgressSeconds);
+      if (progressFloor <= 0 || progressFloor > DRIFT_ADAPT_WINDOW_SECONDS) return;
+
+      const sampleSecond = Math.floor(progressFloor);
+      if (sampleSecond <= lastDriftSampleSecond) return;
+      lastDriftSampleSecond = sampleSecond;
+
+      const driftMs = Math.round((audioProgressSeconds - videoProgressSeconds) * 1000);
+      if (Math.abs(driftMs) > 2000) return;
+      driftSamplesMs.push(driftMs);
+
+      if (driftSamplesMs.length >= DRIFT_SAMPLE_MIN_COUNT) {
+        const avgDriftMs = computeTrimmedAverageMs(driftSamplesMs);
+        const currentDelay = audioSyncDelayMs;
+        const targetDelay = Math.round(currentDelay + avgDriftMs * DRIFT_ADAPT_GAIN);
+        const stepLimitedDelay = clampNumber(
+          targetDelay,
+          currentDelay - MAX_DELAY_STEP_PER_STREAM_MS,
+          currentDelay + MAX_DELAY_STEP_PER_STREAM_MS
+        );
+        const adaptedDelay = clampNumber(stepLimitedDelay, MIN_AUDIO_DELAY_MS, MAX_AUDIO_DELAY_MS);
+
+        adaptiveAudioDelayMsByChannel.set(channelId, adaptedDelay);
+        driftAdapted = true;
+        ctx.log(
+          `[stream:${channelId}] [SYNC] Dynamic drift avg=${Math.round(avgDriftMs)}ms over ${driftSamplesMs.length} samples; delay ${currentDelay}ms -> ${adaptedDelay}ms (target=${targetDelay}ms)`
+        );
+      }
+    };
 
     const markTrackReady = (track: "VIDEO" | "AUDIO"): void => {
       readyTrackCount += 1;
@@ -476,6 +555,21 @@ const startStream = async (
 
       if (streamEndHandled) return;
       streamEndHandled = true;
+
+      if (!fullDownloadMode && !driftAdapted && driftSamplesMs.length > 0) {
+        const avgDriftMs = computeTrimmedAverageMs(driftSamplesMs);
+        const targetDelay = Math.round(audioSyncDelayMs + avgDriftMs * DRIFT_ADAPT_GAIN);
+        const stepLimitedDelay = clampNumber(
+          targetDelay,
+          audioSyncDelayMs - MAX_DELAY_STEP_PER_STREAM_MS,
+          audioSyncDelayMs + MAX_DELAY_STEP_PER_STREAM_MS
+        );
+        const adaptedDelay = clampNumber(stepLimitedDelay, MIN_AUDIO_DELAY_MS, MAX_AUDIO_DELAY_MS);
+        adaptiveAudioDelayMsByChannel.set(channelId, adaptedDelay);
+        ctx.log(
+          `[stream:${channelId}] [SYNC] Final drift avg=${Math.round(avgDriftMs)}ms over ${driftSamplesMs.length} samples; delay ${audioSyncDelayMs}ms -> ${adaptedDelay}ms (target=${targetDelay}ms)`
+        );
+      }
 
       if (endedTrack === "video" && !audioEnded) {
         ctx.error(`[stream:${channelId}] Video ended before audio; forcing synchronized stop to avoid freeze/desync.`);
@@ -516,6 +610,11 @@ const startStream = async (
       expectedDurationSeconds: item.duration,
       notifyReadyForSyncStart: () => markTrackReady("VIDEO"),
       waitForSyncStartSignal: syncStartSignal,
+      onProgressTimeSeconds: (seconds) => {
+        videoProgressSeconds = seconds;
+        videoProgressUpdatedAtMs = Date.now();
+        collectDriftSample();
+      },
       loggers,
       onEnd: async () => {
         ctx.log(`[stream:${channelId}] Video ffmpeg ended`);
@@ -540,6 +639,11 @@ const startStream = async (
       expectedDurationSeconds: item.duration,
       notifyReadyForSyncStart: () => markTrackReady("AUDIO"),
       waitForSyncStartSignal: syncStartSignal,
+      onProgressTimeSeconds: (seconds) => {
+        audioProgressSeconds = seconds;
+        audioProgressUpdatedAtMs = Date.now();
+        collectDriftSample();
+      },
       loggers,
       onEnd: async () => {
         ctx.log(`[stream:${channelId}] Audio ffmpeg ended`);

@@ -15,6 +15,7 @@ import {
   getFfmpegBinaryName,
   buildYtDlpDownloadCmd,
   buildDebugCacheFileName,
+  parseProgressTimeToSeconds,
   inferTempExtension,
   shouldUseLockedFormatId,
   shouldRetryWithoutFormatId,
@@ -336,6 +337,22 @@ describe("ffmpeg", () => {
       expect(normalizeBitrate("")).toBe("192k");
       expect(normalizeBitrate(undefined)).toBe("192k");
       expect(normalizeBitrate("  256k  ")).toBe("256k");
+    });
+  });
+
+  describe("parseProgressTimeToSeconds", () => {
+    it("[REQ-003] should parse progress time with milliseconds", () => {
+      const parsed = parseProgressTimeToSeconds("00:00:01.44");
+      expect(parsed).toBeCloseTo(1.44, 2);
+    });
+
+    it("[REQ-003] should parse progress time without milliseconds", () => {
+      const parsed = parseProgressTimeToSeconds("00:02:03");
+      expect(parsed).toBe(123);
+    });
+
+    it("[REQ-003] should return null for invalid progress time", () => {
+      expect(parseProgressTimeToSeconds("not-a-time")).toBeNull();
     });
   });
 
