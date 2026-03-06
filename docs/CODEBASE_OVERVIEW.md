@@ -1,6 +1,6 @@
 # Codebase Overview — sharkord-vid-with-friends
 
-Stand: **04.03.2026**
+Stand: **06.03.2026**
 
 Diese Übersicht ist eine **codegenaue Bestandsaufnahme** des aktuellen Implementierungsstands in `src/`.
 Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung (nicht nur Ziel-Architektur).
@@ -14,6 +14,8 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 - **Entry Point:** `src/index.ts`
 - **Streaming-Pfad (aktuell):** yt-dlp Download in Temp-Datei → ffmpeg RTP (Video+Audio getrennt) → Mediasoup Producer → Sharkord Stream
 - **Format-Lock im Download-Pfad:** Für Video/Audio wird bevorzugt die beim Resolve ermittelte `format_id` an yt-dlp durchgereicht, um Re-Selektion und instabile Varianten zu vermeiden (REQ-038)
+- **Container-stabile Temp-Dateien:** Temp-Datei-Endungen werden formatabhängig gewählt (`m4a`/`webm` für Audio, `mp4`/`ts` für Video) um yt-dlp Post-Processing-Renames während laufendem ffmpeg-Lesen zu vermeiden (REQ-038)
+- **Format-Lock Retry:** Falls ein gelocktes `format_id` beim späteren yt-dlp Download nicht mehr verfügbar ist, erfolgt ein einmaliger Retry ohne `format_id`-Lock statt hartem Abbruch (REQ-027-D)
 - **Settings-Runtime-Fallback:** `settings:changed` Payloads werden als Override ausgewertet, falls `ctx.settings.get()` zur Laufzeit verzögert/stale ist; `startStream` nutzt diese effektiven Werte (REQ-039)
 - **Alternative vorhanden:** HLS-Server + HLS-ffmpeg-Path (`src/stream/hls-server.ts`, `spawnFfmpegForHLS`)
 - **Build-Metadaten:** Dist-`package.json` Version wird loader-kompatibel als `<basis>-<commit>` geschrieben; zusätzlich enthält `sharkordVersionTrace` das lesbare Format `<basis>:<commit>` (REQ-040)
@@ -59,8 +61,10 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
     4. `transport.produce(...)` für Audio (Opus/PT111) + Video (H264/PT96)
     5. Settings lesen (`videoBitrate`, `audioBitrate`, `fullDownloadMode`) + Volume aus `syncController` (0..100)
     6. Audio-Volume via `normalizeVolume(...)` auf 0..1 für ffmpeg normalisieren
-     7. `spawnFfmpeg(...)` Video + Audio (`fullDownloadMode=true`: Voll-Download; `false`: Start ohne vollständigen Download per progressivem Temp-File)
-       inkl. Format-Lock via `item.videoFormatId` / `item.audioFormatId`
+    7. `spawnFfmpeg(...)` Video + Audio (`fullDownloadMode=true`: Voll-Download; `false`: Start ohne vollständigen Download per progressivem Temp-File)
+      - beide Tracks laden parallel und warten auf gemeinsames Sync-Start-Signal
+      - erst wenn beide `ready` sind, wird der ffmpeg-Start freigegeben (REQ-003)
+      - wenn ein Track unerwartet vorzeitig endet, wird der Gegen-Track kontrolliert beendet und Auto-Advance ausgelöst
     8. `ctx.actions.voice.createStream(...)`
     9. Ressourcen via `streamManager.setActive(...)`
     10. Producer-Monitoring + Health-Check
@@ -214,8 +218,13 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 - `shouldCleanupDownloadedData(debugEnabled): boolean`
 - `buildYtDlpDownloadCmd(options): string[]`
   - unterstützt optionales `formatId` für Lock auf exakt aufgelöstes yt-dlp Format
+  - setzt `--hls-use-mpegts` nur noch bei Video ohne expliziten `formatId`-Lock (REQ-038)
+- `shouldRetryWithoutFormatId(exitCode, stderrText, formatId?): boolean`
+  - erkennt den yt-dlp Fehler `Requested format is not available` und aktiviert kontrollierten Fallback ohne Format-Lock (REQ-027-D)
 - `buildDebugCacheFileName(options): string`
-- `buildTempFilePath(videoId, streamType): string`
+- `buildTempFilePath(videoId, streamType, extension?): string`
+- `inferTempExtension(streamType, formatId, progressiveVideoMode): "mp4" | "m4a" | "webm" | "ts"`
+  - bestimmt stabile Temp-Containerendung zur Vermeidung von Remux/Rename-Effekten bei progressivem Lesen
 - `buildVideoStreamArgs(options): string[]`
   - aktueller Codec: H264 (`libx264`) für RTP
 - `buildAudioStreamArgs(options): string[]`
@@ -226,15 +235,18 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 
 - `spawnFfmpeg(options): Promise<SpawnedProcess>`
   - nutzt yt-dlp Temp-Datei-Download als stabilen Eingabepfad
-  - `fullDownloadMode=true`: Voll-Download vor Start
+  - `fullDownloadMode=true`: Voll-Download vor Start, danach ffmpeg mit Echtzeit-Pacing (`-re`)
   - `fullDownloadMode=false`: progressiver Start ohne vollständigen Download (Initial-Buffer)
   - wartet im progressiven Temp-Datei-Modus auf minimale Dateigröße
-  - nutzt bei vorhandenem Wert `formatId` im yt-dlp Download (`-f <formatId>`)
+  - nutzt `formatId`-Lock nur im Full-Download-Modus; progressiver Modus nutzt adaptive Formatwahl für stabilen fortlaufenden Download
+  - bei Download-Fehler `Requested format is not available` wird ein einmaliger Retry ohne `formatId` ausgefuehrt, um Resolver/Download-Drift robust abzufangen
   - startet ffmpeg RTP-Prozess
   - parsed/loggt ffmpeg Fortschritt (`frame`, `time`, `speed`, `bitrate`)
+  - loggt Stream-Längen (`expected`, `input`, `streamed`) zur Abbruch-Diagnose
+  - optionaler Sync-Start-Barrier-Handshake via `notifyReadyForSyncStart` + `waitForSyncStartSignal`
   - killt bei Cleanup ffmpeg + yt-dlp
   - löscht Temp-Dateien automatisch bei `debugMode=false`
-  - **REQ:** REQ-002, REQ-003, REQ-012, REQ-027-B, REQ-027-C, REQ-037
+  - **REQ:** REQ-002, REQ-003, REQ-012, REQ-027-B, REQ-027-C, REQ-027-D, REQ-037
 
 - `testFfmpegBinary(loggers?): Promise<string>`
 

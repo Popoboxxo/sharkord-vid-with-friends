@@ -300,6 +300,26 @@ const logSettingsSnapshot = (
   return currentSnapshot;
 };
 
+/**
+ * Format plugin settings for debug output with visual separation (REQ-026-A).
+ * Only called when debugMode=true.
+ */
+const debugLogFormattedSettings = (ctx: PluginContext, effective: EffectivePluginSettings): void => {
+  const settings = toSettingsSnapshot(effective);
+  ctx.log(
+    `\n${"═".repeat(70)}\n` +
+    `║ 🎬 PLUGIN SETTINGS (Debug Mode Active)\n` +
+    `${"═".repeat(70)}\n` +
+    `║ 🎥 Video Bitrate:        ${effective.videoBitrateKbps} kbps\n` +
+    `║ 🔊 Audio Bitrate:        ${effective.audioBitrateKbps} kbps\n` +
+    `║ 🔉 Volume:               ${effective.defaultVolume}%\n` +
+    `║ 🔄 Sync Mode:            ${effective.syncMode === "server" ? "Server-Side RTP" : "Client-Sync (Hybrid)"}\n` +
+    `║ ⬇️  Full Download Mode:    ${effective.fullDownloadMode ? "ON (wait for complete download)" : "OFF (progressive start)"}\n` +
+    `║ 🐛 Debug Mode:            ${effective.debugMode ? "ON ✓" : "OFF"}\n` +
+    `${"═".repeat(70)}\n`
+  );
+};
+
 // ---- Streaming orchestration ----
 
 /**
@@ -416,10 +436,70 @@ const startStream = async (
 
     ctx.log(`[stream:${channelId}] Settings: volume=${volume}%, videoBitrate=${videoBitrate}, audioBitrate=${audioBitrate}, fullDownloadMode=${fullDownloadMode}`);
 
+    if (debugMode) {
+      debugLogFormattedSettings(ctx, settings);
+    }
+
     // 6. Spawn ffmpeg with RTP output (using temp-file buffering)
     // fullDownloadMode=true  -> complete download before start (REQ-036-A)
     // fullDownloadMode=false -> start without full download (REQ-036-B)
-    const ffmpegVideoProc = await spawnFfmpeg({
+    let resolveSyncStart: (() => void) | null = null;
+    const syncStartSignal = new Promise<void>((resolve) => {
+      resolveSyncStart = resolve;
+    });
+    let readyTrackCount = 0;
+    let syncStartReleased = false;
+    let videoEnded = false;
+    let audioEnded = false;
+    let streamEndHandled = false;
+    let ffmpegVideoProcRef: SpawnedProcess | null = null;
+    let ffmpegAudioProcRef: SpawnedProcess | null = null;
+
+    const markTrackReady = (track: "VIDEO" | "AUDIO"): void => {
+      readyTrackCount += 1;
+      ctx.log(`[stream:${channelId}] [SYNC] ${track} ready (${readyTrackCount}/2)`);
+      if (!syncStartReleased && readyTrackCount >= 2) {
+        syncStartReleased = true;
+        resolveSyncStart?.();
+        ctx.log(`[stream:${channelId}] [SYNC] Start signal released for video+audio`);
+      }
+    };
+
+    const handleTrackEnd = async (endedTrack: "video" | "audio"): Promise<void> => {
+      if (endedTrack === "video") {
+        videoEnded = true;
+      } else {
+        audioEnded = true;
+      }
+
+      if (streamEndHandled) return;
+      streamEndHandled = true;
+
+      if (endedTrack === "video" && !audioEnded) {
+        ctx.error(`[stream:${channelId}] Video ended before audio; forcing synchronized stop to avoid freeze/desync.`);
+      }
+
+      try {
+        if (!videoEnded) ffmpegVideoProcRef?.kill();
+      } catch {
+        // process may already be gone
+      }
+
+      try {
+        if (!audioEnded) ffmpegAudioProcRef?.kill();
+      } catch {
+        // process may already be gone
+      }
+
+      ctx.log(`[stream:${channelId}] Track ended (${endedTrack}), checking auto-advance`);
+      try {
+        await syncController.onVideoEnded(channelId);
+      } catch (e) {
+        ctx.error(`[stream:${channelId}] Error handling process exit:`, e);
+      }
+    };
+
+    const videoSpawnPromise = spawnFfmpeg({
       streamType: "video",
       sourceUrl: item.streamUrl,
       youtubeUrl: item.youtubeUrl,
@@ -431,13 +511,17 @@ const startStream = async (
       bitrate: videoBitrate,
       debugEnabled: debugMode,
       waitForDownloadComplete: fullDownloadMode,
+      expectedDurationSeconds: item.duration,
+      notifyReadyForSyncStart: () => markTrackReady("VIDEO"),
+      waitForSyncStartSignal: syncStartSignal,
       loggers,
       onEnd: async () => {
         ctx.log(`[stream:${channelId}] Video ffmpeg ended`);
+        await handleTrackEnd("video");
       },
     });
 
-    const ffmpegAudioProc = await spawnFfmpeg({
+    const audioSpawnPromise = spawnFfmpeg({
       streamType: "audio",
       sourceUrl: item.audioUrl,
       youtubeUrl: item.youtubeUrl,
@@ -450,16 +534,39 @@ const startStream = async (
       volume: normalizedVolume,
       debugEnabled: debugMode,
       waitForDownloadComplete: fullDownloadMode,
+      expectedDurationSeconds: item.duration,
+      notifyReadyForSyncStart: () => markTrackReady("AUDIO"),
+      waitForSyncStartSignal: syncStartSignal,
       loggers,
       onEnd: async () => {
-        ctx.log(`[stream:${channelId}] Audio ffmpeg ended, checking auto-advance`);
-        try {
-          await syncController.onVideoEnded(channelId);
-        } catch (e) {
-          ctx.error(`[stream:${channelId}] Error handling process exit:`, e);
-        }
+        ctx.log(`[stream:${channelId}] Audio ffmpeg ended`);
+        await handleTrackEnd("audio");
       },
     });
+
+    const spawnResults = await Promise.allSettled([videoSpawnPromise, audioSpawnPromise]);
+    const failedSpawn = spawnResults.find((result) => result.status === "rejected");
+    if (failedSpawn) {
+      if (!syncStartReleased) {
+        syncStartReleased = true;
+        resolveSyncStart?.();
+      }
+
+      for (const result of spawnResults) {
+        if (result.status === "fulfilled") {
+          try { result.value.kill(); } catch { /* */ }
+        }
+      }
+
+      throw failedSpawn.reason instanceof Error
+        ? failedSpawn.reason
+        : new Error(String(failedSpawn.reason));
+    }
+
+    const ffmpegVideoProc = (spawnResults[0] as PromiseFulfilledResult<SpawnedProcess>).value;
+    const ffmpegAudioProc = (spawnResults[1] as PromiseFulfilledResult<SpawnedProcess>).value;
+    ffmpegVideoProcRef = ffmpegVideoProc;
+    ffmpegAudioProcRef = ffmpegAudioProc;
 
     ctx.log(`[stream:${channelId}] ffmpeg spawned (video PID: ${ffmpegVideoProc.process.pid}, audio PID: ${ffmpegAudioProc.process.pid})`);
 

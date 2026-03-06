@@ -15,6 +15,9 @@ import {
   getFfmpegBinaryName,
   buildYtDlpDownloadCmd,
   buildDebugCacheFileName,
+  inferTempExtension,
+  shouldUseLockedFormatId,
+  shouldRetryWithoutFormatId,
   shouldWaitForDownloadComplete,
   shouldCleanupDownloadedData,
 } from "../../src/stream/ffmpeg";
@@ -382,7 +385,25 @@ describe("ffmpeg", () => {
       expect(cmd.some((part) => part.includes("ba/ba*"))).toBe(true);
     });
 
-    it("[REQ-038] should enable mpegts output hint for progressive video stability", () => {
+    it("[REQ-038] should NOT enable mpegts output hint when explicit formatId is locked", () => {
+      const cmd = buildYtDlpDownloadCmd({
+        ytDlpPath: "/bin/yt-dlp",
+        ffmpegLocation: "/bin",
+        sourceUrl: "https://example.com/video",
+        youtubeUrl: "https://www.youtube.com/watch?v=H6P3kJ8nrR8",
+        streamType: "video",
+        formatId: "137",
+        useMpegTsOutput: true,
+        debug: false,
+        outputPath: "/tmp/output.ts",
+      });
+
+      expect(cmd).not.toContain("--hls-use-mpegts");
+      expect(cmd).toContain("-f");
+      expect(cmd).toContain("137");
+    });
+
+    it("[REQ-038] should enable mpegts output hint when no explicit formatId is provided", () => {
       const cmd = buildYtDlpDownloadCmd({
         ytDlpPath: "/bin/yt-dlp",
         ffmpegLocation: "/bin",
@@ -397,6 +418,109 @@ describe("ffmpeg", () => {
       expect(cmd).toContain("--hls-use-mpegts");
       expect(cmd).toContain("-f");
       expect(cmd.some((part) => part.includes("bv[vcodec^=avc1]"))).toBe(true);
+    });
+
+    it("[REQ-038] should include --no-post-overwrites to prevent yt-dlp file replacement", () => {
+      const cmd = buildYtDlpDownloadCmd({
+        ytDlpPath: "/bin/yt-dlp",
+        ffmpegLocation: "/bin",
+        sourceUrl: "https://example.com/video",
+        youtubeUrl: "https://www.youtube.com/watch?v=H6P3kJ8nrR8",
+        streamType: "video",
+        debug: false,
+        outputPath: "/tmp/output.mp4",
+      });
+
+      expect(cmd).toContain("--no-post-overwrites");
+    });
+
+    it("[REQ-038] should disable yt-dlp fixup/remux post-processing", () => {
+      const cmd = buildYtDlpDownloadCmd({
+        ytDlpPath: "/bin/yt-dlp",
+        ffmpegLocation: "/bin",
+        sourceUrl: "https://example.com/video",
+        youtubeUrl: "https://www.youtube.com/watch?v=H6P3kJ8nrR8",
+        streamType: "audio",
+        debug: false,
+        outputPath: "/tmp/output.m4a",
+      });
+
+      expect(cmd).toContain("--fixup");
+      expect(cmd).toContain("never");
+    });
+  });
+
+  describe("shouldRetryWithoutFormatId", () => {
+    it("[REQ-027-D] should retry when a locked format becomes unavailable", () => {
+      expect(
+        shouldRetryWithoutFormatId(
+          1,
+          "ERROR: [youtube] abc123: Requested format is not available",
+          "140"
+        )
+      ).toBe(true);
+    });
+
+    it("[REQ-027-D] should not retry without a locked format id", () => {
+      expect(
+        shouldRetryWithoutFormatId(
+          1,
+          "ERROR: [youtube] abc123: Requested format is not available",
+          undefined
+        )
+      ).toBe(false);
+    });
+
+    it("[REQ-027-D] should not retry for successful exits", () => {
+      expect(
+        shouldRetryWithoutFormatId(
+          0,
+          "ERROR: [youtube] abc123: Requested format is not available",
+          "140"
+        )
+      ).toBe(false);
+    });
+
+    it("[REQ-027-D] should retry on exit 1 with locked format when stderr is empty", () => {
+      expect(
+        shouldRetryWithoutFormatId(
+          1,
+          "",
+          "140"
+        )
+      ).toBe(true);
+    });
+  });
+
+  describe("inferTempExtension", () => {
+    it("[REQ-038] should use m4a temp extension for AAC formatId 140", () => {
+      expect(inferTempExtension("audio", "140", false)).toBe("m4a");
+    });
+
+    it("[REQ-038] should use webm temp extension for Opus formatId 251", () => {
+      expect(inferTempExtension("audio", "251", false)).toBe("webm");
+    });
+
+    it("[REQ-038] should use mp4 temp extension for locked H264 formatId 137", () => {
+      expect(inferTempExtension("video", "137", true)).toBe("mp4");
+    });
+
+    it("[REQ-038] should use ts for progressive video without locked format", () => {
+      expect(inferTempExtension("video", undefined, true)).toBe("ts");
+    });
+
+    it("[REQ-038] should use webm for progressive audio without locked format", () => {
+      expect(inferTempExtension("audio", undefined, true)).toBe("webm");
+    });
+  });
+
+  describe("shouldUseLockedFormatId", () => {
+    it("[REQ-036-A] should keep locked format in full download mode", () => {
+      expect(shouldUseLockedFormatId(true)).toBe(true);
+    });
+
+    it("[REQ-036-B] should disable locked format in progressive mode", () => {
+      expect(shouldUseLockedFormatId(false)).toBe(false);
     });
   });
 

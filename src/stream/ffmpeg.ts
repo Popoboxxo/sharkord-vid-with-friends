@@ -82,9 +82,14 @@ export type SpawnFfmpegOptions = {
   volume?: number;  // Only for audio
   debugEnabled?: boolean;
   waitForDownloadComplete?: boolean;
+  expectedDurationSeconds?: number;
+  waitForSyncStartSignal?: Promise<void>;
+  notifyReadyForSyncStart?: () => void;
   loggers: FfmpegLoggers;
   onEnd?: () => void;
 };
+
+type TempExtension = "mp4" | "m4a" | "webm" | "ts";
 
 // ---- Pure functions (testable without ffmpeg binary) ----
 
@@ -116,6 +121,28 @@ export const normalizeBitrate = (bitrate?: string): string => {
   return "192k";
 };
 
+const parseFfmpegDurationToSeconds = (line: string): number | null => {
+  const durationMatch = line.match(/Duration:\s*(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+  if (!durationMatch) return null;
+  const hours = parseInt(durationMatch[1]!, 10);
+  const minutes = parseInt(durationMatch[2]!, 10);
+  const seconds = parseInt(durationMatch[3]!, 10);
+  return hours * 3600 + minutes * 60 + seconds;
+};
+
+const parseProgressTimeToSeconds = (timeText: string): number | null => {
+  const match = timeText.match(/(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?/);
+  if (!match) return null;
+  const hours = parseInt(match[1]!, 10);
+  const minutes = parseInt(match[2]!, 10);
+  const seconds = parseInt(match[3]!, 10);
+  return hours * 3600 + minutes * 60 + seconds;
+};
+
+/** Use locked format ids only for full-download mode; progressive mode keeps adaptive selection. */
+export const shouldUseLockedFormatId = (waitForFullDownload: boolean): boolean =>
+  waitForFullDownload;
+
 /** Decide if ffmpeg should wait for a full download before starting. */
 export const shouldWaitForDownloadComplete = (streamType: "video" | "audio"): boolean =>
   streamType === "video";
@@ -123,6 +150,23 @@ export const shouldWaitForDownloadComplete = (streamType: "video" | "audio"): bo
 /** Decide whether downloaded media files should be deleted after usage. (REQ-037) */
 export const shouldCleanupDownloadedData = (debugEnabled: boolean): boolean =>
   !debugEnabled;
+
+/**
+ * Decide whether a failed yt-dlp run should be retried without a strict format lock.
+ * This handles videos where a previously resolved format_id later becomes unavailable.
+ * (REQ-027)
+ */
+export const shouldRetryWithoutFormatId = (
+  exitCode: number | null,
+  stderrText: string,
+  formatId?: string
+): boolean => {
+  if (!formatId || !formatId.trim()) return false;
+  if (exitCode === null || exitCode === 0 || exitCode === 143) return false;
+  if (/Requested format is not available/i.test(stderrText)) return true;
+  // Some yt-dlp failures provide little/no stderr detail in container logs.
+  return exitCode === 1 && stderrText.trim().length === 0;
+};
 
 /** Build yt-dlp download command for downloading to temp file. (REQ-027-B, REQ-027-C) */
 export const buildYtDlpDownloadCmd = (options: YtDlpDownloadOptions & { outputPath: string }): string[] => {
@@ -145,12 +189,17 @@ export const buildYtDlpDownloadCmd = (options: YtDlpDownloadOptions & { outputPa
     "--no-warnings",
     "--newline",
     "--no-part",                // Don't create .part files
+    "--no-post-overwrites",     // REQ-038: Prevent yt-dlp from overwriting temp file during post-processing
+    "--fixup", "never",        // REQ-038: Disable remux/fixup passes that replace files during progressive reads
   ];
   
   if (debug) cmd.push("--verbose");
   if (cookiesPath) cmd.push("--cookies", cookiesPath);
   cmd.push("--ffmpeg-location", ffmpegLocation);
-  if (streamType === "video" && useMpegTsOutput) {
+  // REQ-038: Do not force mpegts when a concrete format lock is active.
+  // Some locked DASH formats are regular MP4 and post-process behavior can become unstable
+  // for a concurrently-read temp file.
+  if (streamType === "video" && useMpegTsOutput && !(formatId && formatId.trim())) {
     cmd.push("--hls-use-mpegts");
   }
 
@@ -182,13 +231,36 @@ export const buildDebugCacheFileName = (options: DebugCacheFileOptions): string 
 export const buildTempFilePath = (
   videoId: string,
   streamType: "video" | "audio",
-  videoExtension?: "mp4" | "ts"
+  extension?: TempExtension
 ): string => {
   const safeId = videoId.replace(/[^a-zA-Z0-9_-]/g, "") || "unknown";
   const timestamp = Date.now();
   const cacheDir = getDebugCacheDir();
-  const extension = streamType === "video" ? (videoExtension ?? "mp4") : "webm";
-  return path.join(cacheDir, `temp-${streamType}-${safeId}-${timestamp}.${extension}`);
+  const resolvedExtension: TempExtension = extension ?? (streamType === "video" ? "mp4" : "webm");
+  return path.join(cacheDir, `temp-${streamType}-${safeId}-${timestamp}.${resolvedExtension}`);
+};
+
+/**
+ * Pick a temp-file extension that matches the locked format as closely as possible.
+ * This prevents yt-dlp post-processing remuxes that can replace files while ffmpeg is reading.
+ * (REQ-038)
+ */
+export const inferTempExtension = (
+  streamType: "video" | "audio",
+  formatId: string | undefined,
+  progressiveMode: boolean
+): TempExtension => {
+  if (streamType === "video") {
+    // For unlocked progressive video we keep TS to support HLS-style flows.
+    if (progressiveMode && (!formatId || !formatId.trim())) return "ts";
+    return "mp4";
+  }
+
+  if (progressiveMode && (!formatId || !formatId.trim())) return "webm";
+
+  const normalizedFormat = (formatId ?? "").trim();
+  const opusLikeAudioFormats = new Set(["249", "250", "251", "171", "172"]);
+  return opusLikeAudioFormats.has(normalizedFormat) ? "webm" : "m4a";
 };
 
 const extractYouTubeId = (url: string): string => {
@@ -333,6 +405,9 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     volume = 1,
     debugEnabled = false,
     waitForDownloadComplete,
+    expectedDurationSeconds,
+    waitForSyncStartSignal,
+    notifyReadyForSyncStart,
     loggers,
     onEnd,
   } = options;
@@ -344,16 +419,19 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   const tag = streamType.toUpperCase(); // "VIDEO" or "AUDIO"
 
   const waitForFullDownload = waitForDownloadComplete ?? shouldWaitForDownloadComplete(streamType);
-  const progressiveVideoMode = streamType === "video" && !waitForFullDownload;
+  const progressiveMode = !waitForFullDownload;
+  const useLockedFormatId = shouldUseLockedFormatId(waitForFullDownload);
+  const preferredFormatId = useLockedFormatId ? formatId : undefined;
   // Direct URL input for video is currently unstable with the bundled static ffmpeg (exit 139).
   // Keep progressive startup via temp-file buffering when fullDownloadMode=false.
   const useDirectVideoInput = false;
 
   // Generate temp file path (only needed when yt-dlp downloads to local file)
   const videoId = extractYouTubeId(youtubeUrl || "");
+  const tempExtension = inferTempExtension(streamType, preferredFormatId, progressiveMode);
   const tempFilePath = useDirectVideoInput
     ? undefined
-    : buildTempFilePath(videoId, streamType, progressiveVideoMode ? "ts" : "mp4");
+    : buildTempFilePath(videoId, streamType, tempExtension);
 
   const cleanupDownloadedFile = (): void => {
     if (!shouldCleanupDownloadedData(debugEnabled)) return;
@@ -369,39 +447,41 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   
   let ytDlpProc: ReturnType<typeof Bun.spawn> | null = null;
   let ytDlpExit: Promise<number> | null = null;
+  let ytDlpExitCode: number | null = null;
+  let ytDlpStderrText = "";
+  let usedFormatFallback = false;
 
-  if (!useDirectVideoInput) {
-    if (!tempFilePath) {
-      throw new Error(`${tag}: temp file path missing for download mode`);
-    }
-
-    // Ensure cache directory exists
-    const cacheDir = path.dirname(tempFilePath);
-    mkdirSync(cacheDir, { recursive: true });
-
-    loggers.log(`[${tag}]`, `Phase: DOWNLOADING — yt-dlp downloading to: ${path.basename(tempFilePath)}`);
+  const spawnYtDlpDownload = (useFormatFallback: boolean): void => {
+    const effectiveFormatId = useFormatFallback ? undefined : preferredFormatId;
+    const effectiveProgressiveVideoMode = streamType === "video" && !waitForFullDownload && !effectiveFormatId;
 
     const ytDlpCmd = buildYtDlpDownloadCmd({
       ytDlpPath,
       ffmpegLocation: binDir,
       sourceUrl,
       youtubeUrl,
-      formatId,
+      formatId: effectiveFormatId,
       streamType,
-      useMpegTsOutput: progressiveVideoMode,
+      useMpegTsOutput: effectiveProgressiveVideoMode,
       cookiesPath: existsSync(cookiesPath) ? cookiesPath : undefined,
       debug: debugEnabled,
-      outputPath: tempFilePath,
+      outputPath: tempFilePath!,
     });
 
     if (youtubeUrl) {
-      if (formatId && formatId.trim()) {
-        loggers.log(`[${tag}]`, `Downloading via YouTube URL (locked formatId: ${formatId.trim()}${progressiveVideoMode ? ", hls-use-mpegts=true" : ""})`);
+      if (effectiveFormatId && effectiveFormatId.trim()) {
+        loggers.log(
+          `[${tag}]`,
+          `Downloading via YouTube URL (locked formatId: ${effectiveFormatId.trim()}${effectiveProgressiveVideoMode ? ", hls-use-mpegts=true" : ""})`
+        );
       } else {
         const formatSel = streamType === "video"
           ? "bv[vcodec^=avc1][height<=1080]/bv[vcodec^=avc1]/bv*[vcodec^=avc1]"
           : "ba/ba*";
-        loggers.log(`[${tag}]`, `Downloading via YouTube URL (format: ${formatSel}${progressiveVideoMode ? ", hls-use-mpegts=true" : ""})`);
+        loggers.log(
+          `[${tag}]`,
+          `Downloading via YouTube URL (fallback format selection: ${formatSel}${effectiveProgressiveVideoMode ? ", hls-use-mpegts=true" : ""})`
+        );
       }
     } else {
       loggers.log(`[${tag}]`, `Fallback: downloading from CDN URL (${sourceUrl.length} chars)`);
@@ -411,6 +491,8 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
       loggers.debug(`[${tag}]`, "[yt-dlp cmd full]", ytDlpCmd.join(" "));
     }
 
+    ytDlpStderrText = "";
+    ytDlpExitCode = null;
     ytDlpProc = Bun.spawn({
       cmd: ytDlpCmd,
       stdout: "ignore",
@@ -430,27 +512,37 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
-            if (lineBuffer.trim()) loggers.debug(`[${tag}]`, "[yt-dlp]", lineBuffer.trim());
+            if (lineBuffer.trim()) {
+              const finalLine = lineBuffer.trim();
+              ytDlpStderrText += `${finalLine}\n`;
+              loggers.debug(`[${tag}]`, "[yt-dlp]", finalLine);
+            }
             break;
           }
           lineBuffer += decoder.decode(value, { stream: true });
           const lines = lineBuffer.split("\n");
           for (let i = 0; i < lines.length - 1; i++) {
             const line = lines[i]!.trim();
-            if (line) loggers.debug(`[${tag}]`, "[yt-dlp]", line);
+            if (!line) continue;
+            ytDlpStderrText += `${line}\n`;
+            loggers.debug(`[${tag}]`, "[yt-dlp]", line);
           }
           lineBuffer = lines[lines.length - 1] ?? "";
         }
-      } catch { /* ignore */ }
-      finally { try { reader.releaseLock(); } catch { /* */ } }
+      } catch {
+        // ignore stderr reader errors
+      } finally {
+        try { reader.releaseLock(); } catch { /* */ }
+      }
     })();
 
     ytDlpExit.then(async (code) => {
+      ytDlpExitCode = code;
       if (code !== 0 && code !== 143) {
         loggers.error(`[${tag}]`, `[yt-dlp] FAILED (exit code ${code}) — download did not complete!`);
       } else if (code === 0) {
         try {
-          const fileSize = existsSync(tempFilePath) ? Bun.file(tempFilePath).size : 0;
+          const fileSize = existsSync(tempFilePath!) ? Bun.file(tempFilePath!).size : 0;
           loggers.log(`[${tag}]`, `[yt-dlp] Download completed (exit 0) — file size: ${Math.round(fileSize / 1024)} KB`);
         } catch {
           loggers.log(`[${tag}]`, "[yt-dlp] Download completed (exit 0)");
@@ -459,6 +551,46 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
         loggers.debug(`[${tag}]`, `[yt-dlp] Stopped (exit ${code})`);
       }
     });
+  };
+
+  const maybeRetryYtDlpWithoutFormatId = async (): Promise<boolean> => {
+    const shouldRetry = shouldRetryWithoutFormatId(ytDlpExitCode, ytDlpStderrText, preferredFormatId);
+    if (!shouldRetry || usedFormatFallback || !tempFilePath) return false;
+
+    usedFormatFallback = true;
+    loggers.log(
+      `[${tag}]`,
+      "[yt-dlp] Locked format unavailable. Retrying once without formatId lock..."
+    );
+
+    try {
+      if (ytDlpProc) ytDlpProc.kill("SIGTERM");
+    } catch {
+      // process may already be dead
+    }
+
+    try {
+      if (existsSync(tempFilePath)) unlinkSync(tempFilePath);
+    } catch {
+      // best effort cleanup before retry
+    }
+
+    spawnYtDlpDownload(true);
+    return true;
+  };
+
+  if (!useDirectVideoInput) {
+    if (!tempFilePath) {
+      throw new Error(`${tag}: temp file path missing for download mode`);
+    }
+
+    // Ensure cache directory exists
+    const cacheDir = path.dirname(tempFilePath);
+    mkdirSync(cacheDir, { recursive: true });
+
+    loggers.log(`[${tag}]`, `Phase: DOWNLOADING — yt-dlp downloading to: ${path.basename(tempFilePath)}`);
+
+    spawnYtDlpDownload(false);
 
     loggers.log(`[Phase] DOWNLOADING — yt-dlp pipe started on temp file: ${tempFilePath.substring(Math.max(0, tempFilePath.length - 40))}`);
   }
@@ -469,14 +601,38 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   if (!useDirectVideoInput && waitForFullDownload) {
     // ---- Complete Download Mode ----
     loggers.log(`[${tag}]`, "Waiting for full download before starting ffmpeg...");
-    const code = await ytDlpExit;
+    let code = await ytDlpExit;
+    if (code !== 0 && code !== 143) {
+      const retried = await maybeRetryYtDlpWithoutFormatId();
+      if (retried && ytDlpExit) {
+        code = await ytDlpExit;
+      }
+    }
     if (code !== 0 && code !== 143) {
       cleanupDownloadedFile();
       throw new Error(`${tag}: yt-dlp failed — exit ${code}`);
     }
     loggers.log(`[${tag}]`, "Download complete, starting ffmpeg...");
+    if (notifyReadyForSyncStart) {
+      notifyReadyForSyncStart();
+    }
+    if (waitForSyncStartSignal) {
+      loggers.log(`[${tag}]`, "Waiting for synchronized track start signal...");
+      const startSyncResult = await Promise.race([
+        waitForSyncStartSignal.then(() => "ready" as const),
+        new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 15_000)),
+      ]);
+      if (startSyncResult === "timeout") {
+        loggers.error(`[${tag}]`, "Synchronized start wait timed out; starting track anyway.");
+      }
+    }
   } else if (!useDirectVideoInput) {
     // ---- Progressive Mode: Buffer & Start ----
+    if (!tempFilePath) {
+      cleanupDownloadedFile();
+      throw new Error(`${tag}: temp file path missing in progressive mode`);
+    }
+
     const minInitialBytes = streamType === "video" ? 10_000_000 : 100_000;  // 10 MB video, 100 KB audio
     loggers.log(`[${tag}]`, "Waiting for initial buffer...");
     let fileReady = false;
@@ -492,18 +648,48 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
       await new Promise<void>(r => setTimeout(r, 100));
     }
     if (!fileReady) {
+      const retried = await maybeRetryYtDlpWithoutFormatId();
+      if (retried && tempFilePath) {
+        loggers.log(`[${tag}]`, "Retry download started, waiting again for initial buffer...");
+        for (let i = 0; i < 300; i++) {
+          if (existsSync(tempFilePath)) {
+            const fileSize = Bun.file(tempFilePath).size;
+            if (fileSize >= minInitialBytes) {
+              loggers.log(`[${tag}]`, `Temp file ready after retry (${Math.round(fileSize / 1024)} KB), starting ffmpeg...`);
+              fileReady = true;
+              break;
+            }
+          }
+          await new Promise<void>(r => setTimeout(r, 100));
+        }
+      }
+    }
+    if (!fileReady) {
       loggers.error(`[${tag}]`, `Temp file not ready after 30s! yt-dlp may have failed.`);
       try { ytDlpProc?.kill("SIGTERM"); } catch { /* */ }
       cleanupDownloadedFile();
       throw new Error(`${tag}: yt-dlp download failed — no data received after 30s`);
     }
+
+    if (notifyReadyForSyncStart) {
+      notifyReadyForSyncStart();
+    }
+    if (waitForSyncStartSignal) {
+      loggers.log(`[${tag}]`, "Waiting for synchronized track start signal...");
+      const startSyncResult = await Promise.race([
+        waitForSyncStartSignal.then(() => "ready" as const),
+        new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 15_000)),
+      ]);
+      if (startSyncResult === "timeout") {
+        loggers.error(`[${tag}]`, "Synchronized start wait timed out; starting track anyway.");
+      }
+    }
   }
 
   // ---- Start ffmpeg (file has data now) ----
-  // Determine if we should use -re flag:
-  // - progressive mode: -re ON (realtime pacing)
-  // - complete download mode: -re OFF
-  const useRealtimeReading = !waitForFullDownload;
+  // Keep RTP output paced in realtime for BOTH modes.
+  // fullDownloadMode controls startup strategy, not playback speed.
+  const useRealtimeReading = true;
   const ffmpegInput = useDirectVideoInput ? sourceUrl : tempFilePath;
   if (!ffmpegInput) {
     cleanupDownloadedFile();
@@ -512,7 +698,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   
   // REQ-027-B: Phase PIPING — ffmpeg will receive data on stdin
   loggers.log(`[Phase] PIPING — ffmpeg process spawned, input mode: ${useDirectVideoInput ? "direct-url" : "temp-file"}`);
-  loggers.log(`[${tag}]`, `[FFmpeg config] -re flag: ${useRealtimeReading ? "ON (progressive)" : "OFF (complete file)"}`);
+  loggers.log(`[${tag}]`, `[FFmpeg config] -re flag: ON (paced realtime playback)`);
 
   // Build ffmpeg args with appropriate realtime reading setting
   const args = streamType === "video"
@@ -548,6 +734,8 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     let lineBuffer = "";
     let droppedFrameCount = 0;
     let totalFrames = 0;
+    let ffmpegInputDurationSeconds: number | null = null;
+    let streamedDurationSeconds = 0;
 
     try {
       while (true) {
@@ -581,6 +769,10 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
           if (frameMatch || timeMatch) {
             const now = Date.now();
             if (frameMatch) totalFrames = parseInt(frameMatch[1]!);
+            if (timeMatch) {
+              const parsedTime = parseProgressTimeToSeconds(timeMatch[1]!);
+              if (parsedTime !== null) streamedDurationSeconds = parsedTime;
+            }
             // Log progress every 3 seconds
             if (now - lastProgressLog >= 3000) {
               lastProgressLog = now;
@@ -601,6 +793,18 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
             }
             continue;
           }
+
+          if (ffmpegInputDurationSeconds === null && line.includes("Duration:")) {
+            const parsedDuration = parseFfmpegDurationToSeconds(line);
+            if (parsedDuration !== null) {
+              ffmpegInputDurationSeconds = parsedDuration;
+              const lengthBits = [`input=${parsedDuration}s`];
+              if (typeof expectedDurationSeconds === "number" && expectedDurationSeconds > 0) {
+                lengthBits.push(`expected=${expectedDurationSeconds}s`);
+              }
+              loggers.log(`[${tag}]`, `[FFmpeg Length] ${lengthBits.join(", ")}`);
+            }
+          }
           
           // Log important lines (Input, Stream, Output, codec info) at info level
           if (line.startsWith("Input") || line.startsWith("Output") || line.startsWith("Stream") || line.includes("encoder") || line.includes("decoder") || line.includes("h264") || line.includes("opus") || line.includes("aac")) {
@@ -616,6 +820,19 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     } finally {
       stderrDrained = true;
       try { reader.releaseLock(); } catch { /* */ }
+      const lengthSummary: string[] = [];
+      if (typeof expectedDurationSeconds === "number" && expectedDurationSeconds > 0) {
+        lengthSummary.push(`expected=${expectedDurationSeconds}s`);
+      }
+      if (ffmpegInputDurationSeconds !== null) {
+        lengthSummary.push(`input=${ffmpegInputDurationSeconds}s`);
+      }
+      if (streamedDurationSeconds > 0) {
+        lengthSummary.push(`streamed=${streamedDurationSeconds}s`);
+      }
+      if (lengthSummary.length > 0) {
+        loggers.log(`[${tag}]`, `[FFmpeg Length] End summary: ${lengthSummary.join(", ")}`);
+      }
       loggers.log(`[${tag}]`, `[FFmpeg] Stream ended — total frames: ${totalFrames}, dropped: ${droppedFrameCount}`);
       loggers.debug(`[${tag}]`, "[FFmpeg] Stderr stream closed");
     }
