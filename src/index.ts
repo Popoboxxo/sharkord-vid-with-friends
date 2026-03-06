@@ -433,8 +433,10 @@ const startStream = async (
     const fullDownloadMode = settings.fullDownloadMode;
     const videoBitrate = `${settings.videoBitrateKbps}k`;
     const audioBitrate = `${settings.audioBitrateKbps}k`;
+    const audioSyncDelayMs = fullDownloadMode ? 0 : 450;
 
     ctx.log(`[stream:${channelId}] Settings: volume=${volume}%, videoBitrate=${videoBitrate}, audioBitrate=${audioBitrate}, fullDownloadMode=${fullDownloadMode}`);
+    ctx.log(`[stream:${channelId}] [SYNC] Audio delay compensation: ${audioSyncDelayMs}ms`);
 
     if (debugMode) {
       debugLogFormattedSettings(ctx, settings);
@@ -532,6 +534,7 @@ const startStream = async (
       ssrc: (audioProducer as any).rtpParameters?.encodings?.[0]?.ssrc || 1,
       bitrate: audioBitrate,
       volume: normalizedVolume,
+      syncDelayMs: audioSyncDelayMs,
       debugEnabled: debugMode,
       waitForDownloadComplete: fullDownloadMode,
       expectedDurationSeconds: item.duration,

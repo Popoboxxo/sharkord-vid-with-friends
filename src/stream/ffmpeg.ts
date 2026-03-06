@@ -36,6 +36,7 @@ export type AudioStreamOptions = {
   ssrc: number;
   bitrate: string;
   volume: number;
+  syncDelayMs?: number;
   realtimeReading?: boolean;  // Use -re flag (default: true for progressive, false for complete files)
 };
 
@@ -80,6 +81,7 @@ export type SpawnFfmpegOptions = {
   ssrc: number;
   bitrate: string;
   volume?: number;  // Only for audio
+  syncDelayMs?: number;
   debugEnabled?: boolean;
   waitForDownloadComplete?: boolean;
   expectedDurationSeconds?: number;
@@ -340,10 +342,19 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
  * REQ-026: Workaround for URL length issue in statically-linked ffmpeg.
  */
 export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
-  const { inputPath, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume, realtimeReading = true } = options;
+  const { inputPath, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume, syncDelayMs = 0, realtimeReading = true } = options;
   const bitrateNorm = normalizeBitrate(bitrate);
 
-  const volumeFilter = volume !== 1 ? ["-af", `volume=${volume}`] : [];
+  const filterGraph: string[] = [];
+  if (volume !== 1) filterGraph.push(`volume=${volume}`);
+
+  const normalizedSyncDelayMs = Math.max(0, Math.min(2000, Math.floor(syncDelayMs)));
+  if (normalizedSyncDelayMs > 0) {
+    // Compensate typical video encode pipeline lead/lag so audio/video output starts more tightly aligned.
+    filterGraph.push(`adelay=${normalizedSyncDelayMs}|${normalizedSyncDelayMs}`);
+  }
+
+  const audioFilterArgs = filterGraph.length > 0 ? ["-af", filterGraph.join(",")] : [];
   const realtimeFlags = realtimeReading ? ["-re"] : [];
 
   // Audio MUST be re-encoded (AAC → Opus) for Mediasoup/WebRTC compatibility.
@@ -363,7 +374,7 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
     // Drop video (separate video stream handles this)
     "-vn",
     // Volume filter
-    ...volumeFilter,
+    ...audioFilterArgs,
     // Opus encoding (required: Mediasoup expects Opus for audio)
     "-c:a", "libopus",
     "-ar", "48000",
@@ -403,6 +414,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     ssrc,
     bitrate,
     volume = 1,
+    syncDelayMs = 0,
     debugEnabled = false,
     waitForDownloadComplete,
     expectedDurationSeconds,
@@ -703,7 +715,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   // Build ffmpeg args with appropriate realtime reading setting
   const args = streamType === "video"
     ? buildVideoStreamArgs({ inputPath: ffmpegInput, rtpHost, rtpPort, payloadType, ssrc, bitrate, realtimeReading: useRealtimeReading })
-    : buildAudioStreamArgs({ inputPath: ffmpegInput, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume, realtimeReading: useRealtimeReading });
+    : buildAudioStreamArgs({ inputPath: ffmpegInput, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume, syncDelayMs, realtimeReading: useRealtimeReading });
 
   if (debugEnabled) {
     loggers.debug(`[${tag}]`, "[FFmpeg cmd]", ffmpegPath, ...args);

@@ -192,6 +192,38 @@ describe("ffmpeg", () => {
       expect(args.some((a) => a.includes("volume=0.5"))).toBe(true);
     });
 
+    it("[REQ-003] should include adelay filter when syncDelayMs is configured", () => {
+      const args = buildAudioStreamArgs({
+        inputPath: "/tmp/audio.webm",
+        rtpHost: "127.0.0.1",
+        rtpPort: 40002,
+        payloadType: 111,
+        ssrc: 789012,
+        bitrate: "128k",
+        volume: 1,
+        syncDelayMs: 450,
+      });
+
+      expect(args).toContain("-af");
+      expect(args.some((a) => a.includes("adelay=450|450"))).toBe(true);
+    });
+
+    it("[REQ-003] should combine volume and adelay in a single filter chain", () => {
+      const args = buildAudioStreamArgs({
+        inputPath: "/tmp/audio.webm",
+        rtpHost: "127.0.0.1",
+        rtpPort: 40002,
+        payloadType: 111,
+        ssrc: 789012,
+        bitrate: "128k",
+        volume: 0.75,
+        syncDelayMs: 300,
+      });
+
+      expect(args).toContain("-af");
+      expect(args.some((a) => a.includes("volume=0.75,adelay=300|300"))).toBe(true);
+    });
+
     it("[REQ-002] should use inputPath for file input", () => {
       const args = buildAudioStreamArgs({
         inputPath: "/tmp/audio.webm",

@@ -50,3 +50,17 @@ Bugfix fuer vorzeitige Stream-Abbrueche im progressiven Modus (`fullDownloadMode
 ### Wichtige Referenzen
 - `src/index.ts`
 - `src/stream/ffmpeg.ts`
+
+## 5. Feintuning Restversatz
+
+### Beobachtung
+- Trotz Start-Barrier blieb ein kleiner, konstanter A/V-Versatz sichtbar.
+
+### Optimierung
+- Audio-Pfad erhaelt optionalen `syncDelayMs` und setzt `adelay=<ms>|<ms>` im ffmpeg Filtergraph.
+- Im progressiven Modus wird aktuell eine Delay-Kompensation von `450ms` gesetzt.
+
+### Referenzen
+- `src/stream/ffmpeg.ts`
+- `src/index.ts`
+- `tests/unit/ffmpeg.test.ts`

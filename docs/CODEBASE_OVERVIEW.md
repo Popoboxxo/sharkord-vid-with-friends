@@ -64,6 +64,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
     7. `spawnFfmpeg(...)` Video + Audio (`fullDownloadMode=true`: Voll-Download; `false`: Start ohne vollständigen Download per progressivem Temp-File)
       - beide Tracks laden parallel und warten auf gemeinsames Sync-Start-Signal
       - erst wenn beide `ready` sind, wird der ffmpeg-Start freigegeben (REQ-003)
+      - im progressiven Modus wird zusaetzlich eine kleine Audio-Delay-Kompensation gesetzt, um den restlichen konstanten Startversatz auszugleichen
       - wenn ein Track unerwartet vorzeitig endet, wird der Gegen-Track kontrolliert beendet und Auto-Advance ausgelöst
     8. `ctx.actions.voice.createStream(...)`
     9. Ressourcen via `streamManager.setActive(...)`
@@ -229,6 +230,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
   - aktueller Codec: H264 (`libx264`) für RTP
 - `buildAudioStreamArgs(options): string[]`
   - Audio Re-Encode nach Opus
+  - optionale `adelay`-Kompensation (`syncDelayMs`) fuer feinere A/V-Startausrichtung
   - RTP-Paketgrößen-Schutz: `-frame_duration 20` + `-vbr off`, damit Opus-Payloads unter `pkt_size=1200` bleiben
 
 ### Exportierte Runtime-Funktionen
