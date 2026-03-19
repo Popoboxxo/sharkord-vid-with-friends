@@ -1,10 +1,24 @@
 # sharkord-vid-with-friends
 
-> **⚠️ Project Status:** This is a **95% "Vibe Coded" prototype** created for rapid development and feature exploration.  
-> Before production deployment, **a complete refactor is required** for stability, error handling, and code quality improvements.
+> **⚠️ Alpha Release (v0.1.0-alpha.1)**
+> This is an **early alpha release**. Most features are implemented but **many are still buggy or incomplete**.
+> Expect rough edges, crashes, and unexpected behavior. This release is intended for **testing and feedback only** — not for production use.
+> A complete stability refactor is planned before the first stable release.
 
-A Sharkord plugin for watching YouTube videos together in voice channels.  
+A Sharkord plugin for watching YouTube videos together in voice channels.
 Server-side streaming via **yt-dlp → ffmpeg → Mediasoup RTP** guarantees frame-accurate synchronization for all participants.
+
+## Known Issues & Limitations (Alpha)
+
+- **Audio/video sync** can drift during long playback sessions
+- **Auto-advance** may occasionally hang between queue items
+- **Pause/resume** does not always restore the stream cleanly
+- **Hybrid-sync mode** (client-side YouTube player) is experimental and largely untested
+- **Queue operations** (skip, remove) can produce race conditions under load
+- **Error handling** is minimal — invalid URLs or network issues may cause silent failures
+- **UI components** (NowPlaying badge, Queue panel) may not update in real-time
+- **Volume control** changes may not take effect until the next track
+- **No reconnection logic** — if the Mediasoup transport drops, a manual `/watch_stop` + replay is needed
 
 ## Features
 
@@ -98,29 +112,66 @@ src/
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) >= 1.3
-- [Sharkord](https://github.com/nicanderhery/sharkord) >= 0.0.6
-- **ffmpeg** and **yt-dlp** binaries in the `src/stream/bin/` directory
+- [Sharkord](https://github.com/nicanderhery/sharkord) >= 0.0.7
+- **ffmpeg** and **yt-dlp** binaries (see below)
+
+## Required Binaries
+
+The plugin requires **ffmpeg** and **yt-dlp** as external binaries. They must be placed in the `bin/` directory inside the installed plugin folder.
+
+```
+<sharkord-plugins>/sharkord-vid-with-friends/
+├── index.js          # Plugin bundle (from release)
+├── package.json      # Plugin metadata (from release)
+└── bin/
+    ├── ffmpeg        # Linux: static binary (amd64)
+    ├── ffmpeg.exe    # Windows: ffmpeg executable
+    ├── yt-dlp        # Linux: standalone binary
+    └── yt-dlp.exe    # Windows: yt-dlp executable
+```
+
+**The binaries are NOT included in the release.** You must provide them yourself:
+
+| Binary | Linux | Windows | Source |
+|--------|-------|---------|--------|
+| **ffmpeg** | `bin/ffmpeg` | `bin/ffmpeg.exe` | [ffmpeg.org/download](https://ffmpeg.org/download.html) or [johnvansickle.com/ffmpeg](https://johnvansickle.com/ffmpeg/) (static build) |
+| **yt-dlp** | `bin/yt-dlp` | `bin/yt-dlp.exe` | [github.com/yt-dlp/yt-dlp/releases](https://github.com/yt-dlp/yt-dlp/releases/latest) |
+
+> **Tip:** When using the Docker development setup (`docker-compose.dev.yml`), binaries are downloaded automatically by the `init-binaries` service.
 
 ## Installation
 
+### From Release (recommended)
+
+1. Download `sharkord-vid-with-friends.zip` from the [latest release](https://github.com/Popoboxxo/sharkord-vid-with-friends/releases)
+2. Extract into your Sharkord plugins directory:
+   ```bash
+   # Linux/macOS
+   unzip sharkord-vid-with-friends.zip -d ~/.config/sharkord/plugins/sharkord-vid-with-friends
+
+   # Windows
+   # Extract to %APPDATA%\sharkord\plugins\sharkord-vid-with-friends
+   ```
+3. Place ffmpeg and yt-dlp binaries in the `bin/` folder (see above)
+4. Restart Sharkord
+
+### From Source
+
 ```bash
 # Clone the repository
-git clone <repo-url> ~/.config/sharkord/plugins/sharkord-vid-with-friends
-cd ~/.config/sharkord/plugins/sharkord-vid-with-friends
+git clone https://github.com/Popoboxxo/sharkord-vid-with-friends.git
+cd sharkord-vid-with-friends
 
 # Install dependencies
 bun install
 
-# Place ffmpeg & yt-dlp binaries
-# Linux/macOS:
-cp /usr/bin/ffmpeg src/stream/bin/ffmpeg
-cp /usr/local/bin/yt-dlp src/stream/bin/yt-dlp
-# Windows:
-# Place ffmpeg.exe and yt-dlp.exe in src/stream/bin/
-
 # Build the plugin
 bun run build
+
+# Copy dist output to Sharkord plugins directory
+cp -r dist/sharkord-vid-with-friends ~/.config/sharkord/plugins/
+
+# Place ffmpeg & yt-dlp binaries in the plugin's bin/ directory
 ```
 
 ## Development
@@ -171,7 +222,7 @@ describe("QueueManager", () => {
 
 ## Requirements
 
-See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for the full requirements catalog (REQ-001 through REQ-018).
+See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for the full requirements catalog (REQ-001 through REQ-040).
 
 ## License
 
