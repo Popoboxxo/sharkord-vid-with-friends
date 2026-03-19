@@ -109,6 +109,7 @@ Spezialisierte Sub-Agenten unter `.claude/agents/`:
 | `vwf-tester` | TDD, Test-Suite, Testabdeckung |
 | `vwf-validator` | Validierung, DoD-Check, Code-Qualität |
 | `vwf-documenter` | CODEBASE_OVERVIEW, ARCHITECTURE, README, Erkenntnisse |
+| `vwf-release` | Release-Builds, GitHub Releases, Versionierung |
 
 ## Sprache
 
