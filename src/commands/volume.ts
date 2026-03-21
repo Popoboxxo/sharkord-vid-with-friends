@@ -21,7 +21,7 @@ export const registerVolumeCommand = (
   syncController: SyncController
 ): void => {
   ctx.commands.register<{ level: number }>({
-    name: "volume",
+    name: "vid_volume",
     description: "Set the playback volume (0-100)",
     args: [
       {

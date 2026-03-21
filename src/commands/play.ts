@@ -30,7 +30,7 @@ export const registerPlayCommand = (
   syncController: SyncController
 ): void => {
   ctx.commands.register<{ query: string }>({
-    name: "watch",
+    name: "vid_watch",
     description: "Play a YouTube video in the voice channel",
     args: [
       {
@@ -51,7 +51,7 @@ export const registerPlayCommand = (
       }
 
       if (syncController.isPlaying(channelId)) {
-        return "A video is already playing in this channel. Stop it first before starting another one.";
+        return "A video is already playing in this channel. Use /vid_stop to stop it first.";
       }
 
       let sourceUrl = args.query.trim();

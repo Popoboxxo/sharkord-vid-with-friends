@@ -215,7 +215,7 @@ export const buildYtDlpDownloadCmd = (options: YtDlpDownloadOptions & { outputPa
     } else {
       const formatSel = streamType === "video"
         ? "bv[vcodec^=avc1][height<=1080]/bv[vcodec^=avc1]/bv*[vcodec^=avc1]"
-        : "ba/ba*";
+        : "ba[acodec=opus]/ba[acodec=aac]/ba/ba*/bestaudio[acodec=opus]/bestaudio[acodec=aac]/bestaudio";
       cmd.push("-f", formatSel, "-o", outputPath, youtubeUrl);
     }
   } else {
@@ -682,7 +682,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     }
     if (!fileReady) {
       loggers.error(`[${tag}]`, `Temp file not ready after 30s! yt-dlp may have failed.`);
-      try { ytDlpProc?.kill("SIGTERM"); } catch { /* */ }
+      try { (ytDlpProc as ReturnType<typeof Bun.spawn> | null)?.kill("SIGTERM"); } catch { /* */ }
       cleanupDownloadedFile();
       throw new Error(`${tag}: yt-dlp download failed — no data received after 30s`);
     }
