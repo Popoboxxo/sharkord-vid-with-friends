@@ -379,7 +379,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 Alle Commands registrieren über `ctx.commands.register(...)`.
 
 - `registerPlayCommand(ctx, queueManager, syncController)` in `play.ts`
-  - `/watch <query>`
+  - `/vid_watch <query>`
   - blockiert zweiten Startversuch bei aktiver Wiedergabe im selben Channel
   - Resolve via `resolveVideo`, Queue add, Start (nur wenn kein aktiver Stream)
   - persistiert `videoFormatId` / `audioFormatId` im Queue-Item für stabilen Downloadpfad
@@ -387,48 +387,48 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
   - **REQ:** REQ-001, REQ-004, REQ-035
 
 - `registerQueueCommand(ctx, queueManager)` in `queue.ts`
-  - `/queue`
+  - `/vid_queue`
   - formatiert Current + Upcoming + Duration
   - **REQ:** REQ-006
 
 - `registerSkipCommand(ctx, syncController, streamManager?)` in `skip.ts`
-  - `/skip`
+  - `/vid_skip`
   - prüft Wiedergabe robust: `isPlaying` **oder** `streamManager.isActive(...)`
   - **REQ:** REQ-008
 
 - `registerRemoveCommand(ctx, queueManager)` in `remove.ts`
-  - `/remove <position>`
+  - `/vid_remove <position>`
   - **REQ:** REQ-007
 
 - `registerStopCommand(ctx, syncController, streamManager)` in `stop.ts`
-  - `/watch_stop`
+  - `/vid_stop`
   - prüft Wiedergabe robust: `isPlaying` **oder** `streamManager.isActive(...)`
   - stream cleanup + sync stop
   - **REQ:** REQ-010
 
 - `registerNowPlayingCommand(ctx, queueManager)` in `nowplaying.ts`
-  - `/nowplaying`
+  - `/vid_nowplaying`
   - **REQ:** REQ-011
 
 - `registerPauseCommand(ctx, syncController, streamControl)` in `pause.ts`
-  - `/pause`
+  - `/vid_pause`
   - prüft Wiedergabe robust: `isPlaying` **oder** `streamControl.isActive(...)`
   - toggelt pause/resume über `StreamManager`
   - **REQ:** REQ-013
 
 - `registerResumeCommand(ctx, syncController, streamControl?)` in `resume.ts`
-  - `/resume`
+  - `/vid_resume`
   - setzt explizit fort, wenn ein Stream pausiert ist
   - liefert klare Rückmeldung wenn nichts pausiert ist
   - **REQ:** REQ-034
 
 - `registerVolumeCommand(ctx, syncController)` in `volume.ts`
-  - `/volume <0-100>`
+  - `/vid_volume <0-100>`
   - wirkt auf nächste Video-Instanz
   - **REQ:** REQ-012
 
 - `registerDebugCacheCommand(ctx)` in `debug_cache.ts`
-  - `/debug_cache`
+  - `/vid_debug_cache`
   - listet Cache-Dateien nach mtime/size
   - gated: nur bei aktivem `debugMode` nutzbar
   - **REQ:** REQ-032, REQ-033
@@ -448,12 +448,12 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 
 - `NowPlayingBadge()`
   - zeigt Badge + Buttons für Pause/Skip/Stop
-  - nutzt Command-Bridge (`executeCommand` aus Props oder globale Bridge), um `/pause`, `/skip`, `/watch_stop` auszulösen
+  - nutzt Command-Bridge (`executeCommand` aus Props oder globale Bridge), um `/vid_pause`, `/vid_skip`, `/vid_stop` auszulösen
   - zeigt optionalen Vorbereitungsstatus mit Phase/Prozentbalken
   - **REQ-Bezug im UI-Text:** REQ-017, REQ-029, REQ-030, REQ-031
 
 - `QueuePanel()`
-  - Basis-Hinweis für Nutzung (`/watch`)
+  - Basis-Hinweis für Nutzung (`/vid_watch`)
   - **REQ:** REQ-017
 
 - `SettingsPanel()`
@@ -483,9 +483,9 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 
 ## 4) Reale End-to-End Flows (Ist-Zustand)
 
-### Flow A: `/watch` bis laufender Stream
+### Flow A: `/vid_watch` bis laufender Stream
 
-1. User ruft `/watch <query>`
+1. User ruft `/vid_watch <query>`
 2. `registerPlayCommand` normalisiert Query (`ytsearch:` bei Suchtext)
 3. `resolveVideo(...)` liefert Metadaten + URLs + `videoFormatId`/`audioFormatId`
 4. Queue add via `queueManager.add(...)`
@@ -504,7 +504,7 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 
 ### Flow C: Stop/Cleanup
 
-- Command `/watch_stop`:
+- Command `/vid_stop`:
   1. `streamManager.cleanup(channelId)`
   2. `syncController.stop(channelId)`
 
