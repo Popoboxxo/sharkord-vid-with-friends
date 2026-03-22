@@ -23,7 +23,7 @@ export const registerStopCommand = (
   streamManager?: StreamManager
 ): void => {
   ctx.commands.register({
-    name: "vid_stop",
+    name: "vid-stop",
     description: "Stop the current video and clear the queue",
     executes: async (invoker) => {
       const channelId = invoker.currentVoiceChannelId;

@@ -28,13 +28,13 @@ type PluginContextLike = {
 
 export const registerDebugCacheCommand = (ctx: PluginContextLike): void => {
   ctx.commands.register<Record<string, never>>({
-    name: "vid_debug_cache",
+    name: "vid-debug-cache",
     description: "List debug cache files (video/audio) for inspection",
     args: [],
     executes: async (_invoker, _args) => {
       const debugEnabled = ctx.settings?.get?.<boolean>("debugMode") ?? false;
       if (!debugEnabled) {
-        throw new Error("Debug Output is disabled. Enable debugMode in plugin settings before using /vid_debug_cache.");
+        throw new Error("Debug Output is disabled. Enable debugMode in plugin settings before using /vid-debug-cache.");
       }
 
       const homeDir = process.env.HOME || process.env.USERPROFILE || process.cwd();
@@ -46,7 +46,7 @@ export const registerDebugCacheCommand = (ctx: PluginContextLike): void => {
         if (files.length === 0) {
           throw new Error(
             `Debug cache directory is empty (checked: ${cacheDir}).\n` +
-            "Run /vid_watch with Debug Output enabled to create cache files."
+            "Run /vid-watch with Debug Output enabled to create cache files."
           );
         }
 
@@ -85,7 +85,7 @@ export const registerDebugCacheCommand = (ctx: PluginContextLike): void => {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
           throw new Error(
             `Cache directory not found: ${cacheDir}\n` +
-            "Create it by running /vid_watch with Debug Output enabled."
+            "Create it by running /vid-watch with Debug Output enabled."
           );
         }
         throw err;

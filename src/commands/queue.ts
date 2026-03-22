@@ -21,7 +21,7 @@ export const registerQueueCommand = (
   queueManager: QueueManager
 ): void => {
   ctx.commands.register({
-    name: "vid_queue",
+    name: "vid-queue",
     description: "Show the current video queue",
     executes: async (invoker) => {
       const channelId = invoker.currentVoiceChannelId;
@@ -32,7 +32,7 @@ export const registerQueueCommand = (
       const state = queueManager.getState(channelId);
 
       if (state.size === 0) {
-        return "The queue is empty. Use /vid_watch to add a video.";
+        return "The queue is empty. Use /vid-watch to add a video.";
       }
 
       const lines: string[] = [];

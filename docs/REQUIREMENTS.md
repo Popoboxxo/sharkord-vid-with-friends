@@ -17,15 +17,15 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 
 | ID | Anforderung | Priorität |
 |----|-------------|-----------|
-| REQ-001 | Nutzer kann ein YouTube-Video per URL oder Suchbegriff abspielen (`/vid_watch <url\|query>`) | Must |
+| REQ-001 | Nutzer kann ein YouTube-Video per URL oder Suchbegriff abspielen (`/vid-watch <url\|query>`) | Must |
 | REQ-002 | Video wird als RTP-Stream (Video H264 + Audio Opus) via Mediasoup an alle Channel-Teilnehmer gestreamt | Must |
 | REQ-003 | Alle Nutzer im Voice-Channel sehen frame-synchron denselben Stream (Server-Side Streaming) | Must |
-| REQ-010 | Wiedergabe kann gestoppt werden (`/vid_stop`) — Stream + Queue werden beendet | Must |
-| REQ-011 | Aktuell laufendes Video kann abgefragt werden (`/vid_nowplaying`) | Must |
-| REQ-012 | Lautstärke kann angepasst werden (`/vid_volume <0-100>`) — wirkt ab nächstem Video | Should |
-| REQ-013 | Stream kann pausiert und fortgesetzt werden (`/vid_pause`) | Should |
-| REQ-034 | Pausierter Stream kann explizit fortgesetzt werden (`/vid_resume`). Wenn kein pausiertes Video vorhanden ist, liefert der Command eine klare Rückmeldung | Must |
-| REQ-035 | Pro Voice-Channel darf nur **ein** aktives Video laufen. Ein weiterer Startversuch (`/vid_watch`) während aktiver Wiedergabe wird abgewiesen | Must |
+| REQ-010 | Wiedergabe kann gestoppt werden (`/vid-stop`) — Stream + Queue werden beendet | Must |
+| REQ-011 | Aktuell laufendes Video kann abgefragt werden (`/vid-nowplaying`) | Must |
+| REQ-012 | Lautstärke kann angepasst werden (`/vid-volume <0-100>`) — wirkt ab nächstem Video | Should |
+| REQ-013 | Stream kann pausiert und fortgesetzt werden (`/vid-pause`) | Should |
+| REQ-034 | Pausierter Stream kann explizit fortgesetzt werden (`/vid-resume`). Wenn kein pausiertes Video vorhanden ist, liefert der Command eine klare Rückmeldung | Must |
+| REQ-035 | Pro Voice-Channel darf nur **ein** aktives Video laufen. Ein weiterer Startversuch (`/vid-watch`) während aktiver Wiedergabe wird abgewiesen | Must |
 | REQ-036 | Plugin-Setting **Full-Download-Modus** steuert den Startzeitpunkt von Video und Audio: aktiviert = vollständiger Download vor Wiedergabe, deaktiviert = Wiedergabe ohne vollständigen Download (progressiv/direct). Standardwert: deaktiviert | Should |
 | REQ-036-A | **fullDownloadMode=true (Complete Download First):** Video und Audio warten bis vollständig heruntergeladen, dann startet ffmpeg mit Echtzeit-Pacing (`-re`), damit Wiedergabe nicht beschleunigt läuft. Resultat: deterministischer Start bei normaler Abspielgeschwindigkeit | Should |
 | REQ-036-B | **fullDownloadMode=false (No Full Download Before Start):** Wiedergabe startet ohne vollständigen Download. Audio und Video nutzen progressives Temp-File-Streaming mit initialem Buffer-Start. Resultat: schneller Start bei langen Videos | Should |
@@ -37,9 +37,9 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 |----|-------------|-----------|
 | REQ-004 | Videos können in eine Warteschlange eingereiht werden (automatisch wenn bereits ein Video läuft) | Must |
 | REQ-005 | Warteschlange ist pro Voice-Channel isoliert | Must |
-| REQ-006 | Warteschlange kann angezeigt werden (`/vid_queue`) | Must |
-| REQ-007 | Videos können aus der Warteschlange entfernt werden (`/vid_remove <position>`) | Must |
-| REQ-008 | Aktuelles Video kann übersprungen werden (`/vid_skip` → nächstes in Queue) | Must |
+| REQ-006 | Warteschlange kann angezeigt werden (`/vid-queue`) | Must |
+| REQ-007 | Videos können aus der Warteschlange entfernt werden (`/vid-remove <position>`) | Must |
+| REQ-008 | Aktuelles Video kann übersprungen werden (`/vid-skip` → nächstes in Queue) | Must |
 | REQ-009 | Nach Ende eines Videos wird automatisch das nächste aus der Queue gestartet (Auto-Advance) | Must |
 
 ### Hybrid-Sync
@@ -90,7 +90,7 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 |----|-------------|-----------|
 | REQ-029 | **Play/Pause-Button in der Stream-UI:** Nutzer können das Video ohne Texteingabe per Klick pausieren und fortsetzen. Der Button zeigt den aktuellen Zustand an (▶ Play / ⏸ Pause). Wird über die Sharkord Plugin-UI (Stream-Overlay oder Voice-Channel-Komponente) bereitgestellt. | Must |
 | REQ-029-A | **Button-Zustandssynchronisation:** Der Play/Pause-Button spiegelt den tatsächlichen Server-Status wider. Wenn ein anderer Nutzer per `/pause`-Command pausiert, aktualisiert sich der Button bei allen Nutzern. State-Sync erfolgt über Sharkord-Events oder Polling. | Should |
-| REQ-030 | **Stop-Button in der Stream-UI:** Nutzer können den gesamten Stream (Video + Audio + Queue) per Klick beenden, ohne `/vid_stop` tippen zu müssen. Der Button ist deutlich als „destruktive Aktion" erkennbar (z.B. rot/rot-Umrandung oder ⏹-Icon). | Must |
+| REQ-030 | **Stop-Button in der Stream-UI:** Nutzer können den gesamten Stream (Video + Audio + Queue) per Klick beenden, ohne `/vid-stop` tippen zu müssen. Der Button ist deutlich als „destruktive Aktion" erkennbar (z.B. rot/rot-Umrandung oder ⏹-Icon). | Must |
 | REQ-030-A | **Bestätigungsdialog (optional):** Vor dem Stoppen kann optional ein Bestätigungsdialog erscheinen („Stream wirklich beenden? Queue wird geleert."), um versehentliches Beenden zu vermeiden. Dies ist konfigurierbar oder entfällt, wenn die UI-Limitierungen es nicht erlauben. | Could |
 | REQ-031 | **Skip-Button in der Stream-UI:** Nutzer können zum nächsten Video in der Queue springen, ohne `/skip` tippen zu müssen. Der Button ist nur sichtbar/aktiv, wenn die Queue weitere Videos enthält. | Should |
 
@@ -110,7 +110,7 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 | REQ-039 | **Settings-Logging bei Start und Änderung:** Alle Plugin-Einstellungen (videoBitrate, audioBitrate, defaultVolume, syncMode, fullDownloadMode, debugMode) werden bei Plugin-Start und bei jeder Änderung/Speicherung als strukturierter UND lesbarer Log-Eintrag ausgegeben. Das Logging erfolgt immer, unabhängig vom Debug-Modus. Für Laufzeitfälle mit verzögerter/staler `settings.get`-Sicht wird zusätzlich ein Event-Payload-Fallback ausgewertet, damit wirksame Werte sofort im Stream-Start angewendet werden. | Must |
 | REQ-040 | **Build-Version enthält Build-Zeitstempel:** Die in `dist/sharkord-vid-with-friends/package.json` geschriebene Plugin-Version enthält einen Build-Postfix im Format `DDMMYY-HH-MM-SS` (z. B. `070326-15-04-09`) und wird loader-kompatibel als `<basisversion>-<DDMMYY-HH-MM-SS>` geschrieben. Zusätzlich wird ein lesbares Trace-Feld `sharkordVersionTrace` im Format `<basisversion>:<DDMMYY_HH_MM_SS>` geschrieben. Damit ist jeder Build eindeutig zeitlich rückverfolgbar, ohne Plugin-Loader zu brechen. | Must |
 | REQ-032 | **Debug-Cache für Downloads:** Im Debug-Modus wird der yt-dlp Download parallel in eine lokale Datei geschrieben (Video/Audio separat), um die Download-Funktion unabhängig vom RTP-Pfad prüfen zu können. | Should |
-| REQ-033 | **`/vid_debug_cache` Command:** Zeigt alle gecachten Download-Dateien (Video/Audio) mit Größe und Zeitstempel an. Ermöglicht Nutzer, heruntergeladene Dateien zu inspizieren und vom Host aus (via Docker-Volume `./debug-cache/`) herunterzuladen. Nur verfügbar wenn Debug Output aktiv ist. | Should |
+| REQ-033 | **`/vid-debug-cache` Command:** Zeigt alle gecachten Download-Dateien (Video/Audio) mit Größe und Zeitstempel an. Ermöglicht Nutzer, heruntergeladene Dateien zu inspizieren und vom Host aus (via Docker-Volume `./debug-cache/`) herunterzuladen. Nur verfügbar wenn Debug Output aktiv ist. | Should |
 
 ## Traceability
 

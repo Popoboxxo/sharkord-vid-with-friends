@@ -379,7 +379,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 Alle Commands registrieren über `ctx.commands.register(...)`.
 
 - `registerPlayCommand(ctx, queueManager, syncController)` in `play.ts`
-  - `/vid_watch <query>`
+  - `/vid-watch <query>`
   - blockiert zweiten Startversuch bei aktiver Wiedergabe im selben Channel
   - Resolve via `resolveVideo`, Queue add, Start (nur wenn kein aktiver Stream)
   - persistiert `videoFormatId` / `audioFormatId` im Queue-Item für stabilen Downloadpfad
@@ -387,48 +387,48 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
   - **REQ:** REQ-001, REQ-004, REQ-035
 
 - `registerQueueCommand(ctx, queueManager)` in `queue.ts`
-  - `/vid_queue`
+  - `/vid-queue`
   - formatiert Current + Upcoming + Duration
   - **REQ:** REQ-006
 
 - `registerSkipCommand(ctx, syncController, streamManager?)` in `skip.ts`
-  - `/vid_skip`
+  - `/vid-skip`
   - prüft Wiedergabe robust: `isPlaying` **oder** `streamManager.isActive(...)`
   - **REQ:** REQ-008
 
 - `registerRemoveCommand(ctx, queueManager)` in `remove.ts`
-  - `/vid_remove <position>`
+  - `/vid-remove <position>`
   - **REQ:** REQ-007
 
 - `registerStopCommand(ctx, syncController, streamManager)` in `stop.ts`
-  - `/vid_stop`
+  - `/vid-stop`
   - prüft Wiedergabe robust: `isPlaying` **oder** `streamManager.isActive(...)`
   - stream cleanup + sync stop
   - **REQ:** REQ-010
 
 - `registerNowPlayingCommand(ctx, queueManager)` in `nowplaying.ts`
-  - `/vid_nowplaying`
+  - `/vid-nowplaying`
   - **REQ:** REQ-011
 
 - `registerPauseCommand(ctx, syncController, streamControl)` in `pause.ts`
-  - `/vid_pause`
+  - `/vid-pause`
   - prüft Wiedergabe robust: `isPlaying` **oder** `streamControl.isActive(...)`
   - toggelt pause/resume über `StreamManager`
   - **REQ:** REQ-013
 
 - `registerResumeCommand(ctx, syncController, streamControl?)` in `resume.ts`
-  - `/vid_resume`
+  - `/vid-resume`
   - setzt explizit fort, wenn ein Stream pausiert ist
   - liefert klare Rückmeldung wenn nichts pausiert ist
   - **REQ:** REQ-034
 
 - `registerVolumeCommand(ctx, syncController)` in `volume.ts`
-  - `/vid_volume <0-100>`
+  - `/vid-volume <0-100>`
   - wirkt auf nächste Video-Instanz
   - **REQ:** REQ-012
 
 - `registerDebugCacheCommand(ctx)` in `debug_cache.ts`
-  - `/vid_debug_cache`
+  - `/vid-debug-cache`
   - listet Cache-Dateien nach mtime/size
   - gated: nur bei aktivem `debugMode` nutzbar
   - **REQ:** REQ-032, REQ-033
@@ -448,12 +448,12 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 
 - `NowPlayingBadge()`
   - zeigt Badge + Buttons für Pause/Skip/Stop
-  - nutzt Command-Bridge (`executeCommand` aus Props oder globale Bridge), um `/vid_pause`, `/vid_skip`, `/vid_stop` auszulösen
+  - nutzt Command-Bridge (`executeCommand` aus Props oder globale Bridge), um `/vid-pause`, `/vid-skip`, `/vid-stop` auszulösen
   - zeigt optionalen Vorbereitungsstatus mit Phase/Prozentbalken
   - **REQ-Bezug im UI-Text:** REQ-017, REQ-029, REQ-030, REQ-031
 
 - `QueuePanel()`
-  - Basis-Hinweis für Nutzung (`/vid_watch`)
+  - Basis-Hinweis für Nutzung (`/vid-watch`)
   - **REQ:** REQ-017
 
 - `SettingsPanel()`
@@ -483,9 +483,9 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 
 ## 4) Reale End-to-End Flows (Ist-Zustand)
 
-### Flow A: `/vid_watch` bis laufender Stream
+### Flow A: `/vid-watch` bis laufender Stream
 
-1. User ruft `/vid_watch <query>`
+1. User ruft `/vid-watch <query>`
 2. `registerPlayCommand` normalisiert Query (`ytsearch:` bei Suchtext)
 3. `resolveVideo(...)` liefert Metadaten + URLs + `videoFormatId`/`audioFormatId`
 4. Queue add via `queueManager.add(...)`
@@ -504,7 +504,7 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 
 ### Flow C: Stop/Cleanup
 
-- Command `/vid_stop`:
+- Command `/vid-stop`:
   1. `streamManager.cleanup(channelId)`
   2. `syncController.stop(channelId)`
 
@@ -535,7 +535,7 @@ Hinweis zum Ist-Zustand:
 
 - In `index.ts` existieren `monitorProcess` und `monitorProcessForAutoAdvance`; der primäre RTP-Auto-Advance läuft derzeit über Audio-`onEnd` in `spawnFfmpeg`.
 - `startStream` setzt initial einen Vorbereitungs-Titel (`⏳ ...`) und warnt nach 30s ohne Streaming-Signal (`REQ-028-C`).
-- `/debug_cache` ist bewusst an `debugMode` gekoppelt (`REQ-033`).
+- `/vid-debug-cache` ist bewusst an `debugMode` gekoppelt (`REQ-033`).
 
 ---
 

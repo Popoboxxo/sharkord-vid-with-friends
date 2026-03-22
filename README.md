@@ -18,7 +18,7 @@ Server-side streaming via **yt-dlp → ffmpeg → Mediasoup RTP** guarantees fra
 - **Error handling** is minimal — invalid URLs or network issues may cause silent failures
 - **UI components** (NowPlaying badge, Queue panel) may not update in real-time
 - **Volume control** changes may not take effect until the next track
-- **No reconnection logic** — if the Mediasoup transport drops, a manual `/vid_stop` + replay is needed
+- **No reconnection logic** — if the Mediasoup transport drops, a manual `/vid-stop` + replay is needed
 
 ## Features
 
@@ -33,16 +33,16 @@ Server-side streaming via **yt-dlp → ffmpeg → Mediasoup RTP** guarantees fra
 
 | Command | Description |
 |---------|-------------|
-| `/vid_watch <url\|query>` | Play a YouTube video (rejected if another video is already active in the same channel) |
-| `/vid_queue` | Display the current video queue |
-| `/vid_skip` | Skip the current video |
-| `/vid_remove <position>` | Remove a video from the queue by position |
-| `/vid_stop` | Stop playback and clear the queue |
-| `/vid_nowplaying` | Show the currently playing video |
-| `/vid_pause` | Toggle pause/resume |
-| `/vid_resume` | Resume only when a video is paused |
-| `/vid_volume <0-100>` | Set the playback volume |
-| `/vid_debug_cache` | List debug cache files (debug mode only) |
+| `/vid-watch <url\|query>` | Play a YouTube video (rejected if another video is already active in the same channel) |
+| `/vid-queue` | Display the current video queue |
+| `/vid-skip` | Skip the current video |
+| `/vid-remove <position>` | Remove a video from the queue by position |
+| `/vid-stop` | Stop playback and clear the queue |
+| `/vid-nowplaying` | Show the currently playing video |
+| `/vid-pause` | Toggle pause/resume |
+| `/vid-resume` | Resume only when a video is paused |
+| `/vid-volume <0-100>` | Set the playback volume |
+| `/vid-debug-cache` | List debug cache files (debug mode only) |
 
 ## Settings
 
@@ -68,14 +68,14 @@ When enabled, the plugin outputs detailed logs for:
 **Usage:**
 1. Enable in plugin settings: `Debug Mode` → `true`
 2. Restart the voice channel or plugin
-3. Execute commands (e.g., `/vid_watch eggs`)
+3. Execute commands (e.g., `/vid-watch eggs`)
 4. Check Sharkord logs for `[DEBUG]` prefixed messages
 
 **Example Debug Output:**
 ```
-[DEBUG] [/vid_watch] User 42 requested: eggs in channel 3
-[DEBUG] [/vid_watch] Converted to search query: ytsearch:eggs
-[DEBUG] [/vid_watch] Starting playback immediately for channel 3
+[DEBUG] [/vid-watch] User 42 requested: eggs in channel 3
+[DEBUG] [/vid-watch] Converted to search query: ytsearch:eggs
+[DEBUG] [/vid-watch] Starting playback immediately for channel 3
 [DEBUG:stream:3] [RTP Setup] Video: rtp://127.0.0.1:56802
 [DEBUG:stream:3] [RTP Setup] Audio: rtp://127.0.0.1:49369
 [DEBUG:stream:3] [FFmpeg Command] /path/to/ffmpeg -hide_banner ...

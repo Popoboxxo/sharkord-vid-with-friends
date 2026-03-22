@@ -83,16 +83,16 @@ Erstelle `dist/RELEASE_NOTES.md`:
 
 | Command | Description |
 |---------|-------------|
-| `/vid_watch <url/query>` | Play a YouTube video or search query |
-| `/vid_queue` | Show the current queue |
-| `/vid_skip` | Skip the current video |
-| `/vid_remove <position>` | Remove a video from the queue |
-| `/vid_stop` | Stop playback and clear the queue |
-| `/vid_nowplaying` | Show the currently playing video |
-| `/vid_pause` | Pause or resume playback |
-| `/vid_resume` | Resume a paused video |
-| `/vid_volume <0-100>` | Set the playback volume |
-| `/vid_debug_cache` | List debug cache files (debug mode only) |
+| `/vid-watch <url/query>` | Play a YouTube video or search query |
+| `/vid-queue` | Show the current queue |
+| `/vid-skip` | Skip the current video |
+| `/vid-remove <position>` | Remove a video from the queue |
+| `/vid-stop` | Stop playback and clear the queue |
+| `/vid-nowplaying` | Show the currently playing video |
+| `/vid-pause` | Pause or resume playback |
+| `/vid-resume` | Resume a paused video |
+| `/vid-volume <0-100>` | Set the playback volume |
+| `/vid-debug-cache` | List debug cache files (debug mode only) |
 
 ## Warning: Alpha Status — Most features are buggy
 

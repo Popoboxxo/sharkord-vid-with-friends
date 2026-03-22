@@ -21,7 +21,7 @@ export const registerRemoveCommand = (
   queueManager: QueueManager
 ): void => {
   ctx.commands.register<{ position: number }>({
-    name: "vid_remove",
+    name: "vid-remove",
     description: "Remove a video from the queue by position",
     args: [
       {
@@ -39,7 +39,7 @@ export const registerRemoveCommand = (
 
       const removed = queueManager.remove(channelId, args.position);
       if (!removed) {
-        return "Invalid position. Use /vid_queue to see the current queue.";
+        return "Invalid position. Use /vid-queue to see the current queue.";
       }
 
       return `Removed: ${removed.title}`;
