@@ -1,6 +1,6 @@
 # sharkord-vid-with-friends
 
-> **⚠️ Alpha Release (v0.1.0-alpha.3)**
+> **Alpha Release (v0.1.0-alpha.5)**
 > This is an **early alpha release**. Most features are implemented but **many are still buggy or incomplete**.
 > Expect rough edges, crashes, and unexpected behavior. This release is intended for **testing and feedback only** — not for production use.
 > A complete stability refactor is planned before the first stable release.
@@ -43,6 +43,7 @@ Server-side streaming via **yt-dlp → ffmpeg → Mediasoup RTP** guarantees fra
 | `/vid-resume` | Resume only when a video is paused |
 | `/vid-volume <0-100>` | Set the playback volume |
 | `/vid-debug-cache` | List debug cache files (debug mode only) |
+| `/vid-bugreport [description]` | Create a pre-filled GitHub issue with anonymized debug info |
 
 ## Settings
 
