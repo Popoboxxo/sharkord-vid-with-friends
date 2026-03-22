@@ -307,10 +307,10 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
     ...realtimeFlags,
     // Generate timestamps
     "-fflags", "+genpts",
-    // Probe larger buffer for fragmented MP4 format detection (REQ-002)
-    // Even with -re, need substantial probesize to detect fragment structure
-    "-probesize", "50000000",
-    "-analyzeduration", "50000000",
+    // Probe buffer for fragmented MP4 format detection (REQ-002)
+    // Aligned with audio probesize to avoid AV desync from differing init times
+    "-probesize", "30000000",
+    "-analyzeduration", "30000000",
     // Input from temp file
     "-i", inputPath,
     // Drop audio (separate audio stream handles this)

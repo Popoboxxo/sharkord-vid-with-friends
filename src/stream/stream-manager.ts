@@ -8,6 +8,7 @@
 import type { SpawnedProcess } from "./ffmpeg";
 import type { HLSServerHandle } from "./hls-server";
 import { AUDIO_CODEC, VIDEO_CODEC } from "../utils/constants";
+import { unlinkSync, existsSync } from "fs";
 
 // ---- Types ----
 
@@ -337,9 +338,6 @@ export class StreamManager {
 
       // Cleanup temp files (REQ-037: only if debug mode is disabled)
       if (!resources.debugEnabled) {
-        const { unlinkSync } = require("fs");
-        const { existsSync } = require("fs");
-        
         if (resources.videoTempFile && existsSync(resources.videoTempFile)) {
           try {
             unlinkSync(resources.videoTempFile);

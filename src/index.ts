@@ -587,6 +587,11 @@ const startStream = async (
         // process may already be gone
       }
 
+      // Wait briefly for killed process to terminate before advancing queue
+      if (!videoEnded || !audioEnded) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 200));
+      }
+
       ctx.log(`[stream:${channelId}] Track ended (${endedTrack}), checking auto-advance`);
       try {
         await syncController.onVideoEnded(channelId);
