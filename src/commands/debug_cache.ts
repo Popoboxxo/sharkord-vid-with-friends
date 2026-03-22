@@ -28,7 +28,7 @@ type PluginContextLike = {
 
 export const registerDebugCacheCommand = (ctx: PluginContextLike): void => {
   ctx.commands.register<Record<string, never>>({
-    name: "vid-debug-cache",
+    name: "debug_cache",
     description: "List debug cache files (video/audio) for inspection",
     args: [],
     executes: async (_invoker, _args) => {

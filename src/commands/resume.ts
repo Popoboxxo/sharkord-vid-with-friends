@@ -27,7 +27,7 @@ export const registerResumeCommand = (
   streamControl?: StreamControlLike
 ): void => {
   ctx.commands.register({
-    name: "vid-resume",
+    name: "resume",
     description: "Resume a paused video",
     executes: async (invoker) => {
       const channelId = invoker.currentVoiceChannelId;

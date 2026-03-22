@@ -23,7 +23,7 @@ export const registerSkipCommand = (
   streamManager?: StreamManager
 ): void => {
   ctx.commands.register({
-    name: "vid-skip",
+    name: "skip",
     description: "Skip the current video",
     executes: async (invoker) => {
       const channelId = invoker.currentVoiceChannelId;
