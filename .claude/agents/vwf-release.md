@@ -64,14 +64,17 @@ Erzeugt in `dist/sharkord-vid-with-friends/`:
 
 ### 4. Release-Artifacts erstellen
 
+**WICHTIG:** Asset-Dateinamen MÜSSEN exakt `sharkord-vid-with-friends` heißen (ohne Versionsnummer).
+Sharkord erkennt das Plugin anhand des Dateinamens — ein abweichender Name bricht die Installation.
+
 **ZIP** (für Windows-Nutzer):
 ```bash
-powershell -Command "Compress-Archive -Path 'dist/sharkord-vid-with-friends/index.js','dist/sharkord-vid-with-friends/package.json','dist/sharkord-vid-with-friends/bin' -DestinationPath 'dist/sharkord-vid-with-friends.zip' -Force"
+powershell -Command "Compress-Archive -Path 'dist/sharkord-vid-with-friends/index.js','dist/sharkord-vid-with-friends/package.json','dist/sharkord-vid-with-friends/bin','dist/sharkord-vid-with-friends/logo.png' -DestinationPath 'dist/sharkord-vid-with-friends.zip' -Force"
 ```
 
 **tar.gz** (für Linux/macOS-Nutzer):
 ```bash
-cd dist/sharkord-vid-with-friends && tar -czf ../sharkord-vid-with-friends.tar.gz index.js package.json bin/ && cd ../..
+cd dist/sharkord-vid-with-friends && tar -czf ../sharkord-vid-with-friends.tar.gz index.js package.json bin/ logo.png && cd ../..
 ```
 
 ### 5. Release Notes schreiben
@@ -127,10 +130,10 @@ git push origin vX.Y.Z
 
 ```bash
 gh release create vX.Y.Z \
-  dist/sharkord-vid-with-friends.zip \
-  dist/sharkord-vid-with-friends.tar.gz \
+  "dist/sharkord-vid-with-friends.zip#sharkord-vid-with-friends.zip" \
+  "dist/sharkord-vid-with-friends.tar.gz#sharkord-vid-with-friends.tar.gz" \
   --title "vX.Y.Z — [Release-Titel]" \
-  --prerelease \                          # Nur bei alpha/beta
+  --prerelease \
   --notes-file dist/RELEASE_NOTES.md
 ```
 
