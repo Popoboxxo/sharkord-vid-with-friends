@@ -19,7 +19,6 @@ import type { FfmpegLoggers, SpawnedProcess } from "./stream/ffmpeg";
 import {
   STREAM_KEY,
   PLUGIN_NAME,
-  PLUGIN_AVATAR_URL,
   DEFAULT_SETTINGS,
 } from "./utils/constants";
 
@@ -689,7 +688,6 @@ const startStream = async (
       channelId,
       key: STREAM_KEY,
       title: preparationTitle,
-      avatarUrl: PLUGIN_AVATAR_URL,
       producers: { audio: audioProducer, video: videoProducer },
     });
 

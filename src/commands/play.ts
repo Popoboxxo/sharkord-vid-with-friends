@@ -101,18 +101,14 @@ export const registerPlayCommand = (
 
       queueManager.add(channelId, item);
 
-      // Otherwise start playing immediately
-      try {
-        await syncController.play(channelId);
-      } catch (err) {
+      // Start stream in background — don't await (stream startup takes too long for command response timeout)
+      syncController.play(channelId).catch((err: unknown) => {
         const errorMsg = err instanceof Error ? err.message : String(err);
-        const errorStack = err instanceof Error ? err.stack : undefined;
         ctx.error(`[watch] Failed to start stream:`, errorMsg);
-        if (errorStack) ctx.error(`[watch] Stack:`, errorStack);
         queueManager.remove(channelId, 1);
-        throw new Error(`Failed to start stream: ${errorMsg}`);
-      }
-      return `Now playing: ${resolved.title}`;
+      });
+
+      return `Starting: ${resolved.title}`;
     },
   });
 };

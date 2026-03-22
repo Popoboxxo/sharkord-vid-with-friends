@@ -30,9 +30,6 @@ export const VIDEO_CODEC = {
   clockRate: 90000,
 } as const;
 
-/** Avatar URL shown in the Sharkord stream panel */
-export const PLUGIN_AVATAR_URL = "https://i.imgur.com/placeholder.png";
-
 /** Maximum queue size per channel to prevent abuse */
 export const MAX_QUEUE_SIZE = 50;
 

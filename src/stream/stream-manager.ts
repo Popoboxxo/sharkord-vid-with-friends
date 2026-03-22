@@ -336,22 +336,20 @@ export class StreamManager {
         // Ignore
       }
 
-      // Cleanup temp files (REQ-037: only if debug mode is disabled)
-      if (!resources.debugEnabled) {
-        if (resources.videoTempFile && existsSync(resources.videoTempFile)) {
-          try {
-            unlinkSync(resources.videoTempFile);
-          } catch {
-            // Ignore cleanup errors
-          }
+      // Cleanup temp files (REQ-037: always delete working temp files after use)
+      if (resources.videoTempFile && existsSync(resources.videoTempFile)) {
+        try {
+          unlinkSync(resources.videoTempFile);
+        } catch {
+          // Ignore cleanup errors
         }
-        
-        if (resources.audioTempFile && existsSync(resources.audioTempFile)) {
-          try {
-            unlinkSync(resources.audioTempFile);
-          } catch {
-            // Ignore cleanup errors
-          }
+      }
+
+      if (resources.audioTempFile && existsSync(resources.audioTempFile)) {
+        try {
+          unlinkSync(resources.audioTempFile);
+        } catch {
+          // Ignore cleanup errors
         }
       }
 
