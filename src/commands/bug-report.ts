@@ -1,9 +1,9 @@
 /**
  * /vid-bugreport <description> — Create an anonymized GitHub issue for bug reports.
  *
- * Collects: plugin version, current settings (no secrets), last ~100 log lines
- * (anonymized), queue/stream status. Posts to GitHub via REST API if a token
- * is configured, otherwise returns a formatted report for manual submission.
+ * With githubToken set: posts a full issue via REST API (100 log lines).
+ * Without token: builds a pre-filled GitHub issue URL (short report) and
+ * returns the full log block separately for manual copy-paste into the issue.
  *
  * Referenced by: REQ-041
  */
@@ -12,7 +12,10 @@ import path from "path";
 
 const GITHUB_REPO = "popoboxxo/sharkord-vid-with-friends";
 const GITHUB_API = "https://api.github.com";
-const LOG_LINES_TO_INCLUDE = 100;
+const LOG_LINES_FULL = 100;
+const LOG_LINES_SHORT = 20;
+// GitHub URL limit is ~8192 chars; keep pre-filled body well under that
+const PREFILLED_BODY_MAX = 1800;
 
 type PluginContextLike = {
   commands: {
@@ -30,79 +33,48 @@ type PluginContextLike = {
   };
 };
 
-/** Replace user IDs, IPs, and long URLs with placeholders for anonymization. */
+/** Replace user IDs, IPs, and long CDN URLs with placeholders. */
 const anonymizeLogLine = (line: string): string => {
-  // Replace numeric user IDs that appear after "user " or "userId:"
   let result = line.replace(/\b(user\s+|userId[":]\s*)(\d+)/gi, "$1[USER]");
-  // Truncate long URLs (CDN, manifests) — keep domain only
   result = result.replace(/https?:\/\/([^/\s]{1,60})[^\s"']*/g, (_, domain) => `https://${domain}/[...]`);
-  // Replace IP addresses
   result = result.replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, "[IP]");
   return result;
 };
 
-/** Read the last N lines of the Sharkord combined.log, anonymized. */
-const readRecentLogs = (lineCount: number): string => {
+const readLogTail = (filename: string, lineCount: number): string => {
   const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? process.cwd();
-  const logPath = path.join(homeDir, ".config", "sharkord", "logs", "combined.log");
-
-  if (!existsSync(logPath)) {
-    return "(log file not found)";
-  }
-
+  const logPath = path.join(homeDir, ".config", "sharkord", "logs", filename);
+  if (!existsSync(logPath)) return `(${filename} not found)`;
   try {
-    const content = readFileSync(logPath, "utf-8");
-    const lines = content.split("\n").filter((l) => l.trim().length > 0);
-    const recent = lines.slice(-lineCount);
-    return recent.map(anonymizeLogLine).join("\n");
+    const lines = readFileSync(logPath, "utf-8").split("\n").filter((l) => l.trim().length > 0);
+    return lines.slice(-lineCount).map(anonymizeLogLine).join("\n");
   } catch {
-    return "(could not read log file)";
+    return `(could not read ${filename})`;
   }
 };
 
-/** Read the last N lines of error.log, anonymized. */
-const readErrorLogs = (): string => {
-  const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? process.cwd();
-  const logPath = path.join(homeDir, ".config", "sharkord", "logs", "error.log");
-
-  if (!existsSync(logPath)) return "(no error.log found)";
-
-  try {
-    const content = readFileSync(logPath, "utf-8");
-    const lines = content.split("\n").filter((l) => l.trim().length > 0);
-    const recent = lines.slice(-30);
-    return recent.map(anonymizeLogLine).join("\n");
-  } catch {
-    return "(could not read error.log)";
-  }
-};
-
-/** Read plugin version from the dist package.json. */
 const readPluginVersion = (): string => {
   try {
-    const distPkg = path.join(process.cwd(), "package.json");
-    if (existsSync(distPkg)) {
-      const pkg = JSON.parse(readFileSync(distPkg, "utf-8")) as { version?: string };
-      return pkg.version ?? "unknown";
-    }
-  } catch { /* */ }
-  return "unknown";
+    const pkg = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf-8")) as { version?: string };
+    return pkg.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
 };
 
-/** Build the full GitHub issue body. */
-const buildIssueBody = (
+const buildSettingsBlock = (settings: Record<string, unknown>): string =>
+  Object.entries(settings)
+    .map(([k, v]) => `  ${k}: ${String(v)}`)
+    .join("\n") || "  (not available)";
+
+/** Full issue body — used when a token is available. */
+const buildFullBody = (
   description: string,
-  settings: Record<string, unknown>,
+  settingsBlock: string,
   version: string,
   recentLogs: string,
   errorLogs: string
-): string => {
-  const settingsBlock = Object.entries(settings)
-    .filter(([key]) => key !== "githubToken") // never include token
-    .map(([k, v]) => `  ${k}: ${String(v)}`)
-    .join("\n");
-
-  return `## Bug Description
+): string => `## Bug Description
 
 ${description}
 
@@ -115,10 +87,10 @@ ${description}
 ## Active Settings
 
 \`\`\`
-${settingsBlock || "  (settings not available)"}
+${settingsBlock}
 \`\`\`
 
-## Recent Log (last ${LOG_LINES_TO_INCLUDE} lines, anonymized)
+## Recent Log (last ${LOG_LINES_FULL} lines, anonymized)
 
 \`\`\`
 ${recentLogs}
@@ -131,45 +103,49 @@ ${errorLogs}
 \`\`\`
 
 ---
-*This report was generated automatically by \`/vid-bugreport\`. User IDs and IPs have been anonymized.*`;
+*Auto-generated by \`/vid-bugreport\`. User IDs and IPs have been anonymized.*`;
+
+/** Short issue body for the pre-filled URL — only errors + settings. */
+const buildShortBody = (
+  description: string,
+  settingsBlock: string,
+  version: string,
+  errorLogs: string
+): string => `## Bug Description
+
+${description}
+
+## Environment
+
+- **Plugin Version:** \`${version}\`
+- **Platform:** ${process.platform}
+
+## Active Settings
+
+\`\`\`
+${settingsBlock}
+\`\`\`
+
+## Recent Errors (last ${LOG_LINES_SHORT} lines, anonymized)
+
+\`\`\`
+${errorLogs}
+\`\`\`
+
+---
+*Paste the full log from the chat message below into this issue.*`;
+
+/** Build a GitHub new-issue URL with pre-filled title + body (max ~2000 chars total). */
+const buildPrefilledUrl = (title: string, body: string): string => {
+  const truncated = body.length > PREFILLED_BODY_MAX
+    ? body.substring(0, PREFILLED_BODY_MAX) + "\n\n*(truncated — paste full log from chat)*"
+    : body;
+  const params = new URLSearchParams({ title, body: truncated });
+  return `https://github.com/${GITHUB_REPO}/issues/new?${params.toString()}`;
 };
 
-/**
- * Create an anonymous public GitHub Gist with the report. Returns the Gist URL.
- * No token required — GitHub allows unauthenticated gist creation.
- */
-const createAnonymousGist = async (title: string, body: string): Promise<string> => {
-  const response = await fetch(`${GITHUB_API}/gists`, {
-    method: "POST",
-    headers: {
-      Accept: "application/vnd.github+json",
-      "Content-Type": "application/json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-    body: JSON.stringify({
-      description: title,
-      public: true,
-      files: {
-        "bug-report.md": { content: `# ${title}\n\n${body}` },
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text().catch(() => "(no body)");
-    throw new Error(`GitHub Gist API error ${response.status}: ${errText.substring(0, 200)}`);
-  }
-
-  const data = await response.json() as { html_url?: string };
-  return data.html_url ?? "(no URL in response)";
-};
-
-/** Post a GitHub issue via REST API. Returns the issue URL on success. */
-const postGitHubIssue = async (
-  token: string,
-  title: string,
-  body: string
-): Promise<string> => {
+/** Post a GitHub issue via REST API. Returns the issue URL. */
+const postGitHubIssue = async (token: string, title: string, body: string): Promise<string> => {
   const response = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/issues`, {
     method: "POST",
     headers: {
@@ -178,11 +154,7 @@ const postGitHubIssue = async (
       "Content-Type": "application/json",
       "X-GitHub-Api-Version": "2022-11-28",
     },
-    body: JSON.stringify({
-      title,
-      body,
-      labels: ["bug", "user-report"],
-    }),
+    body: JSON.stringify({ title, body, labels: ["bug", "user-report"] }),
   });
 
   if (!response.ok) {
@@ -212,7 +184,6 @@ export const registerBugReportCommand = (ctx: PluginContextLike): void => {
         throw new Error("Please describe the problem: /vid-bugreport <description>");
       }
 
-      // Collect settings (exclude token)
       const settingKeys = ["videoBitrate", "audioBitrate", "defaultVolume", "syncMode", "fullDownloadMode", "debugMode"];
       const settings: Record<string, unknown> = {};
       for (const key of settingKeys) {
@@ -220,49 +191,42 @@ export const registerBugReportCommand = (ctx: PluginContextLike): void => {
       }
 
       const version = readPluginVersion();
-      const recentLogs = readRecentLogs(LOG_LINES_TO_INCLUDE);
-      const errorLogs = readErrorLogs();
+      const settingsBlock = buildSettingsBlock(settings);
+      const recentLogs = readLogTail("combined.log", LOG_LINES_FULL);
+      const errorLogs = readLogTail("error.log", LOG_LINES_SHORT);
       const issueTitle = `[User Report] ${description.substring(0, 80)}`;
-      const issueBody = buildIssueBody(description, settings, version, recentLogs, errorLogs);
 
       const token = ctx.settings?.get?.<string>("githubToken");
 
-      if (!token || !token.trim()) {
-        // No token — create an anonymous public Gist instead
-        ctx.log("[bugreport] No token configured, creating anonymous Gist...");
+      if (token?.trim()) {
+        // With token: post full issue directly
+        ctx.log("[bugreport] Posting GitHub issue...");
         try {
-          const gistUrl = await createAnonymousGist(issueTitle, issueBody);
-          ctx.log(`[bugreport] Gist created: ${gistUrl}`);
-          const issueNewUrl = `https://github.com/${GITHUB_REPO}/issues/new`;
-          return [
-            `Report saved as Gist: ${gistUrl}`,
-            `Open a new issue and paste the Gist link: ${issueNewUrl}`,
-          ].join("\n");
-        } catch (gistErr) {
-          const msg = gistErr instanceof Error ? gistErr.message : String(gistErr);
-          ctx.error("[bugreport] Gist creation failed:", msg);
-          // Final fallback: plain text
-          return [
-            "Could not create Gist (no internet access?).",
-            `Report manually at: https://github.com/${GITHUB_REPO}/issues/new`,
-            "",
-            `**Title:** ${issueTitle}`,
-            "",
-            issueBody,
-          ].join("\n");
+          const fullBody = buildFullBody(description, settingsBlock, version, recentLogs, errorLogs);
+          const issueUrl = await postGitHubIssue(token.trim(), issueTitle, fullBody);
+          ctx.log(`[bugreport] Issue created: ${issueUrl}`);
+          return `Bug report submitted: ${issueUrl}`;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          ctx.error("[bugreport] Failed to post GitHub issue:", msg);
+          throw new Error(`Could not create GitHub issue: ${msg}`);
         }
       }
 
-      ctx.log("[bugreport] Posting GitHub issue...");
-      try {
-        const issueUrl = await postGitHubIssue(token.trim(), issueTitle, issueBody);
-        ctx.log(`[bugreport] Issue created: ${issueUrl}`);
-        return `Bug report submitted: ${issueUrl}`;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        ctx.error("[bugreport] Failed to post GitHub issue:", msg);
-        throw new Error(`Could not create GitHub issue: ${msg}`);
-      }
+      // Without token: pre-filled issue URL (short body) + full log in chat
+      const shortBody = buildShortBody(description, settingsBlock, version, errorLogs);
+      const prefilledUrl = buildPrefilledUrl(issueTitle, shortBody);
+
+      return [
+        `Open this link — the issue form is pre-filled:`,
+        prefilledUrl,
+        ``,
+        `Then paste the full log below into the issue:`,
+        ``,
+        `\`\`\``,
+        recentLogs,
+        `\`\`\``,
+      ].join("\n");
     },
   });
 };
