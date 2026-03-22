@@ -39,10 +39,13 @@ export const registerStopCommand = (
 
       // Kill all ffmpeg processes and close streams (REQ-010)
       streamManager?.cleanup(channelId);
-      
+
+      // Sweep any orphaned temp files from crashes or previous sessions (REQ-037)
+      streamManager?.sweepOrphanedTempFiles();
+
       // Clear queue and sync state
       syncController.stop(channelId);
-      
+
       return "Playback stopped and queue cleared.";
     },
   });

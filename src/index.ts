@@ -978,6 +978,9 @@ const handleVoiceRuntimeClosed = (ctx: PluginContext) => {
     // Stop stream + ffmpeg processes
     streamManager.cleanup(channelId);
 
+    // Sweep any orphaned temp files left from crashes/hard stops
+    streamManager.sweepOrphanedTempFiles();
+
     // Clear sync state
     syncController.cleanupChannel(channelId);
 

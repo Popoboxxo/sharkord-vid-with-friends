@@ -8,7 +8,8 @@
 import type { SpawnedProcess } from "./ffmpeg";
 import type { HLSServerHandle } from "./hls-server";
 import { AUDIO_CODEC, VIDEO_CODEC } from "../utils/constants";
-import { unlinkSync, existsSync } from "fs";
+import { unlinkSync, existsSync, readdirSync } from "fs";
+import path from "path";
 
 // ---- Types ----
 
@@ -396,6 +397,38 @@ export class StreamManager {
     }
     for (const channelId of this.activeHLSStreams.keys()) {
       this.cleanup(channelId);
+    }
+    this.sweepOrphanedTempFiles();
+  }
+
+  /**
+   * Delete any leftover temp-* files in the cache directory that were not
+   * cleaned up per-stream (e.g. after a crash or hard restart). (REQ-037, REQ-016)
+   *
+   * Only removes files matching the "temp-" prefix — debug logs and other
+   * files in the same directory are intentionally left untouched.
+   */
+  sweepOrphanedTempFiles(): void {
+    const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? process.cwd();
+    const cacheDir = path.join(homeDir, ".config", "sharkord", "vid-with-friends-cache");
+
+    if (!existsSync(cacheDir)) return;
+
+    let files: string[];
+    try {
+      files = readdirSync(cacheDir);
+    } catch {
+      return;
+    }
+
+    for (const file of files) {
+      if (!file.startsWith("temp-")) continue;
+      const filePath = path.join(cacheDir, file);
+      try {
+        unlinkSync(filePath);
+      } catch {
+        // Ignore — file may be locked by a still-running process
+      }
     }
   }
 }
