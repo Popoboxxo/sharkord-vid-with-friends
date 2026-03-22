@@ -1,6 +1,6 @@
 # sharkord-vid-with-friends
 
-> **⚠️ Alpha Release (v0.1.0-alpha.2)**
+> **⚠️ Alpha Release (v0.1.0-alpha.3)**
 > This is an **early alpha release**. Most features are implemented but **many are still buggy or incomplete**.
 > Expect rough edges, crashes, and unexpected behavior. This release is intended for **testing and feedback only** — not for production use.
 > A complete stability refactor is planned before the first stable release.
