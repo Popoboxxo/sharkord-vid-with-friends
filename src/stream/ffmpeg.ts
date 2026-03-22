@@ -89,6 +89,7 @@ export type SpawnFfmpegOptions = {
   notifyReadyForSyncStart?: () => void;
   onProgressTimeSeconds?: (seconds: number) => void;
   loggers: FfmpegLoggers;
+  onPhaseChange?: (phase: "DOWNLOADING" | "BUFFERING" | "STREAMING") => void;
   onEnd?: () => void;
 };
 
@@ -425,6 +426,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     notifyReadyForSyncStart,
     onProgressTimeSeconds,
     loggers,
+    onPhaseChange,
     onEnd,
   } = options;
 
@@ -563,6 +565,17 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
         } catch {
           loggers.log(`[${tag}]`, "[yt-dlp] Download completed (exit 0)");
         }
+        // REQ-032: Write debug cache copy when debug mode is active
+        if (debugEnabled && tempFilePath && existsSync(tempFilePath)) {
+          const debugFileName = buildDebugCacheFileName({ streamType, videoId, now: Date.now() });
+          const debugFilePath = path.join(path.dirname(tempFilePath), debugFileName);
+          try {
+            await Bun.write(debugFilePath, Bun.file(tempFilePath));
+            loggers.debug(`[${tag}]`, `[Debug] Cache copy written: ${debugFileName}`);
+          } catch (err) {
+            loggers.debug(`[${tag}]`, `[Debug] Could not write cache copy: ${String(err)}`);
+          }
+        }
       } else {
         loggers.debug(`[${tag}]`, `[yt-dlp] Stopped (exit ${code})`);
       }
@@ -609,6 +622,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     spawnYtDlpDownload(false);
 
     loggers.log(`[Phase] DOWNLOADING — yt-dlp pipe started on temp file: ${tempFilePath.substring(Math.max(0, tempFilePath.length - 40))}`);
+    onPhaseChange?.("DOWNLOADING");
   }
 
   // Log RTP summary for diagnostics
@@ -657,6 +671,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
         const fileSize = Bun.file(tempFilePath).size;
         if (fileSize >= minInitialBytes) {
           loggers.log(`[${tag}]`, `Temp file ready (${Math.round(fileSize / 1024)} KB), starting ffmpeg...`);
+          onPhaseChange?.("BUFFERING");
           fileReady = true;
           break;
         }
@@ -672,6 +687,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
             const fileSize = Bun.file(tempFilePath).size;
             if (fileSize >= minInitialBytes) {
               loggers.log(`[${tag}]`, `Temp file ready after retry (${Math.round(fileSize / 1024)} KB), starting ffmpeg...`);
+              onPhaseChange?.("BUFFERING");
               fileReady = true;
               break;
             }
@@ -767,6 +783,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
           firstOutputLogged = true;
           // REQ-027-B: Phase STREAMING — first RTP packets sent
           loggers.log(`[Phase] STREAMING — ffmpeg producing RTP packets, RTP encoder active`);
+          onPhaseChange?.("STREAMING");
         }
         
         lineBuffer += text;

@@ -599,6 +599,10 @@ const startStream = async (
       }
     };
 
+    // REQ-028-B: mutable ref so STREAMING callback can call streamHandle.update() after it's created
+    // Wrapped in an object to prevent TypeScript from narrowing the ref to null at closure capture sites.
+    const phaseCallbackRef: { fn: ((phase: "DOWNLOADING" | "BUFFERING" | "STREAMING") => void) | null } = { fn: null };
+
     const videoSpawnPromise = spawnFfmpeg({
       streamType: "video",
       sourceUrl: item.streamUrl,
@@ -614,6 +618,7 @@ const startStream = async (
       expectedDurationSeconds: item.duration,
       notifyReadyForSyncStart: () => markTrackReady("VIDEO"),
       waitForSyncStartSignal: syncStartSignal,
+      onPhaseChange: (phase) => { phaseCallbackRef.fn?.(phase); },
       onProgressTimeSeconds: (seconds) => {
         videoProgressSeconds = seconds;
         videoProgressUpdatedAtMs = Date.now();
@@ -692,6 +697,14 @@ const startStream = async (
     });
 
     ctx.log(`[stream:${channelId}] 🎬 Stream registered with Sharkord`);
+
+    // REQ-028-B: assign phase callback now that streamHandle exists
+    phaseCallbackRef.fn = (phase) => {
+      const phaseTitle = phase === "BUFFERING"
+        ? `⏸ Wird gepuffert… — ${item.title}`
+        : item.title;
+      try { streamHandle.update({ title: phaseTitle }); } catch { /* ignore */ }
+    };
 
     // 8. Store stream resources
     const resources: ChannelStreamResources = {
