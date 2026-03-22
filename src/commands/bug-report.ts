@@ -134,6 +134,36 @@ ${errorLogs}
 *This report was generated automatically by \`/vid-bugreport\`. User IDs and IPs have been anonymized.*`;
 };
 
+/**
+ * Create an anonymous public GitHub Gist with the report. Returns the Gist URL.
+ * No token required — GitHub allows unauthenticated gist creation.
+ */
+const createAnonymousGist = async (title: string, body: string): Promise<string> => {
+  const response = await fetch(`${GITHUB_API}/gists`, {
+    method: "POST",
+    headers: {
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    body: JSON.stringify({
+      description: title,
+      public: true,
+      files: {
+        "bug-report.md": { content: `# ${title}\n\n${body}` },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "(no body)");
+    throw new Error(`GitHub Gist API error ${response.status}: ${errText.substring(0, 200)}`);
+  }
+
+  const data = await response.json() as { html_url?: string };
+  return data.html_url ?? "(no URL in response)";
+};
+
 /** Post a GitHub issue via REST API. Returns the issue URL on success. */
 const postGitHubIssue = async (
   token: string,
@@ -198,18 +228,29 @@ export const registerBugReportCommand = (ctx: PluginContextLike): void => {
       const token = ctx.settings?.get?.<string>("githubToken");
 
       if (!token || !token.trim()) {
-        // No token — return formatted report for manual submission
-        const manualUrl = `https://github.com/${GITHUB_REPO}/issues/new`;
-        return [
-          "No GitHub token configured (`githubToken` setting is empty).",
-          `Please report manually at: ${manualUrl}`,
-          "",
-          "**Copy the report below:**",
-          "",
-          `**Title:** ${issueTitle}`,
-          "",
-          issueBody,
-        ].join("\n");
+        // No token — create an anonymous public Gist instead
+        ctx.log("[bugreport] No token configured, creating anonymous Gist...");
+        try {
+          const gistUrl = await createAnonymousGist(issueTitle, issueBody);
+          ctx.log(`[bugreport] Gist created: ${gistUrl}`);
+          const issueNewUrl = `https://github.com/${GITHUB_REPO}/issues/new`;
+          return [
+            `Report saved as Gist: ${gistUrl}`,
+            `Open a new issue and paste the Gist link: ${issueNewUrl}`,
+          ].join("\n");
+        } catch (gistErr) {
+          const msg = gistErr instanceof Error ? gistErr.message : String(gistErr);
+          ctx.error("[bugreport] Gist creation failed:", msg);
+          // Final fallback: plain text
+          return [
+            "Could not create Gist (no internet access?).",
+            `Report manually at: https://github.com/${GITHUB_REPO}/issues/new`,
+            "",
+            `**Title:** ${issueTitle}`,
+            "",
+            issueBody,
+          ].join("\n");
+        }
       }
 
       ctx.log("[bugreport] Posting GitHub issue...");
