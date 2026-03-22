@@ -32,6 +32,7 @@ import { registerPauseCommand } from "./commands/pause";
 import { registerResumeCommand } from "./commands/resume";
 import { registerVolumeCommand } from "./commands/volume";
 import { registerDebugCacheCommand } from "./commands/debug_cache";
+import { registerBugReportCommand } from "./commands/bug-report";
 import { components as pluginComponents } from "./ui/components";
 
 // ---- Plugin-level singletons (initialized in onLoad) ----
@@ -1104,6 +1105,17 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
         "[REQ-026, REQ-018 (Debug option)]",
       defaultValue: false,
     },
+    {
+      key: "githubToken",
+      name: "GitHub Token (for bug reports)",
+      type: "string",
+      description:
+        "Personal Access Token for posting bug reports to GitHub via /vid-bugreport. " +
+        "Requires 'issues: write' permission on the repository. " +
+        "Leave empty to get a formatted report for manual submission instead. " +
+        "Create at: https://github.com/settings/tokens [REQ-041]",
+      defaultValue: "",
+    },
   ]) as unknown;
 
   const registrationMaybePromise = settingsRegistrationResult as { then?: (cb: (value: unknown) => unknown) => unknown };
@@ -1135,6 +1147,7 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
   registerResumeCommand(ctx as never, syncController, streamManager);
   registerVolumeCommand(ctx as never, syncController);
   registerDebugCacheCommand(ctx as never);
+  registerBugReportCommand(ctx as never);
 
   // 4b. Register UI components explicitly when runtime API is available (REQ-017)
   // Some Sharkord runtimes expose only static component export wiring.
