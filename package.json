@@ -9,8 +9,7 @@
     },
     "author": "Vid with Friends Team",
     "homepage": "https://github.com/popoboxxo/sharkord-vid-with-friends",
-    "description": "A plugin that allows users to watch YouTube videos together in sync within Sharkord voice channels",
-    "logo": "logo.png"
+    "description": "A plugin that allows users to watch YouTube videos together in sync within Sharkord voice channels"
   },
   "type": "module",
   "scripts": {
