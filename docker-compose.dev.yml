@@ -43,7 +43,7 @@ services:
       - plugin-binaries:/binaries
 
   sharkord:
-    image: sharkord/sharkord:v0.0.7
+    image: sharkord/sharkord:v0.0.15
     container_name: sharkord-dev
     depends_on:
       init-binaries:
@@ -60,13 +60,13 @@ services:
       - SHARKORD_WEBRTC_ANNOUNCED_ADDRESS=192.168.192.1
     volumes:
       # Persist Sharkord data (DB, settings) between restarts
-      - sharkord-data:/root/.config/sharkord
+      - sharkord-data:/home/bun/.config/sharkord
       # Mount plugin build output into the Sharkord plugins directory
-      - ./dist/sharkord-vid-with-friends:/root/.config/sharkord/plugins/sharkord-vid-with-friends:ro
+      - ./dist/sharkord-vid-with-friends:/home/bun/.config/sharkord/plugins/sharkord-vid-with-friends
       # Mount ffmpeg + yt-dlp binaries (downloaded by init-binaries service)
-      - plugin-binaries:/root/.config/sharkord/plugins/sharkord-vid-with-friends/bin:ro
+      - plugin-binaries:/home/bun/.config/sharkord/plugins/sharkord-vid-with-friends/bin
       # Mount debug cache directory so user can access downloaded video/audio files from host
-      - ./debug-cache:/root/.config/sharkord/vid-with-friends-cache
+      - ./debug-cache:/home/bun/.config/sharkord/vid-with-friends-cache
     restart: unless-stopped
 
 volumes:
