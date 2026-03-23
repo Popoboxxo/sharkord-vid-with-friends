@@ -1,6 +1,6 @@
 # sharkord-vid-with-friends
 
-> **Alpha Release (v0.1.0-alpha.5)**
+> **Alpha Release (v0.1.0-alpha.6)**
 > This is an **early alpha release**. Most features are implemented but **many are still buggy or incomplete**.
 > Expect rough edges, crashes, and unexpected behavior. This release is intended for **testing and feedback only** — not for production use.
 > A complete stability refactor is planned before the first stable release.
@@ -114,7 +114,7 @@ src/
 
 ## Prerequisites
 
-- [Sharkord](https://github.com/nicanderhery/sharkord) >= 0.0.7
+- [Sharkord](https://github.com/nicanderhery/sharkord) >= 0.0.15
 - **ffmpeg** and **yt-dlp** binaries (see below)
 
 ## Required Binaries
