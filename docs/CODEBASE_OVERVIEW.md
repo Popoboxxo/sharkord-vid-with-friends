@@ -1,6 +1,6 @@
 # Codebase Overview — sharkord-vid-with-friends
 
-Stand: **06.03.2026**
+Stand: **23.03.2026**
 
 Diese Übersicht ist eine **codegenaue Bestandsaufnahme** des aktuellen Implementierungsstands in `src/`.
 Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung (nicht nur Ziel-Architektur).
@@ -33,7 +33,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
   - Registriert Settings (`videoBitrate`, `audioBitrate`, `defaultVolume`, `syncMode`, `fullDownloadMode`, `debugMode`)
   - Initialisiert optionalen Settings-Accessor aus `settings.register(...)` Rückgabewert (falls Runtime diesen liefert)
   - Initialisiert Runtime-Overrides für Settings aus `settings:changed` Event-Payload
-  - Registriert Commands: `watch`, `queue`, `skip`, `remove`, `watch_stop`, `nowplaying`, `pause`, `volume`, `debug_cache`
+  - Registriert Commands: `watch`, `queue`, `skip`, `remove`, `watch_stop`, `nowplaying`, `pause`, `volume`, `debug_cache`, `bugreport`
   - Registriert UI-Komponenten (`ctx.ui.registerComponents(...)` falls verfügbar)
   - Loggt Settings-Snapshot bei Start (`plugin:loaded`) und bei Änderungen (`settings:changed`) als strukturierte JSON + lesbare Zeile (immer aktiv, unabhängig von Debug-Modus)
   - Registriert Event-Handler für `voice:runtime_closed`
@@ -209,6 +209,8 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 - `YtDlpDownloadOptions`
 - `DebugCacheFileOptions`
 - `SpawnFfmpegOptions`
+  - Felder u. a.: `streamType`, `sourceUrl`, `formatId?`, `rtpHost`, `rtpPort`, `payloadType`, `ssrc`, `bitrate`, `volume?`, `syncDelayMs?`, `debugEnabled?`, `waitForDownloadComplete?`, `expectedDurationSeconds?`, `waitForSyncStartSignal?`, `notifyReadyForSyncStart?`, `onProgressTimeSeconds?`, `loggers`, `onPhaseChange?`, `onEnd?`
+  - `onPhaseChange?: (phase: "DOWNLOADING" | "BUFFERING" | "STREAMING") => void` — Phasen-Callback für Titelupdate im Stream-Handle (REQ-028-B)
 - `SpawnFfmpegForHLSOptions`
 
 ### Exportierte Funktionen (pure/helper)
@@ -218,7 +220,9 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 - `normalizeVolume(volume): number` (0..1)
 - `normalizeBitrate(bitrate?): string`
 - `shouldWaitForDownloadComplete(streamType): boolean`
-- `shouldCleanupDownloadedData(debugEnabled): boolean`
+- `shouldCleanupDownloadedData(debugEnabled: boolean): boolean`
+  - gibt `true` zurück wenn `debugEnabled=false` → Temp-Datei nach Stream-Ende löschen (REQ-037)
+  - gibt `false` zurück wenn Debug aktiv → Datei bleibt als Cache-Kopie (REQ-032)
 - `buildYtDlpDownloadCmd(options): string[]`
   - unterstützt optionales `formatId` für Lock auf exakt aufgelöstes yt-dlp Format
   - setzt `--hls-use-mpegts` nur noch bei Video ohne expliziten `formatId`-Lock (REQ-038)
@@ -248,9 +252,11 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
   - parsed/loggt ffmpeg Fortschritt (`frame`, `time`, `speed`, `bitrate`)
   - loggt Stream-Längen (`expected`, `input`, `streamed`) zur Abbruch-Diagnose
   - optionaler Sync-Start-Barrier-Handshake via `notifyReadyForSyncStart` + `waitForSyncStartSignal`
+  - ruft `onPhaseChange("DOWNLOADING" | "BUFFERING" | "STREAMING")` bei Phasenübergängen auf (REQ-028-B)
+  - schreibt Debug-Cache-Datei nach Download wenn `debugEnabled=true` (REQ-032)
   - killt bei Cleanup ffmpeg + yt-dlp
-  - löscht Temp-Dateien automatisch bei `debugMode=false`
-  - **REQ:** REQ-002, REQ-003, REQ-012, REQ-027-B, REQ-027-C, REQ-027-D, REQ-037
+  - löscht Temp-Dateien automatisch bei `debugMode=false`; gibt `tempFilePath` in `SpawnedProcess` zurück für externen Cleanup (REQ-037)
+  - **REQ:** REQ-002, REQ-003, REQ-012, REQ-027-B, REQ-027-C, REQ-027-D, REQ-032, REQ-037
 
 - `testFfmpegBinary(loggers?): Promise<string>`
 
@@ -378,12 +384,15 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 
 Alle Commands registrieren über `ctx.commands.register(...)`.
 
+**Sharkord v0.0.15 API:** Alle `executes()`-Handler geben `{ response: string }` zurück — kein plain string. Error-Fälle werfen `new Error("...")` (wird von Sharkord als sichtbare Fehlermeldung an den User weitergegeben).
+
 - `registerPlayCommand(ctx, queueManager, syncController)` in `play.ts`
   - `/vid-watch <query>`
   - blockiert zweiten Startversuch bei aktiver Wiedergabe im selben Channel
-  - Resolve via `resolveVideo`, Queue add, Start (nur wenn kein aktiver Stream)
+  - Resolve via `resolveVideo`, Queue add, danach `syncController.play(channelId)` als **fire-and-forget** (kein `await`) — verhindert Command-Response-Timeout bei langen Stream-Starts
+  - Fehler im Hintergrund: `.catch(...)` entfernt erstes Queue-Item bei Startfehler, loggt via `ctx.error`
   - persistiert `videoFormatId` / `audioFormatId` im Queue-Item für stabilen Downloadpfad
-  - Fehlerpfad entfernt erstes Queue-Item bei Startfehler
+  - Gibt `{ response: "Starting: <title>" }` zurück (Sharkord v0.0.15 API)
   - **REQ:** REQ-001, REQ-004, REQ-035
 
 - `registerQueueCommand(ctx, queueManager)` in `queue.ts`
@@ -432,6 +441,16 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
   - listet Cache-Dateien nach mtime/size
   - gated: nur bei aktivem `debugMode` nutzbar
   - **REQ:** REQ-032, REQ-033
+
+- `registerBugReportCommand(ctx)` in `bug-report.ts`
+  - `/vid-bugreport <description>`
+  - **Mit `githubToken` Setting:** postet Issue vollständig via GitHub REST API (100 Log-Zeilen, anonymisiert); gibt `{ response: "Bug report submitted: <url>" }` zurück
+  - **Ohne Token:** baut pre-filled GitHub Issue URL (Short-Body: Settings + letzte 20 Error-Log-Zeilen) und gibt den vollständigen Log-Block (100 Zeilen) zusätzlich im Chat zurück — zum manuellen Einfügen
+  - Liest Logs aus `~/.config/sharkord/logs/combined.log` + `error.log`
+  - Anonymisiert User-IDs, IP-Adressen, CDN-URLs vor der Ausgabe
+  - GitHub Issue URL wird mit URLSearchParams kodiert, Body auf `PREFILLED_BODY_MAX = 1800` Zeichen begrenzt
+  - Gibt immer `{ response: string }` zurück (Sharkord v0.0.15 API)
+  - **REQ:** REQ-041
 
 ---
 
@@ -524,7 +543,8 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 - **Wiedergabe:** REQ-001, REQ-002, REQ-003, REQ-010, REQ-011, REQ-012, REQ-013, REQ-034, REQ-035, REQ-036
 - **Queue:** REQ-004 bis REQ-009
 - **Lifecycle/UI/Settings:** REQ-014, REQ-015, REQ-016, REQ-017, REQ-018
-- **Debug/Diagnostics:** REQ-026, REQ-027-A, REQ-027-B, REQ-027-C, REQ-032, REQ-033, REQ-037
+- **Debug/Diagnostics:** REQ-026, REQ-027-A, REQ-027-B, REQ-027-C, REQ-028-B, REQ-032, REQ-033, REQ-037
+- **Bug Report:** REQ-041
 
 Hinweis zum Ist-Zustand:
 - UI-Komponenten für REQ-029/REQ-030/REQ-031 sind mit einer Command-Bridge verdrahtet; die tatsächliche Ausführung hängt von der Runtime-Bereitstellung dieser Bridge ab.
@@ -657,6 +677,15 @@ Hinweis: Zeilenangaben referenzieren den Stand dieser Doku-Aktualisierung (03.03
 - `registerResumeCommand` — `src/commands/resume.ts` L25
 - `registerVolumeCommand` — `src/commands/volume.ts` L19
 - `registerDebugCacheCommand` — `src/commands/debug_cache.ts` L26
+- `registerBugReportCommand` — `src/commands/bug-report.ts` L169
+- `anonymizeLogLine` (intern) — `src/commands/bug-report.ts` L37
+- `readLogTail` (intern) — `src/commands/bug-report.ts` L44
+- `readPluginVersion` (intern) — `src/commands/bug-report.ts` L56
+- `buildSettingsBlock` (intern) — `src/commands/bug-report.ts` L65
+- `buildFullBody` (intern) — `src/commands/bug-report.ts` L71
+- `buildShortBody` (intern) — `src/commands/bug-report.ts` L109
+- `buildPrefilledUrl` (intern) — `src/commands/bug-report.ts` L139
+- `postGitHubIssue` (intern) — `src/commands/bug-report.ts` L148
 
 ### `src/ui/components.tsx`
 

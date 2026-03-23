@@ -114,3 +114,58 @@ YouTube URL
 | yt-dlp für URL-Auflösung | Bewährtes Muster aus sharkord-music-bot, unterstützt Suche + Cookies |
 | Zod für Validierung | Sharkord-Konvention, bereits als Dependency verfügbar |
 | Named Exports only | Sharkord Contributing Guide Vorgabe |
+| `play()` fire-and-forget | Stream-Start dauert zu lang für den Command-Response-Timeout — `syncController.play()` wird nicht awaited, Fehler werden über `.catch()` abgefangen |
+| Pre-filled GitHub Issue URL (tokenless) | Gist-API erfordert Token; pre-filled URL funktioniert anonym, vermeidet OAuth-Aufwand für einfache Bug-Reports |
+
+---
+
+## Sharkord v0.0.15 — Breaking Changes & Migrationsnotes
+
+Diese Sektion dokumentiert alle inkompatiblen Änderungen, die beim Upgrade auf Sharkord v0.0.15 aufgetreten sind.
+
+### 1. Command Response Format
+
+**Vorher (v0.0.14 und früher):**
+```typescript
+executes: async () => "Playback stopped."
+```
+
+**Nachher (v0.0.15):**
+```typescript
+executes: async () => ({ response: "Playback stopped." })
+```
+
+`executes()` muss `{ response: string }` zurückgeben. Ein plain String führt dazu, dass die Command-Response im Chat nicht angezeigt wird (Command-Block unsichtbar).
+
+Betrifft alle Dateien unter `src/commands/*.ts`.
+
+### 2. Docker Container-Pfade
+
+**Vorher:** Sharkord lief als `root` — Konfig-Verzeichnis war `/root/.config/sharkord`.
+
+**Nachher:** Sharkord läuft als `bun`-User — Konfig-Verzeichnis ist `/home/bun/.config/sharkord`.
+
+Auswirkung auf `docker-compose.dev.yml` Volume-Mounts:
+```yaml
+# Vorher
+- sharkord-data:/root/.config/sharkord
+- ./dist/...:/root/.config/sharkord/plugins/...
+
+# Nachher
+- sharkord-data:/home/bun/.config/sharkord
+- ./dist/...:/home/bun/.config/sharkord/plugins/...
+```
+
+### 3. Volume Mounts: `:ro` Flag entfernt
+
+Sharkord v0.0.15 führt beim Container-Start einen `chown`-Lauf auf das Plugin-Verzeichnis durch. Read-only-Mounts (`:ro`) crashen den Container bei diesem Schritt.
+
+**Lösung:** `:ro`-Flags auf Plugin-Verzeichnis-Mounts entfernt.
+
+### 4. Logo-Feld in package.json
+
+Das `logo`-Feld in der `sharkord`-Config-Sektion von `package.json` wird vom Sharkord-Frontend über `zod.url()` validiert.
+
+**Problem:** Ein relativer Pfad wie `"logo": "logo.png"` besteht diese Validierung nicht — Sharkord macht den Command-Block für das Plugin unsichtbar.
+
+**Lösung:** `logo`-Feld vollständig aus `package.json` entfernt. Das Logo-`png` bleibt im Build-Output für manuelle Verwendung, wird aber nicht mehr als Metadatenfeld deklariert.

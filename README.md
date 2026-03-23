@@ -224,7 +224,7 @@ describe("QueueManager", () => {
 
 ## Requirements
 
-See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for the full requirements catalog (REQ-001 through REQ-040).
+See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for the full requirements catalog (REQ-001 through REQ-041).
 
 ## License
 
