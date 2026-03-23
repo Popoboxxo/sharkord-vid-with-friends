@@ -21,7 +21,7 @@ export const registerQueueCommand = (
   queueManager: QueueManager
 ): void => {
   ctx.commands.register({
-    name: "queue",
+    name: "vid-queue",
     description: "Show the current video queue",
     executes: async (invoker) => {
       const channelId = invoker.currentVoiceChannelId;

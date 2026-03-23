@@ -168,7 +168,7 @@ const postGitHubIssue = async (token: string, title: string, body: string): Prom
 
 export const registerBugReportCommand = (ctx: PluginContextLike): void => {
   ctx.commands.register<{ description: string }>({
-    name: "bugreport",
+    name: "vid-bugreport",
     description: "Report a bug — creates an anonymized GitHub issue",
     args: [
       {

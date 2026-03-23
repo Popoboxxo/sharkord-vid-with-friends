@@ -21,7 +21,7 @@ export const registerRemoveCommand = (
   queueManager: QueueManager
 ): void => {
   ctx.commands.register<{ position: number }>({
-    name: "remove",
+    name: "vid-remove",
     description: "Remove a video from the queue by position",
     args: [
       {

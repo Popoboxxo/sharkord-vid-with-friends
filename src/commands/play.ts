@@ -30,7 +30,7 @@ export const registerPlayCommand = (
   syncController: SyncController
 ): void => {
   ctx.commands.register<{ query: string }>({
-    name: "watch",
+    name: "vid-watch",
     description: "Play a YouTube video in the voice channel",
     args: [
       {
