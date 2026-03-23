@@ -31,13 +31,13 @@ export const registerNowPlayingCommand = (
 
       const current = queueManager.getCurrent(channelId);
       if (!current) {
-        return "Nothing is currently playing.";
+        return { response: "Nothing is currently playing." };
       }
 
       const duration = current.duration
         ? ` (${formatDuration(current.duration)})`
         : "";
-      return `Now playing: ${current.title}${duration}`;
+      return { response: `Now playing: ${current.title}${duration}` };
     },
   });
 };

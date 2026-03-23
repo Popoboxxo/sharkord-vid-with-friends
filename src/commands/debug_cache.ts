@@ -80,7 +80,7 @@ export const registerDebugCacheCommand = (ctx: PluginContextLike): void => {
           "📥 Download them from `./debug-cache/` to inspect the raw stream data."
         );
 
-        return lines.join("\n");
+        return { response: lines.join("\n") };
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
           throw new Error(

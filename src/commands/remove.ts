@@ -39,10 +39,10 @@ export const registerRemoveCommand = (
 
       const removed = queueManager.remove(channelId, args.position);
       if (!removed) {
-        return "Invalid position. Use /vid-queue to see the current queue.";
+        return { response: "Invalid position. Use /vid-queue to see the current queue." };
       }
 
-      return `Removed: ${removed.title}`;
+      return { response: `Removed: ${removed.title}` };
     },
   });
 };

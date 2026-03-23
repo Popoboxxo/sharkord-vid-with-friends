@@ -34,11 +34,11 @@ export const registerSkipCommand = (
       const isPlaying = syncController.isPlaying(channelId);
       const hasActiveStream = streamManager?.isActive(channelId) ?? false;
       if (!isPlaying && !hasActiveStream) {
-        return "Nothing is currently playing.";
+        return { response: "Nothing is currently playing." };
       }
 
       await syncController.skip(channelId);
-      return "Skipped.";
+      return { response: "Skipped." };
     },
   });
 };

@@ -51,7 +51,7 @@ export const registerPlayCommand = (
       }
 
       if (syncController.isPlaying(channelId)) {
-        return "A video is already playing in this channel. Use /vid-stop to stop it first.";
+        return { response: "A video is already playing in this channel. Use /vid-stop to stop it first." };
       }
 
       let sourceUrl = args.query.trim();
@@ -108,7 +108,7 @@ export const registerPlayCommand = (
         queueManager.remove(channelId, 1);
       });
 
-      return `Starting: ${resolved.title}`;
+      return { response: `Starting: ${resolved.title}` };
     },
   });
 };

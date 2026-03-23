@@ -32,7 +32,7 @@ export const registerQueueCommand = (
       const state = queueManager.getState(channelId);
 
       if (state.size === 0) {
-        return "The queue is empty. Use /vid-watch to add a video.";
+        return { response: "The queue is empty. Use /vid-watch to add a video." };
 
       }
 
@@ -58,7 +58,7 @@ export const registerQueueCommand = (
       lines.push("");
       lines.push(`${state.size} video${state.size !== 1 ? "s" : ""} in queue`);
 
-      return lines.join("\n");
+      return { response: lines.join("\n") };
     },
   });
 };

@@ -39,7 +39,7 @@ export const registerPauseCommand = (
       const isPlaying = syncController.isPlaying(channelId);
       const hasActiveStream = streamControl?.isActive?.(channelId) ?? false;
       if (!isPlaying && !hasActiveStream) {
-        return "Nothing is currently playing.";
+        return { response: "Nothing is currently playing." };
       }
 
       const currentlyPaused = syncController.isPaused(channelId);
@@ -49,7 +49,7 @@ export const registerPauseCommand = (
           throw new Error("Could not resume stream: no active stream resources found.");
         }
         syncController.setPaused(channelId, false);
-        return "Resumed playback.";
+        return { response: "Resumed playback." };
       }
 
       const paused = streamControl?.pauseChannelStream(channelId) ?? true;
@@ -58,7 +58,7 @@ export const registerPauseCommand = (
       }
 
       syncController.setPaused(channelId, true);
-      return "Paused playback.";
+      return { response: "Paused playback." };
     },
   });
 };

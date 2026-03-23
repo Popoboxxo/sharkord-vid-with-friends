@@ -205,7 +205,7 @@ export const registerBugReportCommand = (ctx: PluginContextLike): void => {
           const fullBody = buildFullBody(description, settingsBlock, version, recentLogs, errorLogs);
           const issueUrl = await postGitHubIssue(token.trim(), issueTitle, fullBody);
           ctx.log(`[bugreport] Issue created: ${issueUrl}`);
-          return `Bug report submitted: ${issueUrl}`;
+          return { response: `Bug report submitted: ${issueUrl}` };
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           ctx.error("[bugreport] Failed to post GitHub issue:", msg);
@@ -217,16 +217,18 @@ export const registerBugReportCommand = (ctx: PluginContextLike): void => {
       const shortBody = buildShortBody(description, settingsBlock, version, errorLogs);
       const prefilledUrl = buildPrefilledUrl(issueTitle, shortBody);
 
-      return [
-        `Open this link — the issue form is pre-filled:`,
-        prefilledUrl,
-        ``,
-        `Then paste the full log below into the issue:`,
-        ``,
-        `\`\`\``,
-        recentLogs,
-        `\`\`\``,
-      ].join("\n");
+      return {
+        response: [
+          `Open this link — the issue form is pre-filled:`,
+          prefilledUrl,
+          ``,
+          `Then paste the full log below into the issue:`,
+          ``,
+          `\`\`\``,
+          recentLogs,
+          `\`\`\``,
+        ].join("\n"),
+      };
     },
   });
 };
