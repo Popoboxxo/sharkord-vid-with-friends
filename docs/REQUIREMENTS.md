@@ -113,6 +113,35 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 | REQ-032 | **Debug-Cache für Downloads:** Im Debug-Modus wird der yt-dlp Download parallel in eine lokale Datei geschrieben (Video/Audio separat), um die Download-Funktion unabhängig vom RTP-Pfad prüfen zu können. | Should |
 | REQ-033 | **`/vid-debug-cache` Command:** Zeigt alle gecachten Download-Dateien (Video/Audio) mit Größe und Zeitstempel an. Ermöglicht Nutzer, heruntergeladene Dateien zu inspizieren und vom Host aus (via Docker-Volume `./debug-cache/`) herunterzuladen. Nur verfügbar wenn Debug Output aktiv ist. | Should |
 
+## REQ-043 — AV-Sync Diagnosefähigkeit und Korrektur
+
+**Priorität:** Should
+
+Das Plugin MUSS im Debug-Modus AV-Sync-Abweichungen messbar und im Log sichtbar machen sowie in beiden Streaming-Modi aktive Gegenmaßnahmen anwenden:
+
+| ID | Anforderung | Priorität |
+|----|-------------|-----------|
+| REQ-043-A | **AV-Sync Diagnosemessung im Debug-Modus:** Wenn `debugMode=true` und ein Stream läuft, wird die AV-Sync-Abweichung (Audio-PTS minus Video-PTS in Millisekunden) mindestens alle 5 Sekunden aus den ffmpeg-Statistiken extrahiert und als strukturierter Log-Eintrag ausgegeben. Werte außerhalb des Toleranzbereichs (±40 ms) werden als Warnung markiert. | Should |
+| REQ-043-B | **AV-Sync Korrektur im Full-Download-Modus:** Im `fullDownloadMode=true` MUSS ffmpeg mit explizitem PTS-Alignment gestartet werden: Audio-Track und Video-Track erhalten vor dem Mux-Schritt einen PTS-Reset, sodass beide Streams bei Zeitstempel 0 beginnen. Eine messbare AV-Abweichung größer 100 ms bei der ersten gemessenen Stichprobe nach REQ-043-A gilt als Fehler und wird als Warnung geloggt. | Should |
+| REQ-043-C | **AV-Sync Best Practices im Streaming-Modus:** Im `fullDownloadMode=false` MUSS ffmpeg mit AV-Sync-stabilisierenden Parametern gestartet werden (z. B. Audio-Resync-Schwelle, Vsync-Modus, PTS-Reset am Pipe-Eingang). Die gewählten Parameter werden im Debug-Modus als Log-Eintrag ausgegeben, damit sie nachvollziehbar und anpassbar sind. | Should |
+
+---
+
+## REQ-044 — Stream-Stabilität und Watchdog im Streaming-Modus
+
+**Priorität:** Must
+
+Das Plugin MUSS im Streaming-Modus (`fullDownloadMode=false`) erkennen, wenn ffmpeg oder yt-dlp unerwartet beendet werden, und zwischen normalem Ende und vorzeitigem Abbruch unterscheiden:
+
+| ID | Anforderung | Priorität |
+|----|-------------|-----------|
+| REQ-044-A | **Stream-Watchdog:** Nach dem Start eines Streams prüft ein Watchdog-Mechanismus zyklisch (mindestens alle 5 Sekunden), ob der ffmpeg-Prozess und der yt-dlp-Prozess noch aktiv sind. Ist ein Prozess unerwartet beendet, wird der Abbruch als Fehler-Event behandelt und nicht als normales Stream-Ende. | Must |
+| REQ-044-B | **Unterscheidung normales Ende vs. vorzeitiger Abbruch:** Das Plugin MUSS beim Prozessende den Exit-Code und den Zeitpunkt des Endes gegen die erwartete Video-Dauer prüfen. Ein Exit-Code 0 und ein Endzeitpunkt innerhalb von ±10 Sekunden der aufgelösten Video-Dauer gilt als normales Ende. Alle anderen Fälle gelten als vorzeitiger Abbruch und werden als solche geloggt und behandelt. | Must |
+| REQ-044-C | **Automatischer Retry bei vorzeitigem Abbruch:** Bei einem erkannten vorzeitigen Abbruch (REQ-044-B) startet das Plugin den Stream für denselben Queue-Eintrag automatisch neu — maximal 2 Wiederholungsversuche, mit einer Wartezeit von 3 Sekunden vor jedem Retry. Nach Ausschöpfen aller Versuche wird der Eintrag aus der Queue entfernt und der Nutzer über die fehlgeschlagene Wiedergabe informiert. | Must |
+| REQ-044-D | **Watchdog-Logging:** Jeder Watchdog-Alarm, jeder Retry-Versuch und der endgültige Fehlschlag werden als strukturierte Log-Einträge (unabhängig vom Debug-Modus) ausgegeben, damit Abbruchursachen nachvollziehbar sind. | Must |
+
+---
+
 ## REQ-042 — Robuste Format-Selektion bei SABR-Streaming
 
 **Priorität:** Must

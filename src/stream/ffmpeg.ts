@@ -4,7 +4,7 @@
  * Provides pure functions for building command arguments (testable)
  * and runtime functions for spawning processes.
  *
- * Referenced by: REQ-002, REQ-003, REQ-012
+ * Referenced by: REQ-002, REQ-003, REQ-012, REQ-043, REQ-044
  */
 import path from "path";
 import { dirname } from "path";
@@ -26,6 +26,8 @@ export type VideoStreamOptions = {
   ssrc: number;
   bitrate: string;
   realtimeReading?: boolean;  // Use -re flag (default: true for progressive, false for complete files)
+  fullDownloadMode?: boolean;  // REQ-043-B: Apply PTS-alignment flags for full-download mode
+  debugEnabled?: boolean;      // REQ-043-B/C: Log chosen sync params when true
 };
 
 export type AudioStreamOptions = {
@@ -38,6 +40,8 @@ export type AudioStreamOptions = {
   volume: number;
   syncDelayMs?: number;
   realtimeReading?: boolean;  // Use -re flag (default: true for progressive, false for complete files)
+  fullDownloadMode?: boolean;  // REQ-043-B: Apply PTS-alignment flags for full-download mode
+  debugEnabled?: boolean;      // REQ-043-B/C: Log chosen sync params when true
 };
 
 export type FfmpegLoggers = {
@@ -50,6 +54,8 @@ export type SpawnedProcess = {
   process: ReturnType<typeof Bun.spawn>;
   kill: () => void;
   tempFilePath?: string;  // Path to temp download file (for cleanup)
+  /** REQ-043-A: Returns the latest PTS (presentation timestamp) parsed from ffmpeg stderr in seconds. */
+  getLastPtsSeconds: () => number;
 };
 
 export type YtDlpDownloadOptions = {
@@ -304,13 +310,34 @@ const getDebugCacheDir = (): string => {
  * actual H.264 profile (High/Main/Baseline) doesn't matter for forwarding.
  */
 export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
-  const { inputPath, rtpHost, rtpPort, payloadType, ssrc, bitrate, realtimeReading = true } = options;
+  const {
+    inputPath, rtpHost, rtpPort, payloadType, ssrc, bitrate,
+    realtimeReading = true,
+    fullDownloadMode = false,
+    debugEnabled = false,
+  } = options;
   const bitrateNorm = normalizeBitrate(bitrate);
 
   // Re-encode to H264 for Mediasoup RTP streaming (REQ-002).
   // Frequent keyframes improve startup for late joiners.
   // Use -re flag ONLY for progressive downloads (live temp file). Skip for complete downloads.
   const realtimeFlags = realtimeReading ? ["-re"] : [];
+
+  // REQ-043-B: Full-download mode — PTS-alignment flags to ensure both streams start at PTS=0.
+  // REQ-043-C: Streaming mode — AV-sync stabilisation flags (constant framerate, muxing queue).
+  let avSyncFlags: string[];
+  if (fullDownloadMode) {
+    avSyncFlags = [
+      "-fps_mode", "passthrough",         // Passthrough video timestamps (no drop/dup) — REQ-043-B
+      "-avoid_negative_ts", "make_zero",  // Force PTS to start at 0 — REQ-043-B
+    ];
+  } else {
+    avSyncFlags = [
+      "-fps_mode", "cfr",                 // Constant frame rate for stable timestamps — REQ-043-C
+      "-max_muxing_queue_size", "9999",   // Prevent muxing queue overflow — REQ-043-C
+    ];
+  }
+
   return [
     "-hide_banner",
     "-loglevel", "info",
@@ -326,6 +353,8 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
     "-i", inputPath,
     // Drop audio (separate audio stream handles this)
     "-an",
+    // AV-sync flags (REQ-043-B / REQ-043-C)
+    ...avSyncFlags,
     // H264 encoding profile for broad decoder compatibility
     "-c:v", "libx264",
     "-preset", "veryfast",
@@ -356,7 +385,11 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
  * REQ-026: Workaround for URL length issue in statically-linked ffmpeg.
  */
 export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
-  const { inputPath, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume, syncDelayMs = 0, realtimeReading = true } = options;
+  const {
+    inputPath, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume, syncDelayMs = 0,
+    realtimeReading = true,
+    fullDownloadMode = false,
+  } = options;
   const bitrateNorm = normalizeBitrate(bitrate);
 
   const filterGraph: string[] = [];
@@ -370,6 +403,16 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
 
   const audioFilterArgs = filterGraph.length > 0 ? ["-af", filterGraph.join(",")] : [];
   const realtimeFlags = realtimeReading ? ["-re"] : [];
+
+  // REQ-043-B: Full-download mode — PTS-alignment; REQ-043-C: Streaming mode — audio resync.
+  const avSyncFlags: string[] = fullDownloadMode
+    ? [
+        "-async", "1",                      // Resample audio to align with video PTS (REQ-043-B)
+        "-avoid_negative_ts", "make_zero",  // Force PTS to start at 0 (REQ-043-B)
+      ]
+    : [
+        "-async", "1",  // Audio resampling for sync in streaming mode (REQ-043-C)
+      ];
 
   // Audio MUST be re-encoded (AAC → Opus) for Mediasoup/WebRTC compatibility.
   // Use -re flag ONLY for progressive mode (growing files). Skip for complete downloads.
@@ -387,6 +430,8 @@ export const buildAudioStreamArgs = (options: AudioStreamOptions): string[] => {
     "-i", inputPath,
     // Drop video (separate video stream handles this)
     "-vn",
+    // AV-sync flags (REQ-043-B / REQ-043-C)
+    ...avSyncFlags,
     // Volume filter
     ...audioFilterArgs,
     // Opus encoding (required: Mediasoup expects Opus for audio)
@@ -668,6 +713,9 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     }
   } else if (!useDirectVideoInput) {
     // ---- Progressive Mode: Buffer & Start ----
+    // REQ-044-B: After reaching the initial buffer threshold we ALWAYS wait for yt-dlp to
+    // finish (max 120 s). This guarantees ffmpeg starts on a complete file and can never
+    // hit a premature EOF caused by reading a still-growing temp file.
     if (!tempFilePath) {
       cleanupDownloadedFile();
       throw new Error(`${tag}: temp file path missing in progressive mode`);
@@ -713,6 +761,36 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
       throw new Error(`${tag}: yt-dlp download failed — no data received after 30s`);
     }
 
+    // REQ-044-B: Wait for yt-dlp to fully complete before starting ffmpeg.
+    // This prevents premature EOF: without this, ffmpeg with -re reads the growing
+    // temp file, reaches the current EOF while yt-dlp is still downloading, and exits
+    // with code 0 having only streamed a fraction of the video.
+    // Max wait: 120 s beyond the initial buffer threshold (ytDlpExit may already be done).
+    if (ytDlpProc !== null && ytDlpExitCode === null && ytDlpExit !== null) {
+      loggers.log(`[${tag}]`, "[yt-dlp] Waiting for download to complete before starting ffmpeg (max 120s)...");
+      const ytDlpResult = await Promise.race([
+        (ytDlpExit as Promise<number>).then((code: number) => ({ status: "done" as const, code })),
+        new Promise<{ status: "timeout" }>((resolve) => setTimeout(() => resolve({ status: "timeout" }), 120_000)),
+      ]);
+      if (ytDlpResult.status === "timeout") {
+        loggers.error(`[${tag}]`, "[yt-dlp] Download wait timed out after 120s — starting ffmpeg on partial file.");
+      } else if (ytDlpResult.code !== 0 && ytDlpResult.code !== 143) {
+        // yt-dlp failed after we already have some data — try to continue with what we have
+        loggers.error(`[${tag}]`, `[yt-dlp] Download ended with error code ${ytDlpResult.code} — attempting ffmpeg on partial file.`);
+      } else {
+        // Small flush wait so OS write buffers are committed to disk
+        await Bun.sleep(200);
+        try {
+          const finalFileSize = existsSync(tempFilePath) ? Bun.file(tempFilePath).size : 0;
+          loggers.log(`[${tag}]`, `[yt-dlp] Download confirmed complete — final file size: ${Math.round(finalFileSize / 1024)} KB`);
+        } catch {
+          loggers.log(`[${tag}]`, "[yt-dlp] Download confirmed complete");
+        }
+      }
+    } else {
+      loggers.log(`[${tag}]`, "[yt-dlp] Download already complete when ffmpeg starts.");
+    }
+
     if (notifyReadyForSyncStart) {
       notifyReadyForSyncStart();
     }
@@ -729,23 +807,49 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   }
 
   // ---- Start ffmpeg (file has data now) ----
-  // Keep RTP output paced in realtime for BOTH modes.
-  // fullDownloadMode controls startup strategy, not playback speed.
+  // REQ-043-C: -re flag is ALWAYS required for temp-file mode to pace RTP output at 1x speed.
+  // Without -re, ffmpeg reads the file as fast as the CPU allows (24-26x), sending RTP packets
+  // far too fast. -re limits the input read rate to the native framerate, ensuring correct timing.
+  // It has nothing to do with whether the file is growing or complete.
   const useRealtimeReading = true;
   const ffmpegInput = useDirectVideoInput ? sourceUrl : tempFilePath;
   if (!ffmpegInput) {
     cleanupDownloadedFile();
     throw new Error(`${tag}: missing ffmpeg input`);
   }
-  
+
   // REQ-027-B: Phase PIPING — ffmpeg will receive data on stdin
   loggers.log(`[Phase] PIPING — ffmpeg process spawned, input mode: ${useDirectVideoInput ? "direct-url" : "temp-file"}`);
-  loggers.log(`[${tag}]`, `[FFmpeg config] -re flag: ON (paced realtime playback)`);
+  loggers.log(`[${tag}]`, `[FFmpeg config] -re flag: ${useRealtimeReading ? "ON (direct-url mode)" : "OFF (complete file)"}`);
 
   // Build ffmpeg args with appropriate realtime reading setting
+  // REQ-043-B/C: Pass fullDownloadMode and debugEnabled to activate AV-sync flags.
+  // REQ-044-B: In progressive mode we now always wait for yt-dlp completion before starting
+  // ffmpeg, so the file is always complete — use full-download AV-sync flags in that case too.
+  const fullDownloadModePassed = !useDirectVideoInput ? true : waitForFullDownload;
   const args = streamType === "video"
-    ? buildVideoStreamArgs({ inputPath: ffmpegInput, rtpHost, rtpPort, payloadType, ssrc, bitrate, realtimeReading: useRealtimeReading })
-    : buildAudioStreamArgs({ inputPath: ffmpegInput, rtpHost, rtpPort, payloadType, ssrc, bitrate, volume, syncDelayMs, realtimeReading: useRealtimeReading });
+    ? buildVideoStreamArgs({
+        inputPath: ffmpegInput, rtpHost, rtpPort, payloadType, ssrc, bitrate,
+        realtimeReading: useRealtimeReading,
+        fullDownloadMode: fullDownloadModePassed,
+        debugEnabled,
+      })
+    : buildAudioStreamArgs({
+        inputPath: ffmpegInput, rtpHost, rtpPort, payloadType, ssrc, bitrate,
+        volume, syncDelayMs,
+        realtimeReading: useRealtimeReading,
+        fullDownloadMode: fullDownloadModePassed,
+        debugEnabled,
+      });
+
+  // REQ-043-B/C: Log which AV-sync mode is active when debug is on
+  if (debugEnabled) {
+    if (fullDownloadModePassed) {
+      loggers.debug(`[${tag}]`, "[av-sync] Full-download mode: vsync=0, avoid_negative_ts=make_zero, async=1 active");
+    } else {
+      loggers.debug(`[${tag}]`, "[av-sync] Streaming mode: vsync=cfr, async=1, max_muxing_queue_size=9999 active");
+    }
+  }
 
   if (debugEnabled) {
     loggers.debug(`[${tag}]`, "[FFmpeg cmd]", ffmpegPath, ...args);
@@ -764,13 +868,18 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   let firstOutputLogged = false;
   let lastProgressLog = 0;
 
+  // REQ-043-A: AV-drift tracking — shared state written by each process's stderr reader.
+  // The video process writes videoPtsSeconds, the audio process writes audioPtsSeconds.
+  // These are module-level per-spawn closures so each spawnFfmpeg call has its own state.
+  let lastReportedPtsSeconds = 0;  // PTS from this process's latest progress line
+
   // Forward ffmpeg stderr to plugin logger with progress parsing
   (async () => {
     if (!proc.stderr) {
       stderrDrained = true;
       return;
     }
-    
+
     const reader = proc.stderr.getReader();
     const decoder = new TextDecoder();
     let lineBuffer = "";
@@ -816,6 +925,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
               const parsedTime = parseProgressTimeToSeconds(timeMatch[1]!);
               if (parsedTime !== null) {
                 streamedDurationSeconds = parsedTime;
+                lastReportedPtsSeconds = parsedTime;  // REQ-043-A: update PTS for AV-drift tracking
                 onProgressTimeSeconds?.(parsedTime);
               }
             }
@@ -911,6 +1021,10 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   return {
     process: proc,
     tempFilePath,  // Return path for later cleanup by StreamManager (undefined for direct-url mode)
+    /** REQ-043-A: Returns the latest PTS parsed from ffmpeg stderr progress lines. */
+    getLastPtsSeconds(): number {
+      return lastReportedPtsSeconds;
+    },
     kill() {
       killed = true;
       try {
@@ -1213,6 +1327,10 @@ export const spawnFfmpegForHLS = async (
 
   return {
     process: proc,
+    /** REQ-043-A: HLS mode does not track individual PTS; always returns 0. */
+    getLastPtsSeconds(): number {
+      return 0;
+    },
     kill: () => {
       loggers.log?.(tag, "[Kill] Stopping ffmpeg + yt-dlp processes");
       try { proc.kill("SIGTERM"); } catch { /* */ }

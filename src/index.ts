@@ -46,6 +46,11 @@ let runtimeSettingsOverrides: Partial<EffectiveSettingsSnapshot> = {};
 const adaptiveAudioDelayMsByChannel = new Map<number, number>();
 
 const DEFAULT_PROGRESSIVE_AUDIO_DELAY_MS = 650;
+// REQ-043-B: libx264 re-encode initialization takes ~600ms. During that time, the audio
+// ffmpeg (which only does AAC→Opus transcode, much lighter) gets ahead by ~600ms.
+// Both processes start simultaneously (SYNC gate), but video ffmpeg is slow to produce
+// its first RTP packet → audio leads by ~600ms consistently. Pre-delay audio to compensate.
+const DEFAULT_FULL_DOWNLOAD_AUDIO_DELAY_MS = 600;
 const MIN_AUDIO_DELAY_MS = 0;
 const MAX_AUDIO_DELAY_MS = 1800;
 const DRIFT_ADAPT_WINDOW_SECONDS = 25;
@@ -257,7 +262,9 @@ const toSettingsSnapshot = (effective: EffectivePluginSettings): EffectiveSettin
 });
 
 const getAdaptiveAudioDelayMs = (channelId: number, fullDownloadMode: boolean): number => {
-  if (fullDownloadMode) return 0;
+  // REQ-043-B: In full-download mode, audio ffmpeg gets ~600ms ahead of video during
+  // libx264 init. Pre-delay audio to compensate for this constant startup offset.
+  if (fullDownloadMode) return DEFAULT_FULL_DOWNLOAD_AUDIO_DELAY_MS;
   const storedDelay = adaptiveAudioDelayMsByChannel.get(channelId);
   if (typeof storedDelay === "number" && Number.isFinite(storedDelay)) {
     return clampNumber(Math.round(storedDelay), MIN_AUDIO_DELAY_MS, MAX_AUDIO_DELAY_MS);
@@ -723,6 +730,54 @@ const startStream = async (
     };
 
     streamManager.setActive(channelId, resources);
+
+    // REQ-043-A: AV-drift monitoring interval — log difference between audio PTS and video PTS.
+    // Active only in debugMode; checks every 5 seconds of wall clock time.
+    // Uses getLastPtsSeconds() from each SpawnedProcess to read the latest ffmpeg progress timestamp.
+    if (debugMode) {
+      const avDriftIntervalMs = 5000;
+      const avSyncTolerance = 40; // ms — warn if drift exceeds this threshold
+      const avDriftTimer = setInterval(() => {
+        if (!streamManager.isActive(channelId)) {
+          clearInterval(avDriftTimer);
+          return;
+        }
+        const videoPts = ffmpegVideoProc.getLastPtsSeconds();
+        const audioPts = ffmpegAudioProc.getLastPtsSeconds();
+        if (videoPts === 0 && audioPts === 0) return; // Not started yet
+        const driftMs = Math.round((audioPts - videoPts) * 1000);
+        if (Math.abs(driftMs) > avSyncTolerance) {
+          ctx.log(`[stream:${channelId}] [av-sync] WARNING: AV drift ${driftMs}ms (audio=${audioPts.toFixed(2)}s, video=${videoPts.toFixed(2)}s)`);
+        } else {
+          ctx.log(`[stream:${channelId}] [av-sync] drift=${driftMs}ms (audio=${audioPts.toFixed(2)}s, video=${videoPts.toFixed(2)}s)`);
+        }
+      }, avDriftIntervalMs);
+      // Interval is automatically stopped when stream becomes inactive (checked at top of callback)
+    }
+
+    // REQ-044-A/B/C/D: Start stream watchdog — monitors process health and retries on premature exit.
+    streamManager.startWatchdog(channelId, {
+      expectedDurationSeconds: item.duration ?? 0,
+      loggers: {
+        log: (...m: unknown[]) => ctx.log(`[stream:${channelId}]`, ...m),
+        error: (...m: unknown[]) => ctx.error(`[stream:${channelId}]`, ...m),
+      },
+      onPrematureExit: async (retryCount: number) => {
+        ctx.error(`[stream:${channelId}] [watchdog] Premature exit detected — retry ${retryCount}`);
+        streamManager.cleanup(channelId);
+        try {
+          await syncController.play(channelId);
+        } catch (e) {
+          ctx.error(`[stream:${channelId}] [watchdog] Retry play failed:`, e instanceof Error ? e.message : String(e));
+        }
+      },
+      onFatalExit: () => {
+        ctx.error(`[stream:${channelId}] [watchdog] FATAL: stream died after max retries — removing from queue`);
+        queueManager.skip(channelId);
+        streamManager.cleanup(channelId);
+        syncController.setPlaying(channelId, false);
+      },
+    });
 
     // Monitor producer score/statistics to verify RTP delivery in runtime logs
     let streamingDetected = false;
