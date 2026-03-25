@@ -29,3 +29,13 @@ services:
       - NODE_ENV=test
       - BUN_ENV=test
     command: ["bun", "test", "tests/docker/e2e-smoke.test.ts"]
+
+  # Pipeline E2E — tests streaming and full-download modes against a real YouTube video
+  pipeline-e2e:
+    build:
+      context: ../../
+      dockerfile: tests/docker/Dockerfile.test
+    environment:
+      - FFMPEG_PATH=/usr/bin/ffmpeg
+      - YT_DLP_PATH=/usr/local/bin/yt-dlp
+    command: ["bun", "test", "tests/docker/pipeline-e2e.test.ts", "--timeout", "1200000"]
