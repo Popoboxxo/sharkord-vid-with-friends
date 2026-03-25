@@ -21,7 +21,12 @@
       "Bash(MSYS_NO_PATHCONV=1 docker exec sharkord-dev sh -c \"grep -oa ''only.*letters\\\\|only.*alphanumeric\\\\|must.*lowercase\\\\|command.*[a-z]\\\\+only\\\\|[a-z0-9_-]\\\\{3,50\\\\}'' /sharkord 2>/dev/null | grep -i ''command\\\\|name\\\\|slash\\\\|valid'' | head -20\")",
       "Bash(find /c/Repositorys/sk_plugin/.claude -type f -name *.md)",
       "Bash(find /c/Repositorys/sk_plugin/.github -type f -name *.md)",
-      "Bash(grep -r \"^| *\\\\`/watch\\\\`\\\\|^| *\\\\`/queue\\\\`\\\\|^| *\\\\`/skip\\\\`\\\\|^| *\\\\`/remove\\\\`\\\\|^| *\\\\`/pause\\\\`\\\\|^| *\\\\`/resume\\\\`\\\\|^| *\\\\`/volume\\\\`\\\\|^| *\\\\`/nowplaying\\\\`\\\\|^| *\\\\`/debug_cache\\\\`\\\\|^| *\\\\`/watch_stop\\\\`\" /c/Repositorys/sk_plugin/docs/ /c/Repositorys/sk_plugin/*.md)"
+      "Bash(grep -r \"^| *\\\\`/watch\\\\`\\\\|^| *\\\\`/queue\\\\`\\\\|^| *\\\\`/skip\\\\`\\\\|^| *\\\\`/remove\\\\`\\\\|^| *\\\\`/pause\\\\`\\\\|^| *\\\\`/resume\\\\`\\\\|^| *\\\\`/volume\\\\`\\\\|^| *\\\\`/nowplaying\\\\`\\\\|^| *\\\\`/debug_cache\\\\`\\\\|^| *\\\\`/watch_stop\\\\`\" /c/Repositorys/sk_plugin/docs/ /c/Repositorys/sk_plugin/*.md)",
+      "Bash(git push:*)",
+      "Bash(tar -czf ../sharkord-vid-with-friends.tar.gz index.js package.json bin/)",
+      "Bash(grep \"vid-with-friends\\\\] $\")",
+      "Bash(git checkout:*)",
+      "Bash(git pull:*)"
     ]
   }
 }

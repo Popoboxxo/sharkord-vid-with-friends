@@ -769,10 +769,10 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     // temp file, reaches the current EOF while yt-dlp is still downloading, and exits
     // with code 0 having only streamed a fraction of the video.
     // Max wait: 120 s beyond the initial buffer threshold (ytDlpExit may already be done).
-    if (ytDlpProc !== null && ytDlpProc.exitCode === null && ytDlpExit !== null) {
+    if (ytDlpProc !== null && ytDlpExitCode === null && ytDlpExit !== null) {
       loggers.log(`[${tag}]`, "[yt-dlp] Waiting for download to complete before starting ffmpeg (max 120s)...");
       const ytDlpResult = await Promise.race([
-        ytDlpExit.then((code) => ({ status: "done" as const, code })),
+        (ytDlpExit as Promise<number>).then((code: number) => ({ status: "done" as const, code })),
         new Promise<{ status: "timeout" }>((resolve) => setTimeout(() => resolve({ status: "timeout" }), 120_000)),
       ]);
       if (ytDlpResult.status === "timeout") {
