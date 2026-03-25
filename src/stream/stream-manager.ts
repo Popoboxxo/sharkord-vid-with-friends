@@ -3,7 +3,7 @@
  *
  * Handles the complete lifecycle: create transports → create producers → spawn ffmpeg → cleanup.
  *
- * Referenced by: REQ-002, REQ-003, REQ-015, REQ-016
+ * Referenced by: REQ-002, REQ-003, REQ-015, REQ-016, REQ-044
  */
 import type { SpawnedProcess } from "./ffmpeg";
 import type { HLSServerHandle } from "./hls-server";
@@ -300,6 +300,9 @@ export class StreamManager {
    * Also deletes temp download files if debug mode is disabled.
    */
   cleanup(channelId: number): void {
+    // REQ-044-A: Stop watchdog before cleaning up stream resources to avoid spurious alarms
+    this.stopWatchdog(channelId);
+
     const resources = this.activeStreams.get(channelId);
     if (resources) {
       // Kill ffmpeg processes
@@ -399,6 +402,156 @@ export class StreamManager {
       this.cleanup(channelId);
     }
     this.sweepOrphanedTempFiles();
+  }
+
+  // ---- Stream Watchdog (REQ-044) ----
+
+  /** Internal watchdog state per channel. */
+  private readonly watchdogIntervals = new Map<number, ReturnType<typeof setInterval>>();
+
+  /**
+   * Start a watchdog for an active stream channel. (REQ-044-A/B/C/D)
+   *
+   * The watchdog polls every 5 seconds whether the ffmpeg processes are still alive.
+   * If a premature exit is detected (process exited and elapsed time is significantly
+   * less than expected duration), it calls onPrematureExit for retry handling.
+   * After maxRetries, onFatalExit is called and the watchdog stops.
+   *
+   * Distinction normal vs. premature end (REQ-044-B):
+   *   - exit code 0 AND elapsed within ±10s of expected duration → normal end (no action)
+   *   - any other case with processes not alive → premature abort → retry
+   */
+  startWatchdog(
+    channelId: number,
+    options: {
+      expectedDurationSeconds: number;
+      loggers: { log: (...m: unknown[]) => void; error: (...m: unknown[]) => void };
+      onPrematureExit: (retryCount: number) => Promise<void>;
+      onFatalExit: () => void;
+      maxRetries?: number;
+      retryDelayMs?: number;
+      pollIntervalMs?: number;
+    }
+  ): void {
+    // REQ-044-A: Stop any existing watchdog for this channel before starting a new one
+    this.stopWatchdog(channelId);
+
+    const {
+      expectedDurationSeconds,
+      loggers,
+      onPrematureExit,
+      onFatalExit,
+      maxRetries = 2,
+      retryDelayMs = 3000,
+      pollIntervalMs = 5000,
+    } = options;
+
+    const startTimeMs = Date.now();
+    let retryCount = 0;
+    let watchdogActive = true;
+
+    loggers.log("[watchdog] Started — expectedDuration=", `${expectedDurationSeconds}s`, `maxRetries=${maxRetries}`);
+
+    const interval = setInterval(async () => {
+      if (!watchdogActive) return;
+
+      const resources = this.activeStreams.get(channelId);
+      if (!resources) {
+        // Stream was cleaned up externally — stop watchdog silently
+        clearInterval(interval);
+        this.watchdogIntervals.delete(channelId);
+        watchdogActive = false;
+        return;
+      }
+
+      const { videoProcess, audioProcess } = resources;
+      const videoExitCode = videoProcess?.process.exitCode ?? null;
+      const audioExitCode = audioProcess?.process.exitCode ?? null;
+
+      // REQ-044-A: A process is "still running" when its exitCode is null (Bun returns null for running procs)
+      const videoAlive = videoExitCode === null;
+      const audioAlive = audioExitCode === null;
+
+      if (videoAlive && audioAlive) {
+        // Both still running — all good
+        return;
+      }
+
+      // At least one process has exited — evaluate whether it's premature (REQ-044-B)
+      const elapsedMs = Date.now() - startTimeMs;
+      const elapsedSeconds = elapsedMs / 1000;
+      const normalEndWindowSeconds = 10; // ±10s tolerance
+      const isNormalEnd =
+        (videoExitCode === 0 || videoExitCode === null) &&
+        (audioExitCode === 0 || audioExitCode === null) &&
+        expectedDurationSeconds > 0 &&
+        Math.abs(elapsedSeconds - expectedDurationSeconds) <= normalEndWindowSeconds;
+
+      if (isNormalEnd) {
+        // REQ-044-B: Normal end — watchdog stops, onEnd callbacks handle queue advance
+        loggers.log(
+          "[watchdog] Normal end detected — elapsed=", `${Math.round(elapsedSeconds)}s`,
+          "expected=", `${expectedDurationSeconds}s`
+        );
+        clearInterval(interval);
+        this.watchdogIntervals.delete(channelId);
+        watchdogActive = false;
+        return;
+      }
+
+      // REQ-044-B: Premature exit detected
+      // REQ-044-D: Log the alarm regardless of debug mode
+      loggers.error(
+        "[watchdog] ALARM: premature process exit —",
+        `elapsed=${Math.round(elapsedSeconds)}s`,
+        `expected=${expectedDurationSeconds}s`,
+        `video.exitCode=${videoExitCode}`,
+        `audio.exitCode=${audioExitCode}`,
+        `retryCount=${retryCount}/${maxRetries}`
+      );
+
+      if (retryCount >= maxRetries) {
+        // REQ-044-C: All retries exhausted
+        // REQ-044-D: Fatal log
+        loggers.error("[watchdog] Max retries exhausted — triggering fatal exit handler");
+        clearInterval(interval);
+        this.watchdogIntervals.delete(channelId);
+        watchdogActive = false;
+        onFatalExit();
+        return;
+      }
+
+      // REQ-044-C: Retry — wait retryDelayMs then call onPrematureExit
+      retryCount += 1;
+      // REQ-044-D: Retry log
+      loggers.log(`[watchdog] Scheduling retry ${retryCount}/${maxRetries} in ${retryDelayMs}ms...`);
+
+      // Pause watchdog polling during retry delay to avoid double-firing
+      watchdogActive = false;
+      clearInterval(interval);
+      this.watchdogIntervals.delete(channelId);
+
+      await new Promise<void>((resolve) => setTimeout(resolve, retryDelayMs));
+
+      try {
+        await onPrematureExit(retryCount);
+      } catch (err) {
+        loggers.error("[watchdog] onPrematureExit callback threw:", err instanceof Error ? err.message : String(err));
+      }
+
+      // After retry, the startWatchdog will be called again by startStream — do not restart here.
+    }, pollIntervalMs);
+
+    this.watchdogIntervals.set(channelId, interval);
+  }
+
+  /** Stop and discard the watchdog for a channel. Called by cleanup(). (REQ-044-A) */
+  stopWatchdog(channelId: number): void {
+    const existing = this.watchdogIntervals.get(channelId);
+    if (existing) {
+      clearInterval(existing);
+      this.watchdogIntervals.delete(channelId);
+    }
   }
 
   /**
