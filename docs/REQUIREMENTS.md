@@ -158,6 +158,22 @@ Das Plugin MUSS beim YouTube-Download robust gegen SABR-Streaming (Server-Adapti
 
 ---
 
+## REQ-045 — CDN-URL-Fallback bei vollständigem SABR-Block
+
+**Priorität:** Must
+**Status:** Implementiert
+
+Wenn yt-dlp mit `Requested format is not available` fehlschlägt — auch nach dem formatId-Fallback — MUSS das Plugin einen zweiten Retry mit der pre-resolved CDN-URL (`sourceUrl`) direkt starten, statt die YouTube-URL erneut aufzulösen.
+
+- REQ-045-A: Nach zweimaligem Fehlschlag (locked format + generic format-selector) MUSS die direkte CDN-URL (`sourceUrl`) als letzter Fallback verwendet werden
+- REQ-045-B: Im CDN-Fallback wird yt-dlp mit der URL direkt (ohne `-f` Format-Selektor) gestartet — so übernimmt yt-dlp das native Format der URL
+- REQ-045-C: Der CDN-Fallback MUSS nur ausgelöst werden wenn die `sourceUrl` eine googlevideo.com-URL ist (kein YouTube-Watch-Link), um keine unendliche Retry-Schleife zu erzeugen
+- REQ-045-D: Jeder CDN-Fallback-Retry MUSS geloggt werden (unabhängig vom Debug-Modus)
+
+**Hintergrund:** YouTube kann für bestimmte Server-IPs ALLE DASH/MP4-Formate durch SABR ersetzen. In diesem Fall schlägt jeder yt-dlp Format-Selektor gegen die YouTube-URL fehl (`Requested format is not available`). Die CDN-URL selbst (googlevideo.com) ist jedoch direkt downloadbar, da sie bereits auf den richtigen Stream zeigt.
+
+---
+
 ## Traceability
 
 Jeder Test MUSS mit dem Format `[REQ-xxx]` auf eine oder mehrere Anforderungen
