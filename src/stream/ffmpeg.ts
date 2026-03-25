@@ -328,16 +328,13 @@ export const buildVideoStreamArgs = (options: VideoStreamOptions): string[] => {
   let avSyncFlags: string[];
   if (fullDownloadMode) {
     avSyncFlags = [
-      "-vsync", "0",              // Passthrough video timestamps (no drop/dup)
-      "-avoid_negative_ts", "make_zero",  // Force PTS to start at 0
+      "-fps_mode", "passthrough",         // Passthrough video timestamps (no drop/dup) — REQ-043-B
+      "-avoid_negative_ts", "make_zero",  // Force PTS to start at 0 — REQ-043-B
     ];
-    if (debugEnabled) {
-      // Logging happens at call site via loggers; flag list logged by spawnFfmpeg (REQ-043-B)
-    }
   } else {
     avSyncFlags = [
-      "-vsync", "cfr",            // Constant frame rate for stable timestamps (REQ-043-C)
-      "-max_muxing_queue_size", "9999",  // Prevent muxing queue overflow (REQ-043-C)
+      "-fps_mode", "cfr",                 // Constant frame rate for stable timestamps — REQ-043-C
+      "-max_muxing_queue_size", "9999",   // Prevent muxing queue overflow — REQ-043-C
     ];
   }
 

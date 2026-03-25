@@ -46,6 +46,11 @@ let runtimeSettingsOverrides: Partial<EffectiveSettingsSnapshot> = {};
 const adaptiveAudioDelayMsByChannel = new Map<number, number>();
 
 const DEFAULT_PROGRESSIVE_AUDIO_DELAY_MS = 650;
+// REQ-043-B: libx264 re-encode initialization takes ~600ms. During that time, the audio
+// ffmpeg (which only does AAC→Opus transcode, much lighter) gets ahead by ~600ms.
+// Both processes start simultaneously (SYNC gate), but video ffmpeg is slow to produce
+// its first RTP packet → audio leads by ~600ms consistently. Pre-delay audio to compensate.
+const DEFAULT_FULL_DOWNLOAD_AUDIO_DELAY_MS = 600;
 const MIN_AUDIO_DELAY_MS = 0;
 const MAX_AUDIO_DELAY_MS = 1800;
 const DRIFT_ADAPT_WINDOW_SECONDS = 25;
@@ -257,7 +262,9 @@ const toSettingsSnapshot = (effective: EffectivePluginSettings): EffectiveSettin
 });
 
 const getAdaptiveAudioDelayMs = (channelId: number, fullDownloadMode: boolean): number => {
-  if (fullDownloadMode) return 0;
+  // REQ-043-B: In full-download mode, audio ffmpeg gets ~600ms ahead of video during
+  // libx264 init. Pre-delay audio to compensate for this constant startup offset.
+  if (fullDownloadMode) return DEFAULT_FULL_DOWNLOAD_AUDIO_DELAY_MS;
   const storedDelay = adaptiveAudioDelayMsByChannel.get(channelId);
   if (typeof storedDelay === "number" && Number.isFinite(storedDelay)) {
     return clampNumber(Math.round(storedDelay), MIN_AUDIO_DELAY_MS, MAX_AUDIO_DELAY_MS);

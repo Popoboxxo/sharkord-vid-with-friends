@@ -26,9 +26,9 @@ describe("buildVideoStreamArgs — AV-sync (REQ-043-B, REQ-043-C)", () => {
       fullDownloadMode: true,
     });
 
-    expect(args).toContain("-vsync");
-    const vsyncIndex = args.indexOf("-vsync");
-    expect(args[vsyncIndex + 1]).toBe("0");
+    expect(args).toContain("-fps_mode");
+    const fpsIdx = args.indexOf("-fps_mode");
+    expect(args[fpsIdx + 1]).toBe("passthrough");
   });
 
   it("[REQ-043-B] should include avoid_negative_ts=make_zero for video in full-download mode", () => {
@@ -59,9 +59,9 @@ describe("buildVideoStreamArgs — AV-sync (REQ-043-B, REQ-043-C)", () => {
     });
 
     // cfr is the streaming-mode flag — must NOT be present in full-download mode
-    const vsyncIdx = args.indexOf("-vsync");
-    expect(vsyncIdx).toBeGreaterThanOrEqual(0);
-    expect(args[vsyncIdx + 1]).not.toBe("cfr");
+    const fpsIdx = args.indexOf("-fps_mode");
+    expect(fpsIdx).toBeGreaterThanOrEqual(0);
+    expect(args[fpsIdx + 1]).not.toBe("cfr");
   });
 
   it("[REQ-043-B] should NOT include max_muxing_queue_size in full-download mode", () => {
@@ -91,9 +91,9 @@ describe("buildVideoStreamArgs — AV-sync (REQ-043-B, REQ-043-C)", () => {
       fullDownloadMode: false,
     });
 
-    expect(args).toContain("-vsync");
-    const vsyncIndex = args.indexOf("-vsync");
-    expect(args[vsyncIndex + 1]).toBe("cfr");
+    expect(args).toContain("-fps_mode");
+    const fpsIdx = args.indexOf("-fps_mode");
+    expect(args[fpsIdx + 1]).toBe("cfr");
   });
 
   it("[REQ-043-C] should include max_muxing_queue_size to prevent mux overflow in streaming mode", () => {
@@ -138,9 +138,9 @@ describe("buildVideoStreamArgs — AV-sync (REQ-043-B, REQ-043-C)", () => {
     });
 
     // Default: streaming mode → cfr
-    const vsyncIdx = args.indexOf("-vsync");
-    expect(vsyncIdx).toBeGreaterThanOrEqual(0);
-    expect(args[vsyncIdx + 1]).toBe("cfr");
+    const fpsIdx = args.indexOf("-fps_mode");
+    expect(fpsIdx).toBeGreaterThanOrEqual(0);
+    expect(args[fpsIdx + 1]).toBe("cfr");
     expect(args).toContain("-max_muxing_queue_size");
   });
 });
