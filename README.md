@@ -226,6 +226,3 @@ describe("QueueManager", () => {
 
 See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for the full requirements catalog (REQ-001 through REQ-041).
 
-## License
-
-Private — Sharkord Plugin
