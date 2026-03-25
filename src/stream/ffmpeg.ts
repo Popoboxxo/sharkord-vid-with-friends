@@ -810,11 +810,11 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   }
 
   // ---- Start ffmpeg (file has data now) ----
-  // REQ-044-B: In progressive mode ffmpeg starts only after yt-dlp has completed the full
-  // download (see wait above). The -re flag is therefore NOT needed in progressive mode —
-  // the file is complete and ffmpeg can read it as fast as it encodes.
-  // In direct-video-input mode we keep -re to pace the live stream correctly.
-  const useRealtimeReading = useDirectVideoInput;
+  // REQ-043-C: -re flag is ALWAYS required for temp-file mode to pace RTP output at 1x speed.
+  // Without -re, ffmpeg reads the file as fast as the CPU allows (24-26x), sending RTP packets
+  // far too fast. -re limits the input read rate to the native framerate, ensuring correct timing.
+  // It has nothing to do with whether the file is growing or complete.
+  const useRealtimeReading = true;
   const ffmpegInput = useDirectVideoInput ? sourceUrl : tempFilePath;
   if (!ffmpegInput) {
     cleanupDownloadedFile();
