@@ -113,6 +113,22 @@ Anforderungs-ID verweisen. Einmal gesetzte IDs dürfen nicht mehr angepasst werd
 | REQ-032 | **Debug-Cache für Downloads:** Im Debug-Modus wird der yt-dlp Download parallel in eine lokale Datei geschrieben (Video/Audio separat), um die Download-Funktion unabhängig vom RTP-Pfad prüfen zu können. | Should |
 | REQ-033 | **`/vid-debug-cache` Command:** Zeigt alle gecachten Download-Dateien (Video/Audio) mit Größe und Zeitstempel an. Ermöglicht Nutzer, heruntergeladene Dateien zu inspizieren und vom Host aus (via Docker-Volume `./debug-cache/`) herunterzuladen. Nur verfügbar wenn Debug Output aktiv ist. | Should |
 
+## REQ-042 — Robuste Format-Selektion bei SABR-Streaming
+
+**Priorität:** Must
+**Status:** Implementiert
+
+Das Plugin MUSS beim YouTube-Download robust gegen SABR-Streaming (Server-Adaptive Bitrate) sein:
+
+- REQ-042-A: HLS-Sub-Format-IDs (Format `NNN-N`, z.B. `301-0`) müssen erkannt und der Locked-Format-Pfad übersprungen werden
+- REQ-042-B: Der Video-Fallback-Selektor muss neben avc1 auch vp09 und av01 Formate unterstützen
+- REQ-042-C: SABR-Manifest-URLs (manifest.googlevideo.com) müssen aus der Format-Selektion ausgeschlossen werden
+- REQ-042-D: Der Fallback `bv` (beliebiges bestes Video) muss als letzter Ausweg verfügbar sein
+
+**Hintergrund:** YouTube erzwingt SABR für bestimmte Server-IPs. Alle avc1-Formate können auf betroffenen Servern nicht per yt-dlp heruntergeladen werden. Referenz: yt-dlp/yt-dlp#12482
+
+---
+
 ## Traceability
 
 Jeder Test MUSS mit dem Format `[REQ-xxx]` auf eine oder mehrere Anforderungen

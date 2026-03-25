@@ -110,7 +110,14 @@ export const parseYtDlpOutput = (jsonString: string): ResolvedVideo => {
     };
 
     const h264Formats = formats
-      .filter((f) => isH264(f["vcodec"]) && f["url"])
+      .filter((f) => {
+        if (!isH264(f["vcodec"]) || !f["url"]) return false;
+        // Exclude HLS manifest URLs — these are SABR/adaptive streams not downloadable via yt-dlp
+        if (typeof f["url"] === "string" && f["url"].includes("manifest.googlevideo.com")) return false;
+        // Exclude formats with HLS sub-format IDs (not portable across server IPs)
+        if (typeof f["format_id"] === "string" && /^\d+-\d+$/.test(f["format_id"])) return false;
+        return true;
+      })
       .sort((a, b) => {
         const heightA = typeof a["height"] === "number" ? a["height"] : 0;
         const heightB = typeof b["height"] === "number" ? b["height"] : 0;
@@ -123,14 +130,25 @@ export const parseYtDlpOutput = (jsonString: string): ResolvedVideo => {
       return h <= 1080;
     }) || h264Formats[0];
     
-    if (videoFormat && typeof videoFormat["url"] === "string") {
+    if (h264Formats.length === 0) {
+      // No H.264 formats available (e.g. all are SABR) — clear IDs so fallback selector is used
+      streamUrl = "";
+      videoFormatId = "";
+    } else if (videoFormat && typeof videoFormat["url"] === "string") {
       streamUrl = videoFormat["url"];
       videoFormatId = String(videoFormat["format_id"] || "");
     }
-    
+
     // Find best audio-only format (AAC preferred for reliable decoding)
     const audioFormat = formats
-      .filter((f) => f["acodec"] && f["acodec"] !== "none" && (!f["vcodec"] || f["vcodec"] === "none") && f["url"])
+      .filter((f) => {
+        if (!f["acodec"] || f["acodec"] === "none") return false;
+        if (f["vcodec"] && f["vcodec"] !== "none") return false;
+        if (!f["url"]) return false;
+        // Exclude formats with HLS sub-format IDs (not portable across server IPs)
+        if (typeof f["format_id"] === "string" && /^\d+-\d+$/.test(f["format_id"])) return false;
+        return true;
+      })
       .sort((a, b) => {
         const brA = typeof a["abr"] === "number" ? a["abr"] : 0;
         const brB = typeof b["abr"] === "number" ? b["abr"] : 0;

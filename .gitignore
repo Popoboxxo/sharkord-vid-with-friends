@@ -29,3 +29,4 @@ bun.lock
 # Debug cache
 debug-cache/
 .claude/settings.local.json
+docs/logfiles/
