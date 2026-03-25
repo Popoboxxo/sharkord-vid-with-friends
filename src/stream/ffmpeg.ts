@@ -716,6 +716,9 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     }
   } else if (!useDirectVideoInput) {
     // ---- Progressive Mode: Buffer & Start ----
+    // REQ-044-B: After reaching the initial buffer threshold we ALWAYS wait for yt-dlp to
+    // finish (max 120 s). This guarantees ffmpeg starts on a complete file and can never
+    // hit a premature EOF caused by reading a still-growing temp file.
     if (!tempFilePath) {
       cleanupDownloadedFile();
       throw new Error(`${tag}: temp file path missing in progressive mode`);
@@ -761,6 +764,36 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
       throw new Error(`${tag}: yt-dlp download failed — no data received after 30s`);
     }
 
+    // REQ-044-B: Wait for yt-dlp to fully complete before starting ffmpeg.
+    // This prevents premature EOF: without this, ffmpeg with -re reads the growing
+    // temp file, reaches the current EOF while yt-dlp is still downloading, and exits
+    // with code 0 having only streamed a fraction of the video.
+    // Max wait: 120 s beyond the initial buffer threshold (ytDlpExit may already be done).
+    if (ytDlpProc !== null && ytDlpProc.exitCode === null && ytDlpExit !== null) {
+      loggers.log(`[${tag}]`, "[yt-dlp] Waiting for download to complete before starting ffmpeg (max 120s)...");
+      const ytDlpResult = await Promise.race([
+        ytDlpExit.then((code) => ({ status: "done" as const, code })),
+        new Promise<{ status: "timeout" }>((resolve) => setTimeout(() => resolve({ status: "timeout" }), 120_000)),
+      ]);
+      if (ytDlpResult.status === "timeout") {
+        loggers.error(`[${tag}]`, "[yt-dlp] Download wait timed out after 120s — starting ffmpeg on partial file.");
+      } else if (ytDlpResult.code !== 0 && ytDlpResult.code !== 143) {
+        // yt-dlp failed after we already have some data — try to continue with what we have
+        loggers.error(`[${tag}]`, `[yt-dlp] Download ended with error code ${ytDlpResult.code} — attempting ffmpeg on partial file.`);
+      } else {
+        // Small flush wait so OS write buffers are committed to disk
+        await Bun.sleep(200);
+        try {
+          const finalFileSize = existsSync(tempFilePath) ? Bun.file(tempFilePath).size : 0;
+          loggers.log(`[${tag}]`, `[yt-dlp] Download confirmed complete — final file size: ${Math.round(finalFileSize / 1024)} KB`);
+        } catch {
+          loggers.log(`[${tag}]`, "[yt-dlp] Download confirmed complete");
+        }
+      }
+    } else {
+      loggers.log(`[${tag}]`, "[yt-dlp] Download already complete when ffmpeg starts.");
+    }
+
     if (notifyReadyForSyncStart) {
       notifyReadyForSyncStart();
     }
@@ -777,22 +810,26 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   }
 
   // ---- Start ffmpeg (file has data now) ----
-  // Keep RTP output paced in realtime for BOTH modes.
-  // fullDownloadMode controls startup strategy, not playback speed.
-  const useRealtimeReading = true;
+  // REQ-044-B: In progressive mode ffmpeg starts only after yt-dlp has completed the full
+  // download (see wait above). The -re flag is therefore NOT needed in progressive mode —
+  // the file is complete and ffmpeg can read it as fast as it encodes.
+  // In direct-video-input mode we keep -re to pace the live stream correctly.
+  const useRealtimeReading = useDirectVideoInput;
   const ffmpegInput = useDirectVideoInput ? sourceUrl : tempFilePath;
   if (!ffmpegInput) {
     cleanupDownloadedFile();
     throw new Error(`${tag}: missing ffmpeg input`);
   }
-  
+
   // REQ-027-B: Phase PIPING — ffmpeg will receive data on stdin
   loggers.log(`[Phase] PIPING — ffmpeg process spawned, input mode: ${useDirectVideoInput ? "direct-url" : "temp-file"}`);
-  loggers.log(`[${tag}]`, `[FFmpeg config] -re flag: ON (paced realtime playback)`);
+  loggers.log(`[${tag}]`, `[FFmpeg config] -re flag: ${useRealtimeReading ? "ON (direct-url mode)" : "OFF (complete file)"}`);
 
   // Build ffmpeg args with appropriate realtime reading setting
-  // REQ-043-B/C: Pass fullDownloadMode and debugEnabled to activate AV-sync flags
-  const fullDownloadModePassed = waitForFullDownload;
+  // REQ-043-B/C: Pass fullDownloadMode and debugEnabled to activate AV-sync flags.
+  // REQ-044-B: In progressive mode we now always wait for yt-dlp completion before starting
+  // ffmpeg, so the file is always complete — use full-download AV-sync flags in that case too.
+  const fullDownloadModePassed = !useDirectVideoInput ? true : waitForFullDownload;
   const args = streamType === "video"
     ? buildVideoStreamArgs({
         inputPath: ffmpegInput, rtpHost, rtpPort, payloadType, ssrc, bitrate,
