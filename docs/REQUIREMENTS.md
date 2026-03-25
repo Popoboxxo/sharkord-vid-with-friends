@@ -174,6 +174,32 @@ Wenn yt-dlp mit `Requested format is not available` fehlschlägt — auch nach d
 
 ---
 
+## REQ-046 — Bot-Antworten als Klartext
+
+**Priorität:** Must
+**Status:** Offen
+
+Alle Antwort-Texte des Bots (Command-Responses) MÜSSEN als reiner Plaintext ausgegeben werden — kein YAML, kein JSON, kein Markdown-Code-Block, keine strukturierten Datenformate. Ziel ist eine für den Nutzer natürlich lesbare Ausgabe im Chat.
+
+- REQ-046-A: Command-Responses dürfen ausschließlich natürlichsprachlichen Text enthalten (z. B. „Jetzt läuft: Videotitel — 4:06 min")
+- REQ-046-B: Technische Werte (Bitrate, URLs, Format-IDs etc.) dürfen nur dann angezeigt werden, wenn sie für den Nutzer im jeweiligen Kontext relevant und verständlich sind
+- REQ-046-C: Bestehende Commands, die strukturierte Daten zurückgeben (z. B. Objekte, Arrays, YAML-ähnliche Felder), MÜSSEN auf Plaintext umgestellt werden
+
+---
+
+## REQ-047 — Debug-Modus-Anzeige beim Abspielen
+
+**Priorität:** Should
+**Status:** Offen
+
+Wenn der Debug-Modus aktiv ist (`debugMode=true`), MUSS die Bot-Antwort bei allen Commands, die eine Wiedergabe starten (z. B. `vid-watch`), den aktuell aktiven Stream-Modus als lesbaren Hinweis enthalten.
+
+- REQ-047-A: Der Hinweis MUSS den Modus klar benennen: z. B. `[Debug] Modus: Full-Download` oder `[Debug] Modus: Streaming (progressiv)`
+- REQ-047-B: Der Hinweis MUSS nur erscheinen wenn `debugMode=true` — im normalen Betrieb bleibt die Antwort davon unberührt
+- REQ-047-C: Der Hinweis soll zusätzlich zum normalen Response-Text angezeigt werden, nicht als Ersatz
+
+---
+
 ## Traceability
 
 Jeder Test MUSS mit dem Format `[REQ-xxx]` auf eine oder mehrere Anforderungen
