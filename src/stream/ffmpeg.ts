@@ -190,6 +190,30 @@ export const shouldRetryWithoutFormatId = (
   return exitCode === 1 && stderrText.trim().length === 0;
 };
 
+/**
+ * Decide whether a failed yt-dlp run should be retried using the pre-resolved CDN URL
+ * directly (bypassing YouTube's format resolution entirely).
+ *
+ * This handles the case where YouTube forces SABR streaming for the server's IP, making
+ * ALL format selectors fail with "Requested format is not available" — even the generic
+ * fallback selectors. The CDN URL (googlevideo.com) is directly downloadable.
+ * (REQ-045)
+ */
+export const shouldRetryWithCdnUrl = (
+  exitCode: number | null,
+  stderrText: string,
+  sourceUrl: string,
+  youtubeUrl?: string,
+): boolean => {
+  // Only retry if we were using the YouTube URL (not already using CDN URL)
+  if (!youtubeUrl || !youtubeUrl.trim()) return false;
+  // Only trigger if the sourceUrl is a direct CDN URL, not a YouTube watch URL
+  if (!sourceUrl.includes("googlevideo.com")) return false;
+  if (exitCode === null || exitCode === 0 || exitCode === 143) return false;
+  if (/Requested format is not available/i.test(stderrText)) return true;
+  return false;
+};
+
 /** Build yt-dlp download command for downloading to temp file. (REQ-027-B, REQ-027-C) */
 export const buildYtDlpDownloadCmd = (options: YtDlpDownloadOptions & { outputPath: string }): string[] => {
   const {
@@ -523,16 +547,19 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
   let ytDlpExitCode: number | null = null;
   let ytDlpStderrText = "";
   let usedFormatFallback = false;
+  let usedCdnFallback = false;
 
-  const spawnYtDlpDownload = (useFormatFallback: boolean): void => {
+  const spawnYtDlpDownload = (useFormatFallback: boolean, useCdnFallback = false): void => {
     const effectiveFormatId = useFormatFallback ? undefined : preferredFormatId;
+    // REQ-045: CDN fallback bypasses YouTube URL resolution entirely — use sourceUrl directly
+    const effectiveYoutubeUrl = useCdnFallback ? undefined : youtubeUrl;
     const effectiveProgressiveVideoMode = streamType === "video" && !waitForFullDownload && !effectiveFormatId;
 
     const ytDlpCmd = buildYtDlpDownloadCmd({
       ytDlpPath,
       ffmpegLocation: binDir,
       sourceUrl,
-      youtubeUrl,
+      youtubeUrl: effectiveYoutubeUrl,
       formatId: effectiveFormatId,
       streamType,
       useMpegTsOutput: effectiveProgressiveVideoMode,
@@ -541,7 +568,9 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
       outputPath: tempFilePath!,
     });
 
-    if (youtubeUrl) {
+    if (useCdnFallback) {
+      loggers.log(`[${tag}]`, `[yt-dlp] CDN fallback: downloading directly from pre-resolved URL (${sourceUrl.length} chars)`);
+    } else if (effectiveYoutubeUrl) {
       if (effectiveFormatId && effectiveFormatId.trim()) {
         loggers.log(
           `[${tag}]`,
@@ -663,6 +692,33 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     return true;
   };
 
+  // REQ-045: CDN-URL fallback — last resort when all YouTube format selectors fail (SABR block)
+  const maybeRetryWithCdnUrl = async (): Promise<boolean> => {
+    const shouldRetry = shouldRetryWithCdnUrl(ytDlpExitCode, ytDlpStderrText, sourceUrl, youtubeUrl);
+    if (!shouldRetry || usedCdnFallback || !tempFilePath) return false;
+
+    usedCdnFallback = true;
+    loggers.log(
+      `[${tag}]`,
+      "[yt-dlp] All YouTube format selectors failed (SABR block). Retrying with pre-resolved CDN URL..."
+    );
+
+    try {
+      if (ytDlpProc) ytDlpProc.kill("SIGTERM");
+    } catch {
+      // process may already be dead
+    }
+
+    try {
+      if (existsSync(tempFilePath)) unlinkSync(tempFilePath);
+    } catch {
+      // best effort cleanup before retry
+    }
+
+    spawnYtDlpDownload(true, true);
+    return true;
+  };
+
   if (!useDirectVideoInput) {
     if (!tempFilePath) {
       throw new Error(`${tag}: temp file path missing for download mode`);
@@ -690,6 +746,13 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
     if (code !== 0 && code !== 143) {
       const retried = await maybeRetryYtDlpWithoutFormatId();
       if (retried && ytDlpExit) {
+        code = await ytDlpExit;
+      }
+    }
+    // REQ-045: CDN fallback — if all YouTube-URL-based attempts failed
+    if (code !== 0 && code !== 143) {
+      const retriedCdn = await maybeRetryWithCdnUrl();
+      if (retriedCdn && ytDlpExit) {
         code = await ytDlpExit;
       }
     }
@@ -745,6 +808,25 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
             const fileSize = Bun.file(tempFilePath).size;
             if (fileSize >= minInitialBytes) {
               loggers.log(`[${tag}]`, `Temp file ready after retry (${Math.round(fileSize / 1024)} KB), starting ffmpeg...`);
+              onPhaseChange?.("BUFFERING");
+              fileReady = true;
+              break;
+            }
+          }
+          await new Promise<void>(r => setTimeout(r, 100));
+        }
+      }
+    }
+    // REQ-045: CDN fallback — if all YouTube-URL-based attempts failed and buffer is still empty
+    if (!fileReady) {
+      const retriedCdn = await maybeRetryWithCdnUrl();
+      if (retriedCdn && tempFilePath) {
+        loggers.log(`[${tag}]`, "[CDN fallback] Retry started, waiting for initial buffer...");
+        for (let i = 0; i < 300; i++) {
+          if (existsSync(tempFilePath)) {
+            const fileSize = Bun.file(tempFilePath).size;
+            if (fileSize >= minInitialBytes) {
+              loggers.log(`[${tag}]`, `Temp file ready after CDN fallback (${Math.round(fileSize / 1024)} KB), starting ffmpeg...`);
               onPhaseChange?.("BUFFERING");
               fileReady = true;
               break;
