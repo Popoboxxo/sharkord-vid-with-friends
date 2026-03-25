@@ -158,6 +158,15 @@ export const shouldCleanupDownloadedData = (debugEnabled: boolean): boolean =>
   !debugEnabled;
 
 /**
+ * Returns true if a format ID is an HLS sub-format (e.g. "301-0", "248-1")
+ * that may not be available across different server IPs. (REQ-042)
+ */
+export const isHlsSubFormatId = (formatId: string | undefined): boolean => {
+  if (!formatId || !formatId.trim()) return false;
+  return /^\d+-\d+$/.test(formatId.trim());
+};
+
+/**
  * Decide whether a failed yt-dlp run should be retried without a strict format lock.
  * This handles videos where a previously resolved format_id later becomes unavailable.
  * (REQ-027)
@@ -168,6 +177,7 @@ export const shouldRetryWithoutFormatId = (
   formatId?: string
 ): boolean => {
   if (!formatId || !formatId.trim()) return false;
+  if (isHlsSubFormatId(formatId)) return true;  // HLS sub-formats are never reliably downloadable
   if (exitCode === null || exitCode === 0 || exitCode === 143) return false;
   if (/Requested format is not available/i.test(stderrText)) return true;
   // Some yt-dlp failures provide little/no stderr detail in container logs.
@@ -205,18 +215,18 @@ export const buildYtDlpDownloadCmd = (options: YtDlpDownloadOptions & { outputPa
   // REQ-038: Do not force mpegts when a concrete format lock is active.
   // Some locked DASH formats are regular MP4 and post-process behavior can become unstable
   // for a concurrently-read temp file.
-  if (streamType === "video" && useMpegTsOutput && !(formatId && formatId.trim())) {
+  if (streamType === "video" && useMpegTsOutput && !(formatId && formatId.trim() && !isHlsSubFormatId(formatId))) {
     cmd.push("--hls-use-mpegts");
   }
 
   // ALWAYS prefer youtubeUrl over pre-resolved CDN URL
   if (youtubeUrl) {
-    if (formatId && formatId.trim()) {
+    if (formatId && formatId.trim() && !isHlsSubFormatId(formatId)) {
       cmd.push("-f", formatId.trim(), "-o", outputPath, youtubeUrl);
     } else {
       const formatSel = streamType === "video"
-        ? "bv[vcodec^=avc1][height<=1080]/bv[vcodec^=avc1]/bv*[vcodec^=avc1]"
-        : "ba[acodec=opus]/ba[acodec=aac]/ba/ba*/bestaudio[acodec=opus]/bestaudio[acodec=aac]/bestaudio";
+        ? "bv[vcodec^=avc1][height<=1080]/bv[vcodec^=avc1]/bv*[vcodec^=avc1]/bv[vcodec^=vp09][height<=1080]/bv[vcodec^=vp09]/bv[vcodec^=av01][height<=1080]/bv[vcodec^=av01]/bv[height<=1080]/bv"
+        : "ba[acodec=opus]/ba[acodec=aac]/ba[acodec^=mp4a]/ba/ba*/bestaudio[acodec=opus]/bestaudio[acodec=aac]/bestaudio";
       cmd.push("-f", formatSel, "-o", outputPath, youtubeUrl);
     }
   } else {
