@@ -200,6 +200,49 @@ Wenn der Debug-Modus aktiv ist (`debugMode=true`), MUSS die Bot-Antwort bei alle
 
 ---
 
+## REQ-048 — Streaming-Modus: Sofortiger CDN-Fallback bei yt-dlp-Fehler
+
+**Priorität:** Must
+**Status:** Implementiert
+
+Im Streaming-Modus (progressive download) MUSS der Buffer-Wait-Loop sofort abbrechen, wenn yt-dlp mit einem Fehler-Exit-Code beendet wurde, anstatt die vollen 30 Sekunden abzuwarten.
+
+- REQ-048-A: Im 100ms-Polling-Tick des Buffer-Wait-Loops MUSS geprüft werden ob `ytDlpExitCode !== null && ytDlpExitCode !== 0 && ytDlpExitCode !== 143`. Wenn ja, MUSS der Loop sofort abgebrochen werden.
+- REQ-048-B: Nach dem Early-Exit greift die bestehende Retry-Kette (maybeRetryYtDlpWithoutFormatId → maybeRetryWithCdnUrl) ohne zusätzliche Wartezeit.
+- REQ-048-C: Der Early-Exit MUSS geloggt werden: `[yt-dlp] Exited with code X — aborting buffer wait early`
+
+**Hintergrund:** Auf SABR-geblockten Servern schlägt yt-dlp nach ~2–3s fehl. Ohne Early-Exit wartet der Loop stur 30s bevor der CDN-Fallback ausgelöst wird — Gesamtverzögerung ~60–90s. Mit Early-Exit sinkt die Verzögerung auf ~5–10s.
+
+---
+
+## REQ-049 — Korrekter Log-Pfad für Temp-Dateien
+
+**Priorität:** Could
+**Status:** Implementiert
+
+Der Log-Eintrag für den Temp-Datei-Pfad beim Start des yt-dlp-Downloads MUSS den vollständigen Dateinamen ausgeben, nicht einen durch Magic-Number-Substring abgeschnittenen Pfad.
+
+- REQ-049-A: Statt `tempFilePath.substring(Math.max(0, tempFilePath.length - 40))` MUSS `path.basename(tempFilePath)` verwendet werden, um den Dateinamen vollständig und korrekt anzuzeigen.
+
+**Hintergrund:** Der aktuelle Code schneidet den Dateinamen ab (z.B. `emp-audio-...` statt `temp-audio-...`) weil die feste Zahl 40 kleiner als der Dateiname ist. `path.basename()` gibt immer den kompletten Dateinamen zurück, unabhängig von der Pfadlänge.
+
+---
+
+## REQ-050 — Adaptiver Audio-Delay: Reset bei Modus-Wechsel
+
+**Priorität:** Should
+**Status:** Implementiert
+
+Beim Wechsel zwischen Full-Download-Modus und Streaming-Modus MUSS der gespeicherte adaptive Audio-Delay-Wert für den Channel zurückgesetzt werden, da die adaptierten Werte eines Modus nicht auf den anderen übertragbar sind.
+
+- REQ-050-A: Vor jedem Stream-Start MUSS geprüft werden, ob sich der Modus (fullDownloadMode) gegenüber dem letzten Stream auf demselben Channel geändert hat.
+- REQ-050-B: Bei einem Moduswechsel MUSS `adaptiveAudioDelayMsByChannel.delete(channelId)` aufgerufen werden, bevor `getAdaptiveAudioDelayMs()` den initialen Delay-Wert ermittelt.
+- REQ-050-C: Der Reset MUSS geloggt werden: `[SYNC] Mode changed (fullDownload: X → Y) — resetting adaptive audio delay`
+
+**Hintergrund:** Full-Download-Modus speichert adaptive Werte ~600ms, Streaming-Modus startet bei 650ms. Ohne Reset erbt der Streaming-Modus den Full-Download-Wert und startet mit falscher AV-Synchronisation.
+
+---
+
 ## Traceability
 
 Jeder Test MUSS mit dem Format `[REQ-xxx]` auf eine oder mehrere Anforderungen

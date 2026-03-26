@@ -44,6 +44,8 @@ let settingsWatcher: ReturnType<typeof setInterval> | null = null;
 let settingsAccessor: { get: <T = unknown>(key: string) => T | undefined } | null = null;
 let runtimeSettingsOverrides: Partial<EffectiveSettingsSnapshot> = {};
 const adaptiveAudioDelayMsByChannel = new Map<number, number>();
+// REQ-050: Track last mode per channel to reset adaptive delay on mode switch
+const lastStreamModeMsByChannel = new Map<number, boolean>(); // channelId → fullDownloadMode
 
 const DEFAULT_PROGRESSIVE_AUDIO_DELAY_MS = 650;
 // REQ-043-B: libx264 re-encode initialization takes ~600ms. During that time, the audio
@@ -474,6 +476,14 @@ const startStream = async (
     const fullDownloadMode = settings.fullDownloadMode;
     const videoBitrate = `${settings.videoBitrateKbps}k`;
     const audioBitrate = `${settings.audioBitrateKbps}k`;
+    // REQ-050: Reset adaptive delay when switching between full-download and streaming mode,
+    // as stored values from one mode are not applicable to the other.
+    const lastMode = lastStreamModeMsByChannel.get(channelId);
+    if (lastMode !== undefined && lastMode !== fullDownloadMode) {
+      ctx.log(`[stream:${channelId}] [SYNC] Mode changed (fullDownload: ${lastMode} → ${fullDownloadMode}) — resetting adaptive audio delay`);
+      adaptiveAudioDelayMsByChannel.delete(channelId);
+    }
+    lastStreamModeMsByChannel.set(channelId, fullDownloadMode);
     const audioSyncDelayMs = getAdaptiveAudioDelayMs(channelId, fullDownloadMode);
 
     ctx.log(`[stream:${channelId}] Settings: volume=${volume}%, videoBitrate=${videoBitrate}, audioBitrate=${audioBitrate}, fullDownloadMode=${fullDownloadMode}`);

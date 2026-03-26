@@ -732,7 +732,7 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
 
     spawnYtDlpDownload(false);
 
-    loggers.log(`[Phase] DOWNLOADING — yt-dlp pipe started on temp file: ${tempFilePath.substring(Math.max(0, tempFilePath.length - 40))}`);
+    loggers.log(`[Phase] DOWNLOADING — yt-dlp pipe started on temp file: ${path.basename(tempFilePath)}`);
     onPhaseChange?.("DOWNLOADING");
   }
 
@@ -797,6 +797,11 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
           break;
         }
       }
+      // REQ-048-A: Early exit if yt-dlp already failed — no point waiting 30s for a file that won't grow
+      if (ytDlpExitCode !== null && ytDlpExitCode !== 0 && ytDlpExitCode !== 143) {
+        loggers.log(`[${tag}]`, `[yt-dlp] Exited with code ${ytDlpExitCode} — aborting buffer wait early`);
+        break;
+      }
       await new Promise<void>(r => setTimeout(r, 100));
     }
     if (!fileReady) {
@@ -812,6 +817,11 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
               fileReady = true;
               break;
             }
+          }
+          // REQ-048-A: Early exit if yt-dlp already failed
+          if (ytDlpExitCode !== null && ytDlpExitCode !== 0 && ytDlpExitCode !== 143) {
+            loggers.log(`[${tag}]`, `[yt-dlp] Exited with code ${ytDlpExitCode} — aborting buffer wait early`);
+            break;
           }
           await new Promise<void>(r => setTimeout(r, 100));
         }
@@ -831,6 +841,11 @@ export const spawnFfmpeg = async (options: SpawnFfmpegOptions): Promise<SpawnedP
               fileReady = true;
               break;
             }
+          }
+          // REQ-048-A: Early exit if yt-dlp already failed
+          if (ytDlpExitCode !== null && ytDlpExitCode !== 0 && ytDlpExitCode !== 143) {
+            loggers.log(`[${tag}]`, `[yt-dlp] Exited with code ${ytDlpExitCode} — aborting buffer wait early`);
+            break;
           }
           await new Promise<void>(r => setTimeout(r, 100));
         }
