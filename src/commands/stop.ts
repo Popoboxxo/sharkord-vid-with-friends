@@ -34,7 +34,7 @@ export const registerStopCommand = (
       const isPlaying = syncController.isPlaying(channelId);
       const hasActiveStream = streamManager?.isActive(channelId) ?? false;
       if (!isPlaying && !hasActiveStream) {
-        return { response: "Nothing is currently playing." };
+        return "Nothing is currently playing.";
       }
 
       // Kill all ffmpeg processes and close streams (REQ-010)
@@ -46,7 +46,7 @@ export const registerStopCommand = (
       // Clear queue and sync state
       syncController.stop(channelId);
 
-      return { response: "Playback stopped and queue cleared." };
+      return "Playback stopped and queue cleared.";
     },
   });
 };

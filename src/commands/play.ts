@@ -51,10 +51,11 @@ export const registerPlayCommand = (
       }
 
       if (syncController.isPlaying(channelId)) {
-        return { response: "A video is already playing in this channel. Use /vid-stop to stop it first." };
+        return "A video is already playing in this channel. Use /vid-stop to stop it first.";
       }
 
       let sourceUrl = args.query.trim();
+      const queryDisplay = args.query.trim();
 
       // Convert plain search terms to yt-search format
       if (!isYouTubeUrl(sourceUrl) && !/^https?:\/\//.test(sourceUrl)) {
@@ -63,52 +64,58 @@ export const registerPlayCommand = (
 
       ctx.log(`[watch] Resolving: ${sourceUrl}`);
 
-      // Resolve video info via yt-dlp
-      let resolved;
-      try {
-        resolved = await resolveVideo(sourceUrl, {
-          log: (...m) => ctx.log(...m),
-          debug: (...m) => ctx.debug(...m),
-          error: (...m) => ctx.error(...m),
+      // REQ-046/UX: Resolve and stream entirely in background — return immediately so the user
+      // gets instant feedback without waiting 5–15s for yt-dlp to resolve the video.
+      (async () => {
+        let resolved;
+        try {
+          resolved = await resolveVideo(sourceUrl, {
+            log: (...m) => ctx.log(...m),
+            debug: (...m) => ctx.debug(...m),
+            error: (...m) => ctx.error(...m),
+          });
+          ctx.log(`[watch] Resolved: "${resolved.title}" (${resolved.duration}s)`);
+          ctx.debug(`[watch] Video URL: ${resolved.streamUrl.substring(0, 100)}...`);
+          ctx.debug(`[watch] Audio URL: ${resolved.audioUrl.substring(0, 100)}...`);
+        } catch (err) {
+          ctx.error(`[watch] Failed to resolve video:`, err);
+          return;
+        }
+
+        if (!resolved.streamUrl) {
+          ctx.error(`[watch] No stream URL found for: ${sourceUrl}`);
+          return;
+        }
+
+        const item = {
+          id: crypto.randomUUID(),
+          query: args.query,
+          title: resolved.title,
+          youtubeUrl: resolved.youtubeUrl,
+          streamUrl: resolved.streamUrl,
+          audioUrl: resolved.audioUrl || resolved.streamUrl,
+          videoFormatId: resolved.videoFormatId,
+          audioFormatId: resolved.audioFormatId,
+          duration: resolved.duration,
+          thumbnail: resolved.thumbnail,
+          addedBy: invoker.userId,
+          addedAt: Date.now(),
+        };
+
+        queueManager.add(channelId, item);
+
+        syncController.play(channelId).catch((err: unknown) => {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          ctx.error(`[watch] Failed to start stream:`, errorMsg);
+          queueManager.remove(channelId, 1);
         });
-        ctx.log(`[watch] Resolved: "${resolved.title}" (${resolved.duration}s)`);
-        ctx.debug(`[watch] Video URL: ${resolved.streamUrl.substring(0, 100)}...`);
-        ctx.debug(`[watch] Audio URL: ${resolved.audioUrl.substring(0, 100)}...`);
-      } catch (err) {
-        ctx.error(`[watch] Failed to resolve video:`, err);
-        throw new Error(`Failed to resolve video. Check server logs for details.`);
-      }
+      })();
 
-      if (!resolved.streamUrl) {
-        ctx.error(`[watch] No stream URL found for: ${sourceUrl}`);
-        throw new Error("Could not find a playable stream URL for this video.");
-      }
-
-      const item = {
-        id: crypto.randomUUID(),
-        query: args.query,
-        title: resolved.title,
-        youtubeUrl: resolved.youtubeUrl,
-        streamUrl: resolved.streamUrl,
-        audioUrl: resolved.audioUrl || resolved.streamUrl,  // Fallback to streamUrl if no separate audio
-        videoFormatId: resolved.videoFormatId,
-        audioFormatId: resolved.audioFormatId,
-        duration: resolved.duration,
-        thumbnail: resolved.thumbnail,
-        addedBy: invoker.userId,
-        addedAt: Date.now(),
-      };
-
-      queueManager.add(channelId, item);
-
-      // Start stream in background — don't await (stream startup takes too long for command response timeout)
-      syncController.play(channelId).catch((err: unknown) => {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        ctx.error(`[watch] Failed to start stream:`, errorMsg);
-        queueManager.remove(channelId, 1);
-      });
-
-      return { response: `Starting: ${resolved.title}` };
+      // REQ-046: Instant feedback — user sees this immediately, before resolve completes
+      const isSearch = sourceUrl.startsWith("ytsearch:");
+      return isSearch
+        ? `Searching for "${queryDisplay}"... Bot will appear in channel shortly.`
+        : `Loading video... Bot will appear in channel shortly.`;
     },
   });
 };

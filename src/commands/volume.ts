@@ -42,7 +42,7 @@ export const registerVolumeCommand = (
       }
 
       syncController.setVolume(channelId, args.level);
-      return { response: `Volume set to ${args.level}%. Applies to the next video.` };
+      return `Volume set to ${args.level}%. Applies to the next video.`;
     },
   });
 };

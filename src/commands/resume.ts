@@ -38,11 +38,11 @@ export const registerResumeCommand = (
       const isPlaying = syncController.isPlaying(channelId);
       const hasActiveStream = streamControl?.isActive?.(channelId) ?? false;
       if (!isPlaying && !hasActiveStream) {
-        return { response: "Nothing is currently playing." };
+        return "Nothing is currently playing.";
       }
 
       if (!syncController.isPaused(channelId)) {
-        return { response: "No paused video to resume." };
+        return "No paused video to resume.";
       }
 
       const resumed = streamControl?.resumeChannelStream(channelId) ?? true;
@@ -51,7 +51,7 @@ export const registerResumeCommand = (
       }
 
       syncController.setPaused(channelId, false);
-      return { response: "Resumed playback." };
+      return "Resumed playback.";
     },
   });
 };

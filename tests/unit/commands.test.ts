@@ -81,14 +81,14 @@ describe("Commands", () => {
   describe("/watch", () => {
     it("[REQ-001] should register the watch command", () => {
       registerPlayCommand(ctx as never, queueManager, syncController);
-      expect(ctx.commands.registered.has("watch")).toBe(true);
+      expect(ctx.commands.registered.has("vid-watch")).toBe(true);
     });
 
     it("[REQ-001] should throw when not in a voice channel", async () => {
       registerPlayCommand(ctx as never, queueManager, syncController);
       const invoker = makeInvoker({ currentVoiceChannelId: undefined });
       await expect(
-        ctx.commands.execute("watch", invoker, { query: "test" })
+        ctx.commands.execute("vid-watch", invoker, { query: "test" })
       ).rejects.toThrow("voice channel");
     });
 
@@ -96,7 +96,7 @@ describe("Commands", () => {
       registerPlayCommand(ctx as never, queueManager, syncController);
       const invoker = makeInvoker();
       await expect(
-        ctx.commands.execute("watch", invoker, { query: "" })
+        ctx.commands.execute("vid-watch", invoker, { query: "" })
       ).rejects.toThrow();
     });
 
@@ -105,7 +105,7 @@ describe("Commands", () => {
       syncController.setPlaying(channelId, true);
 
       const invoker = makeInvoker();
-      const result = await ctx.commands.execute("watch", invoker, { query: "test" });
+      const result = await ctx.commands.execute("vid-watch", invoker, { query: "test" });
 
       expect(String(result)).toContain("already playing");
       expect(queueManager.getState(channelId).size).toBe(0);
@@ -117,13 +117,13 @@ describe("Commands", () => {
   describe("/queue", () => {
     it("[REQ-006] should register the queue command", () => {
       registerQueueCommand(ctx as never, queueManager);
-      expect(ctx.commands.registered.has("queue")).toBe(true);
+      expect(ctx.commands.registered.has("vid-queue")).toBe(true);
     });
 
     it("[REQ-006] should return empty queue message", async () => {
       registerQueueCommand(ctx as never, queueManager);
       const invoker = makeInvoker();
-      const result = await ctx.commands.execute("queue", invoker, {});
+      const result = await ctx.commands.execute("vid-queue", invoker, {});
       expect(result).toContain("empty");
     });
 
@@ -133,7 +133,7 @@ describe("Commands", () => {
       queueManager.add(channelId, makeItem({ title: "Video B" }));
 
       const invoker = makeInvoker();
-      const result = await ctx.commands.execute("queue", invoker, {});
+      const result = await ctx.commands.execute("vid-queue", invoker, {});
       const resultStr = String(result);
       expect(resultStr).toContain("Video A");
       expect(resultStr).toContain("Video B");
@@ -145,14 +145,14 @@ describe("Commands", () => {
   describe("/skip", () => {
     it("[REQ-008] should register the skip command", () => {
       registerSkipCommand(ctx as never, syncController);
-      expect(ctx.commands.registered.has("skip")).toBe(true);
+      expect(ctx.commands.registered.has("vid-skip")).toBe(true);
     });
 
     it("[REQ-008] should throw when not in a voice channel", async () => {
       registerSkipCommand(ctx as never, syncController);
       const invoker = makeInvoker({ currentVoiceChannelId: undefined });
       await expect(
-        ctx.commands.execute("skip", invoker, {})
+        ctx.commands.execute("vid-skip", invoker, {})
       ).rejects.toThrow("voice channel");
     });
 
@@ -167,7 +167,7 @@ describe("Commands", () => {
       syncController.setPlaying(channelId, false);
 
       const invoker = makeInvoker();
-      const result = await ctx.commands.execute("skip", invoker, {});
+      const result = await ctx.commands.execute("vid-skip", invoker, {});
 
       expect(String(result)).toContain("Skipped");
     });
@@ -178,21 +178,21 @@ describe("Commands", () => {
   describe("/remove", () => {
     it("[REQ-007] should register the remove command", () => {
       registerRemoveCommand(ctx as never, queueManager);
-      expect(ctx.commands.registered.has("remove")).toBe(true);
+      expect(ctx.commands.registered.has("vid-remove")).toBe(true);
     });
 
     it("[REQ-007] should throw when not in a voice channel", async () => {
       registerRemoveCommand(ctx as never, queueManager);
       const invoker = makeInvoker({ currentVoiceChannelId: undefined });
       await expect(
-        ctx.commands.execute("remove", invoker, { position: 1 })
+        ctx.commands.execute("vid-remove", invoker, { position: 1 })
       ).rejects.toThrow("voice channel");
     });
 
     it("[REQ-007] should return error for invalid position", async () => {
       registerRemoveCommand(ctx as never, queueManager);
       const invoker = makeInvoker();
-      const result = await ctx.commands.execute("remove", invoker, { position: 99 });
+      const result = await ctx.commands.execute("vid-remove", invoker, { position: 99 });
       expect(String(result)).toContain("Invalid");
     });
 
@@ -203,7 +203,7 @@ describe("Commands", () => {
       queueManager.add(channelId, makeItem({ title: "C" }));
 
       const invoker = makeInvoker();
-      const result = await ctx.commands.execute("remove", invoker, { position: 2 });
+      const result = await ctx.commands.execute("vid-remove", invoker, { position: 2 });
       expect(String(result)).toContain("B");
       expect(queueManager.getState(channelId).size).toBe(2);
     });
@@ -214,7 +214,7 @@ describe("Commands", () => {
   describe("/watch_stop", () => {
     it("[REQ-010] should register the watch_stop command", () => {
       registerStopCommand(ctx as never, syncController);
-      expect(ctx.commands.registered.has("watch_stop")).toBe(true);
+      expect(ctx.commands.registered.has("vid-stop")).toBe(true);
     });
 
     it("[REQ-010] should stop playback", async () => {
@@ -223,7 +223,7 @@ describe("Commands", () => {
       queueManager.add(channelId, makeItem());
 
       const invoker = makeInvoker();
-      await ctx.commands.execute("watch_stop", invoker, {});
+      await ctx.commands.execute("vid-stop", invoker, {});
 
       expect(syncController.isPlaying(channelId)).toBe(false);
     });
@@ -235,6 +235,7 @@ describe("Commands", () => {
         cleanup: (id: number) => {
           cleanedChannel = id;
         },
+        sweepOrphanedTempFiles: () => {},
       };
 
       registerStopCommand(ctx as never, syncController, streamManagerLike as never);
@@ -242,7 +243,7 @@ describe("Commands", () => {
       queueManager.add(channelId, makeItem());
 
       const invoker = makeInvoker();
-      const result = await ctx.commands.execute("watch_stop", invoker, {});
+      const result = await ctx.commands.execute("vid-stop", invoker, {});
 
       expect(String(result)).toContain("Playback stopped");
       expect(cleanedChannel).toBe(channelId);
@@ -254,13 +255,13 @@ describe("Commands", () => {
   describe("/nowplaying", () => {
     it("[REQ-011] should register the nowplaying command", () => {
       registerNowPlayingCommand(ctx as never, queueManager);
-      expect(ctx.commands.registered.has("nowplaying")).toBe(true);
+      expect(ctx.commands.registered.has("vid-nowplaying")).toBe(true);
     });
 
     it("[REQ-011] should show nothing playing when queue is empty", async () => {
       registerNowPlayingCommand(ctx as never, queueManager);
       const invoker = makeInvoker();
-      const result = await ctx.commands.execute("nowplaying", invoker, {});
+      const result = await ctx.commands.execute("vid-nowplaying", invoker, {});
       expect(String(result)).toContain("Nothing");
     });
 
@@ -269,7 +270,7 @@ describe("Commands", () => {
       queueManager.add(channelId, makeItem({ title: "Cool Video" }));
 
       const invoker = makeInvoker();
-      const result = await ctx.commands.execute("nowplaying", invoker, {});
+      const result = await ctx.commands.execute("vid-nowplaying", invoker, {});
       expect(String(result)).toContain("Cool Video");
     });
   });
@@ -279,7 +280,7 @@ describe("Commands", () => {
   describe("/pause", () => {
     it("[REQ-013] should register the pause command", () => {
       registerPauseCommand(ctx as never, syncController, streamControl);
-      expect(ctx.commands.registered.has("pause")).toBe(true);
+      expect(ctx.commands.registered.has("vid-pause")).toBe(true);
     });
 
     it("[REQ-013] should toggle pause state", async () => {
@@ -288,11 +289,11 @@ describe("Commands", () => {
 
       const invoker = makeInvoker();
 
-      await ctx.commands.execute("pause", invoker, {});
+      await ctx.commands.execute("vid-pause", invoker, {});
       expect(syncController.isPaused(channelId)).toBe(true);
       expect(pausedChannelId).toBe(channelId);
 
-      await ctx.commands.execute("pause", invoker, {});
+      await ctx.commands.execute("vid-pause", invoker, {});
       expect(syncController.isPaused(channelId)).toBe(false);
       expect(resumedChannelId).toBe(channelId);
     });
@@ -307,7 +308,7 @@ describe("Commands", () => {
       syncController.setPlaying(channelId, false);
 
       const invoker = makeInvoker();
-      const result = await ctx.commands.execute("pause", invoker, {});
+      const result = await ctx.commands.execute("vid-pause", invoker, {});
 
       expect(String(result)).toContain("Paused playback");
       expect(pausedChannelId).toBe(channelId);
@@ -320,7 +321,7 @@ describe("Commands", () => {
   describe("/resume", () => {
     it("[REQ-034] should register the resume command", () => {
       registerResumeCommand(ctx as never, syncController, streamControl);
-      expect(ctx.commands.registered.has("resume")).toBe(true);
+      expect(ctx.commands.registered.has("vid-resume")).toBe(true);
     });
 
     it("[REQ-034] should return helpful message when no video is paused", async () => {
@@ -329,7 +330,7 @@ describe("Commands", () => {
       syncController.setPaused(channelId, false);
 
       const invoker = makeInvoker();
-      const result = await ctx.commands.execute("resume", invoker, {});
+      const result = await ctx.commands.execute("vid-resume", invoker, {});
 
       expect(String(result)).toContain("No paused video");
     });
@@ -340,7 +341,7 @@ describe("Commands", () => {
       syncController.setPaused(channelId, true);
 
       const invoker = makeInvoker();
-      const result = await ctx.commands.execute("resume", invoker, {});
+      const result = await ctx.commands.execute("vid-resume", invoker, {});
 
       expect(String(result)).toContain("Resumed playback");
       expect(syncController.isPaused(channelId)).toBe(false);
@@ -353,14 +354,14 @@ describe("Commands", () => {
   describe("/volume", () => {
     it("[REQ-012] should register the volume command", () => {
       registerVolumeCommand(ctx as never, syncController);
-      expect(ctx.commands.registered.has("volume")).toBe(true);
+      expect(ctx.commands.registered.has("vid-volume")).toBe(true);
     });
 
     it("[REQ-012] should set volume", async () => {
       registerVolumeCommand(ctx as never, syncController);
       const invoker = makeInvoker();
 
-      await ctx.commands.execute("volume", invoker, { level: 75 });
+      await ctx.commands.execute("vid-volume", invoker, { level: 75 });
       expect(syncController.getVolume(channelId)).toBe(75);
     });
 
@@ -369,11 +370,11 @@ describe("Commands", () => {
       const invoker = makeInvoker();
 
       await expect(
-        ctx.commands.execute("volume", invoker, { level: 150 })
+        ctx.commands.execute("vid-volume", invoker, { level: 150 })
       ).rejects.toThrow();
 
       await expect(
-        ctx.commands.execute("volume", invoker, { level: -10 })
+        ctx.commands.execute("vid-volume", invoker, { level: -10 })
       ).rejects.toThrow();
     });
   });
@@ -383,7 +384,7 @@ describe("Commands", () => {
   describe("/debug_cache", () => {
     it("[REQ-033] should register the debug_cache command", () => {
       registerDebugCacheCommand(ctx as never);
-      expect(ctx.commands.registered.has("debug_cache")).toBe(true);
+      expect(ctx.commands.registered.has("vid-debug-cache")).toBe(true);
     });
 
     it("[REQ-033] should reject when debug mode is disabled", async () => {
@@ -391,7 +392,7 @@ describe("Commands", () => {
       const invoker = makeInvoker();
 
       await expect(
-        ctx.commands.execute("debug_cache", invoker, {})
+        ctx.commands.execute("vid-debug-cache", invoker, {})
       ).rejects.toThrow("Debug Output is disabled");
     });
   });
