@@ -16,7 +16,7 @@ type PluginContextLike = {
       name: string;
       description?: string;
       args?: { name: string; description?: string; type: string; required?: boolean }[];
-      executes: (invoker: { userId: number; currentVoiceChannelId?: number }, args: TArgs) => Promise<unknown>;
+      execute: (invoker: { userId: number; currentVoiceChannelId?: number }, args: TArgs) => Promise<unknown>;
     }) => void;
   };
   log: (...args: unknown[]) => void;
@@ -40,7 +40,7 @@ export const registerPlayCommand = (
         required: true,
       },
     ],
-    executes: async (invoker, args) => {
+    execute: async (invoker, args) => {
       const channelId = invoker.currentVoiceChannelId;
       if (!channelId) {
         throw new Error("You must be in a voice channel to watch videos.");
@@ -119,3 +119,4 @@ export const registerPlayCommand = (
     },
   });
 };
+

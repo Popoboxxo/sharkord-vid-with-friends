@@ -258,6 +258,19 @@ Das Repository MUSS vollständig auf Sharkord `v0.0.16` und die überarbeitete S
 
 ---
 
+## REQ-052 — Voice-Action API-Kompatibilität für Sharkord 0.0.16
+
+**Priorität:** Must
+**Status:** Implementiert
+
+Beim Start eines Streams MUSS das Plugin die Voice-Actions robust gegen unterschiedliche Runtime-Formen auflösen, damit `vid-watch` nicht an API-Shape-Unterschieden scheitert.
+
+- REQ-052-A: Das Plugin MUSS Voice-Actions sowohl aus `ctx.actions.voice.*` als auch aus flachen `ctx.actions.*` Signaturen auflösen können.
+- REQ-052-B: Zusätzlich sollen kompatible Alias-Namen unterstützt werden (`getVoiceRouter`/`getMediasoupRouter`, `getWebRtcListenInfo`/`getRtpListenInfo`, `addExternalStream`).
+- REQ-052-C: Bei fehlender Voice-API MUSS eine präzise Fehlermeldung mit verfügbaren Action-Keys erzeugt werden, um Runtime-Diagnose zu erleichtern.
+
+---
+
 ## Traceability
 
 Jeder Test MUSS mit dem Format `[REQ-xxx]` auf eine oder mehrere Anforderungen

@@ -23,7 +23,7 @@ type PluginContextLike = {
       name: string;
       description?: string;
       args?: { name: string; description?: string; type: string; required?: boolean }[];
-      executes: (invoker: { userId: number; currentVoiceChannelId?: number }, args: TArgs) => Promise<unknown>;
+      execute: (invoker: { userId: number; currentVoiceChannelId?: number }, args: TArgs) => Promise<unknown>;
     }) => void;
   };
   log: (...args: unknown[]) => void;
@@ -178,7 +178,7 @@ export const registerBugReportCommand = (ctx: PluginContextLike): void => {
         required: true,
       },
     ],
-    executes: async (_invoker, args) => {
+    execute: async (_invoker, args) => {
       const description = args.description?.trim();
       if (!description) {
         throw new Error("Please describe the problem: /vid-bugreport <description>");
@@ -232,3 +232,4 @@ export const registerBugReportCommand = (ctx: PluginContextLike): void => {
     },
   });
 };
+

@@ -12,7 +12,7 @@ type PluginContextLike = {
       name: string;
       description?: string;
       args?: { name: string; description?: string; type: string; required?: boolean }[];
-      executes: (invoker: { userId: number; currentVoiceChannelId?: number }, args: TArgs) => Promise<unknown>;
+      execute: (invoker: { userId: number; currentVoiceChannelId?: number }, args: TArgs) => Promise<unknown>;
     }) => void;
   };
 };
@@ -25,7 +25,7 @@ export const registerStopCommand = (
   ctx.commands.register({
     name: "vid-stop",
     description: "Stop the current video and clear the queue",
-    executes: async (invoker) => {
+    execute: async (invoker) => {
       const channelId = invoker.currentVoiceChannelId;
       if (!channelId) {
         throw new Error("You must be in a voice channel to stop playback.");
@@ -50,3 +50,4 @@ export const registerStopCommand = (
     },
   });
 };
+

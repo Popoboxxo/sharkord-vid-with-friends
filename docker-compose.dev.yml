@@ -56,6 +56,9 @@ services:
     environment:
       - SHARKORD_PORT=3000
       - SHARKORD_DEBUG=true
+      - SHARKORD_DATA_PATH=/home/bun/.config/sharkord
+      - YT_DLP_PATH=/home/bun/.config/sharkord/plugins/sharkord-vid-with-friends/bin/yt-dlp
+      - FFMPEG_PATH=/home/bun/.config/sharkord/plugins/sharkord-vid-with-friends/bin/ffmpeg
       # Announced address for WebRTC (use your LAN IP if clients connect from other machines)
       - SHARKORD_WEBRTC_ANNOUNCED_ADDRESS=192.168.192.1
     volumes:

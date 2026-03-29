@@ -15,7 +15,7 @@ type PluginContextLike = {
       name: string;
       description?: string;
       args?: { name: string; description?: string; type: string; required?: boolean }[];
-      executes: (invoker: { userId: number; currentVoiceChannelId?: number }, args: TArgs) => Promise<unknown>;
+      execute: (invoker: { userId: number; currentVoiceChannelId?: number }, args: TArgs) => Promise<unknown>;
     }) => void;
   };
   log: (...args: unknown[]) => void;
@@ -31,7 +31,7 @@ export const registerDebugCacheCommand = (ctx: PluginContextLike): void => {
     name: "vid-debug-cache",
     description: "List debug cache files (video/audio) for inspection",
     args: [],
-    executes: async (_invoker, _args) => {
+    execute: async (_invoker, _args) => {
       const debugEnabled = ctx.settings?.get?.<boolean>("debugMode") ?? false;
       if (!debugEnabled) {
         throw new Error("Debug Output is disabled. Enable debugMode in plugin settings before using /vid-debug-cache.");
@@ -93,3 +93,4 @@ export const registerDebugCacheCommand = (ctx: PluginContextLike): void => {
     },
   });
 };
+

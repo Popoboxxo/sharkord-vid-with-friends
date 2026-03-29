@@ -47,6 +47,20 @@ export const getYtDlpBinaryName = (): string =>
 const getYtDlpFallbackBinaryName = (): string =>
   process.platform === "win32" ? "yt-dlp" : "yt-dlp.exe";
 
+const getPluginBinCandidates = (): string[] => {
+  const homeDir = process.env["HOME"] ?? process.env["USERPROFILE"] ?? "";
+  const sharkordDataPath = process.env["SHARKORD_DATA_PATH"]
+    ?? (homeDir ? path.join(homeDir, ".config", "sharkord") : "");
+
+  const candidates = [
+    path.join(__dirname, "bin"),
+    sharkordDataPath ? path.join(sharkordDataPath, "plugins", "sharkord-vid-with-friends", "bin") : "",
+    "/home/bun/.config/sharkord/plugins/sharkord-vid-with-friends/bin",
+  ];
+
+  return candidates.filter((value) => value.length > 0);
+};
+
 /** Get the full path to the yt-dlp binary in the plugin's bin/ directory. */
 export const getYtDlpPath = (): string => {
   const envOverride = process.env["YT_DLP_PATH"];
@@ -54,14 +68,16 @@ export const getYtDlpPath = (): string => {
     return envOverride.trim();
   }
 
-  const preferred = path.join(__dirname, "bin", getYtDlpBinaryName());
-  if (existsSync(preferred)) {
-    return preferred;
-  }
+  for (const binDir of getPluginBinCandidates()) {
+    const preferred = path.join(binDir, getYtDlpBinaryName());
+    if (existsSync(preferred)) {
+      return preferred;
+    }
 
-  const fallback = path.join(__dirname, "bin", getYtDlpFallbackBinaryName());
-  if (existsSync(fallback)) {
-    return fallback;
+    const fallback = path.join(binDir, getYtDlpFallbackBinaryName());
+    if (existsSync(fallback)) {
+      return fallback;
+    }
   }
 
   const fromPath = Bun.which(getYtDlpBinaryName()) ?? Bun.which(getYtDlpFallbackBinaryName());
@@ -248,7 +264,7 @@ export const resolveVideo = async (
   loggers: YtDlpLoggers
 ): Promise<ResolvedVideo> => {
   const ytDlpPath = getYtDlpPath();
-  const binDir = path.join(__dirname, "bin");
+  const binDir = path.dirname(ytDlpPath);
   const cookiesPath = path.join(binDir, "cookies.txt");
   const cookies = (await cookiesExist(cookiesPath)) ? cookiesPath : undefined;
 
@@ -256,6 +272,7 @@ export const resolveVideo = async (
   const ffmpegLocation = binDir;
 
   // REQ-027-A: Phase RESOLVING
+  loggers.debug("[yt-dlp] Using binary:", ytDlpPath);
   loggers.log("[Phase] RESOLVING — yt-dlp --dump-json started for:", sourceUrl.substring(0, 80));
 
   // Use JSON mode for full metadata

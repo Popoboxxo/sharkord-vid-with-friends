@@ -1,9 +1,41 @@
-import { mkdirSync, readFileSync, writeFileSync } from "fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
 
 type PackageJson = {
+  name?: string;
+  description?: string;
   version?: string;
+  sharkord?: {
+    entry?: {
+      server?: string;
+      client?: string;
+    };
+    author?: string;
+    homepage?: string;
+    description?: string;
+    logo?: string;
+  };
   [key: string]: unknown;
+};
+
+type SharkordManifest = {
+  id: string;
+  name: string;
+  version: string;
+  sdkVersion: number;
+  description: string;
+  author: string;
+  homepage: string;
+  logo?: string;
+  main: string;
+  server: string;
+  client: string;
+  serverEntry: string;
+  clientEntry: string;
+  entry: {
+    server: string;
+    client: string;
+  };
 };
 
 const pad2 = (value: number): string => value.toString().padStart(2, "0");
@@ -57,8 +89,62 @@ export const writeDistPackageWithTimestampVersion = (workspaceRoot: string): { v
     sharkordVersionTrace: traceVersionLabel,
   };
 
+  const manifest: SharkordManifest = {
+    id: typeof parsed.name === "string" && parsed.name.trim().length > 0
+      ? parsed.name.trim()
+      : "sharkord-vid-with-friends",
+    name: typeof parsed.name === "string" && parsed.name.trim().length > 0
+      ? parsed.name.trim()
+      : "sharkord-vid-with-friends",
+    version: versionWithTimestamp,
+    sdkVersion: 1,
+    description:
+      (typeof parsed.sharkord?.description === "string" && parsed.sharkord.description.trim().length > 0
+        ? parsed.sharkord.description.trim()
+        : (typeof parsed.description === "string" ? parsed.description.trim() : "")) ||
+      "Sharkord plugin",
+    author: typeof parsed.sharkord?.author === "string" && parsed.sharkord.author.trim().length > 0
+      ? parsed.sharkord.author.trim()
+      : "Unknown",
+    homepage: typeof parsed.sharkord?.homepage === "string" && parsed.sharkord.homepage.trim().length > 0
+      ? parsed.sharkord.homepage.trim()
+      : "",
+    logo: typeof parsed.sharkord?.logo === "string" && parsed.sharkord.logo.trim().length > 0
+      ? parsed.sharkord.logo.trim()
+      : undefined,
+    main: "index.js",
+    server: "server.js",
+    client: "client.js",
+    serverEntry: "server.js",
+    clientEntry: "client.js",
+    entry: {
+      server: "server.js",
+      client: "client.js",
+    },
+  };
+
+  const manifestPath = path.join(outDir, "manifest.json");
+  const bundledIndexPath = path.join(outDir, "index.js");
+  const serverEntryPath = path.join(outDir, "server.js");
+  const clientEntryPath = path.join(outDir, "client.js");
+  const serverDir = path.join(outDir, "server");
+  const clientDir = path.join(outDir, "client");
+  const serverIndexPath = path.join(serverDir, "index.js");
+  const clientIndexPath = path.join(clientDir, "index.js");
+
   mkdirSync(outDir, { recursive: true });
   writeFileSync(outputPath, `${JSON.stringify(output, null, 2)}\n`, "utf8");
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+  // Compatibility aliases for different Sharkord loader conventions.
+  if (existsSync(bundledIndexPath)) {
+    mkdirSync(serverDir, { recursive: true });
+    mkdirSync(clientDir, { recursive: true });
+    copyFileSync(bundledIndexPath, serverEntryPath);
+    copyFileSync(bundledIndexPath, clientEntryPath);
+    copyFileSync(bundledIndexPath, serverIndexPath);
+    copyFileSync(bundledIndexPath, clientIndexPath);
+  }
 
   return { version: versionWithTimestamp, outputPath };
 };

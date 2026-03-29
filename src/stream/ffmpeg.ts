@@ -110,6 +110,20 @@ export const getFfmpegBinaryName = (): string =>
 const getFfmpegFallbackBinaryName = (): string =>
   process.platform === "win32" ? "ffmpeg" : "ffmpeg.exe";
 
+const getPluginBinCandidates = (): string[] => {
+  const homeDir = process.env["HOME"] ?? process.env["USERPROFILE"] ?? "";
+  const sharkordDataPath = process.env["SHARKORD_DATA_PATH"]
+    ?? (homeDir ? path.join(homeDir, ".config", "sharkord") : "");
+
+  const candidates = [
+    path.join(__dirname, "bin"),
+    sharkordDataPath ? path.join(sharkordDataPath, "plugins", "sharkord-vid-with-friends", "bin") : "",
+    "/home/bun/.config/sharkord/plugins/sharkord-vid-with-friends/bin",
+  ];
+
+  return candidates.filter((value) => value.length > 0);
+};
+
 /** Get the full path to the ffmpeg binary in the plugin's bin/ directory. */
 export const getFfmpegPath = (): string => {
   const envOverride = process.env["FFMPEG_PATH"];
@@ -117,14 +131,16 @@ export const getFfmpegPath = (): string => {
     return envOverride.trim();
   }
 
-  const preferred = path.join(__dirname, "bin", getFfmpegBinaryName());
-  if (existsSync(preferred)) {
-    return preferred;
-  }
+  for (const binDir of getPluginBinCandidates()) {
+    const preferred = path.join(binDir, getFfmpegBinaryName());
+    if (existsSync(preferred)) {
+      return preferred;
+    }
 
-  const fallback = path.join(__dirname, "bin", getFfmpegFallbackBinaryName());
-  if (existsSync(fallback)) {
-    return fallback;
+    const fallback = path.join(binDir, getFfmpegFallbackBinaryName());
+    if (existsSync(fallback)) {
+      return fallback;
+    }
   }
 
   const fromPath = Bun.which(getFfmpegBinaryName()) ?? Bun.which(getFfmpegFallbackBinaryName());

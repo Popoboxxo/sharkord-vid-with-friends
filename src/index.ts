@@ -95,7 +95,8 @@ type PluginContext = {
       name: string;
       description?: string;
       args?: { name: string; description?: string; type: string; required?: boolean }[];
-      executes: (invoker: { userId: number; currentVoiceChannelId?: number }, args: TArgs) => Promise<unknown>;
+      execute: (invoker: { userId: number; currentVoiceChannelId?: number }, args: TArgs) => Promise<unknown>;
+      executes?: (invoker: { userId: number; currentVoiceChannelId?: number }, args: TArgs) => Promise<unknown>;
     }) => void;
   };
   events: {
@@ -107,7 +108,7 @@ type PluginContext = {
     get: <T = unknown>(key: string) => T | undefined;
   };
   actions: {
-    voice: {
+    voice?: {
       getRouter: (channelId: number) => unknown;
       getListenInfo: () => Promise<{ ip: string; announcedAddress?: string }>;
       createStream: (options: {
@@ -118,10 +119,101 @@ type PluginContext = {
         producers: { audio: unknown; video: unknown };
       }) => StreamHandleLike;
     };
+    getRouter?: (channelId: number) => unknown;
+    getListenInfo?: () => Promise<{ ip: string; announcedAddress?: string }>;
+    createStream?: (options: {
+      channelId: number;
+      key: string;
+      title: string;
+      avatarUrl?: string;
+      producers: { audio: unknown; video: unknown };
+    }) => StreamHandleLike;
   };
   ui: {
     registerComponents: (components: unknown) => void;
   };
+};
+
+type VoiceActions = {
+  getRouter: (channelId: number) => unknown;
+  getListenInfo: () => Promise<{ ip: string; announcedAddress?: string }>;
+  createStream: (options: {
+    channelId: number;
+    key: string;
+    title: string;
+    avatarUrl?: string;
+    producers: { audio: unknown; video: unknown };
+  }) => StreamHandleLike;
+};
+
+const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const getFunction = <T extends (...args: never[]) => unknown>(
+  source: Record<string, unknown>,
+  names: string[]
+): T | null => {
+  for (const name of names) {
+    const value = source[name];
+    if (typeof value === "function") {
+      return value as T;
+    }
+  }
+  return null;
+};
+
+const resolveVoiceActions = (ctx: PluginContext): VoiceActions => {
+  // REQ-052: Sharkord 0.0.16 runtime compatibility for voice action API shape
+  const candidates: Record<string, unknown>[] = [];
+
+  if (isObjectRecord(ctx.actions) && isObjectRecord(ctx.actions.voice)) {
+    candidates.push(ctx.actions.voice);
+  }
+
+  if (isObjectRecord(ctx.actions)) {
+    candidates.push(ctx.actions);
+  }
+
+  const rawCtx = ctx as unknown as Record<string, unknown>;
+  if (isObjectRecord(rawCtx["voice"])) {
+    candidates.push(rawCtx["voice"] as Record<string, unknown>);
+  }
+
+  for (const candidate of candidates) {
+    const getRouter = getFunction<(channelId: number) => unknown>(candidate, [
+      "getRouter",
+      "getVoiceRouter",
+      "getMediasoupRouter",
+    ]);
+    const getListenInfo = getFunction<() => Promise<{ ip: string; announcedAddress?: string }>>(candidate, [
+      "getListenInfo",
+      "getWebRtcListenInfo",
+      "getRtpListenInfo",
+    ]);
+    const createStream = getFunction<(options: {
+      channelId: number;
+      key: string;
+      title: string;
+      avatarUrl?: string;
+      producers: { audio: unknown; video: unknown };
+    }) => StreamHandleLike>(candidate, [
+      "createStream",
+      "addExternalStream",
+    ]);
+
+    if (getRouter && getListenInfo && createStream) {
+      return { getRouter, getListenInfo, createStream };
+    }
+  }
+
+  const actionKeys = isObjectRecord(ctx.actions) ? Object.keys(ctx.actions).join(", ") : "none";
+  const voiceKeys = isObjectRecord(ctx.actions) && isObjectRecord(ctx.actions.voice)
+    ? Object.keys(ctx.actions.voice).join(", ")
+    : "none";
+
+  throw new Error(
+    `Voice actions unavailable: expected getRouter/getListenInfo/createStream. actions=[${actionKeys}] actions.voice=[${voiceKeys}]`
+  );
 };
 
 type SyncMode = "server" | "client";
@@ -396,8 +488,9 @@ const startStream = async (
     streamManager.cleanup(channelId);
 
     // 2. Get Mediasoup router and listen info
-    const router = ctx.actions.voice.getRouter(channelId) as unknown;
-    const { ip, announcedAddress } = await ctx.actions.voice.getListenInfo();
+    const voiceActions = resolveVoiceActions(ctx);
+    const router = voiceActions.getRouter(channelId) as unknown;
+    const { ip, announcedAddress } = await voiceActions.getListenInfo();
     // RTP target is always local (ffmpeg runs in same container as Mediasoup)
     const rtpTargetHost = ip === "0.0.0.0" ? "127.0.0.1" : ip;
 
@@ -707,7 +800,7 @@ const startStream = async (
     const preparationTitle = `⏳ Wird vorbereitet… — ${item.title}`;
 
     // 7. Register stream with Sharkord using real Mediasoup producers
-    const streamHandle = ctx.actions.voice.createStream({
+    const streamHandle = voiceActions.createStream({
       channelId,
       key: STREAM_KEY,
       title: preparationTitle,
@@ -1202,17 +1295,72 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
   }
 
   // 4. Register all commands (REQ-001, REQ-004-013)
-  registerPlayCommand(ctx as never, queueManager, syncController);
-  registerQueueCommand(ctx as never, queueManager);
-  registerSkipCommand(ctx as never, syncController, streamManager);
-  registerRemoveCommand(ctx as never, queueManager);
-  registerStopCommand(ctx as never, syncController, streamManager);
-  registerNowPlayingCommand(ctx as never, queueManager);
-  registerPauseCommand(ctx as never, syncController, streamManager);
-  registerResumeCommand(ctx as never, syncController, streamManager);
-  registerVolumeCommand(ctx as never, syncController);
-  registerDebugCacheCommand(ctx as never);
-  registerBugReportCommand(ctx as never);
+  type CommandArgDef = { name: string; description?: string; type: string; required?: boolean };
+  type CommandInvoker = { userId: number; currentVoiceChannelId?: number };
+  type CommandDefCompat<TArgs = void> = {
+    name: string;
+    description?: string;
+    args?: CommandArgDef[];
+    execute?: (invoker: CommandInvoker, args: TArgs) => Promise<unknown>;
+    executes?: (invoker: CommandInvoker, args: TArgs) => Promise<unknown>;
+  };
+
+  const commandCompatCtx = {
+    ...ctx,
+    commands: {
+      ...ctx.commands,
+      register: <TArgs = void>(command: CommandDefCompat<TArgs>): void => {
+        const rawHandler = typeof command.execute === "function"
+          ? command.execute
+          : command.executes;
+
+        if (typeof rawHandler !== "function") {
+          throw new Error(`Command '${command.name}' has no execute handler`);
+        }
+
+        const execute = async (invoker: CommandInvoker, args: TArgs): Promise<string> => {
+          try {
+            const result = await rawHandler(invoker, args);
+            if (result && typeof result === "object") {
+              const maybeResponse = (result as { response?: unknown }).response;
+              if (typeof maybeResponse === "string") {
+                return maybeResponse;
+              }
+            }
+            if (typeof result === "string") {
+              return result;
+            }
+            if (result === undefined || result === null) {
+              return "";
+            }
+            return String(result);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return message;
+          }
+        };
+
+        ctx.commands.register({
+          name: command.name,
+          description: command.description,
+          args: command.args,
+          execute,
+        });
+      },
+    },
+  };
+
+  registerPlayCommand(commandCompatCtx as never, queueManager, syncController);
+  registerQueueCommand(commandCompatCtx as never, queueManager);
+  registerSkipCommand(commandCompatCtx as never, syncController, streamManager);
+  registerRemoveCommand(commandCompatCtx as never, queueManager);
+  registerStopCommand(commandCompatCtx as never, syncController, streamManager);
+  registerNowPlayingCommand(commandCompatCtx as never, queueManager);
+  registerPauseCommand(commandCompatCtx as never, syncController, streamManager);
+  registerResumeCommand(commandCompatCtx as never, syncController, streamManager);
+  registerVolumeCommand(commandCompatCtx as never, syncController);
+  registerDebugCacheCommand(commandCompatCtx as never);
+  registerBugReportCommand(commandCompatCtx as never);
 
   // 4b. Register UI components explicitly when runtime API is available (REQ-017)
   // Some Sharkord runtimes expose only static component export wiring.

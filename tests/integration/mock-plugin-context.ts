@@ -26,7 +26,8 @@ export interface CommandDefinition<TArgs = void> {
   name: string;
   description?: string;
   args?: TCommandArg[];
-  executes(ctx: TInvokerContext, args: TArgs): Promise<unknown>;
+  execute?(ctx: TInvokerContext, args: TArgs): Promise<unknown>;
+  executes?(ctx: TInvokerContext, args: TArgs): Promise<unknown>;
 }
 
 export type TPluginSettingDefinition = {
@@ -338,7 +339,13 @@ export const createMockPluginContext = (): MockPluginContext => {
       async execute(name: string, invoker: TInvokerContext, args: unknown) {
         const cmd = registeredCommands.get(name);
         if (!cmd) throw new Error(`Command '${name}' not registered`);
-        return cmd.executes(invoker, args);
+        if (typeof cmd.execute === "function") {
+          return cmd.execute(invoker, args);
+        }
+        if (typeof cmd.executes === "function") {
+          return cmd.executes(invoker, args);
+        }
+        throw new Error(`Command '${name}' has no execute handler`);
       },
     },
 

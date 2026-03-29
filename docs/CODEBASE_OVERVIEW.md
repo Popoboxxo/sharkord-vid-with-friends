@@ -56,7 +56,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 - `startStream(ctx, channelId, item): Promise<void>`
   - Haupt-Orchestrierung:
     1. `streamManager.cleanup(channelId)`
-    2. `ctx.actions.voice.getRouter(channelId)` + `getListenInfo()`
+    2. `resolveVoiceActions(...)` bestimmt kompatible Voice-API (z. B. `ctx.actions.voice.*` oder `ctx.actions.*`) und ruft `getRouter(...)` + `getListenInfo()` auf
     3. `createPlainTransport(...)` für Audio+Video
     4. `transport.produce(...)` für Audio (Opus/PT111) + Video (H264/PT96)
     5. Settings lesen (`videoBitrate`, `audioBitrate`, `fullDownloadMode`) + Volume aus `syncController` (0..100)
