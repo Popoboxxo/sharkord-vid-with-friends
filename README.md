@@ -8,6 +8,21 @@
 A Sharkord plugin for watching YouTube videos together in voice channels.
 Server-side streaming via **yt-dlp → ffmpeg → Mediasoup RTP** guarantees frame-accurate synchronization for all participants.
 
+> [!WARNING]
+> ## VibeCoding Experiment — Read Before Using
+> This repository is intentionally run as a **VibeCoding experiment**.
+> The primary goal is to demonstrate both the **benefits** and **risks** of LLM-driven development on a real but minimal project around Sharkord.
+>
+> ### Ground rules of this repo
+> - **Source code interventions should happen only in absolute emergencies.**
+> - The preferred workflow is to explore how far we can get with LLM providers, agent orchestration, and prompt-driven iteration.
+> - This project is a **sandbox/playground** for experimenting with different AI coding styles, tooling, and operational patterns.
+> - "Production hardening" is not the primary objective; learning effects and transparent trade-offs are.
+> - And yes: it is also just a fun way to spend an evening with the Dudes on Sharkord, trying out weird and funny plugin ideas. :)
+>
+> In short: this is a practical lab setup around Sharkord to evaluate VibeCoding methods, compare approaches, and optionally extend a cool project while making limitations visible.
+
+
 ## Known Issues & Limitations (Alpha)
 
 - **Audio/video sync** can drift during long playback sessions
