@@ -83,15 +83,15 @@ describe("Integration: Queue + SyncController + Commands", () => {
 
   it("[REQ-015] should register all 9 commands", () => {
     expect(ctx.commands.registered.size).toBe(9);
-    expect(ctx.commands.registered.has("watch")).toBe(true);
-    expect(ctx.commands.registered.has("queue")).toBe(true);
-    expect(ctx.commands.registered.has("skip")).toBe(true);
-    expect(ctx.commands.registered.has("remove")).toBe(true);
-    expect(ctx.commands.registered.has("watch_stop")).toBe(true);
-    expect(ctx.commands.registered.has("nowplaying")).toBe(true);
-    expect(ctx.commands.registered.has("pause")).toBe(true);
-    expect(ctx.commands.registered.has("resume")).toBe(true);
-    expect(ctx.commands.registered.has("volume")).toBe(true);
+    expect(ctx.commands.registered.has("vid-watch")).toBe(true);
+    expect(ctx.commands.registered.has("vid-queue")).toBe(true);
+    expect(ctx.commands.registered.has("vid-skip")).toBe(true);
+    expect(ctx.commands.registered.has("vid-remove")).toBe(true);
+    expect(ctx.commands.registered.has("vid-stop")).toBe(true);
+    expect(ctx.commands.registered.has("vid-nowplaying")).toBe(true);
+    expect(ctx.commands.registered.has("vid-pause")).toBe(true);
+    expect(ctx.commands.registered.has("vid-resume")).toBe(true);
+    expect(ctx.commands.registered.has("vid-volume")).toBe(true);
   });
 
   // ---- REQ-004 + REQ-006: Queue flow ----
@@ -106,7 +106,7 @@ describe("Integration: Queue + SyncController + Commands", () => {
     queueManager.add(CHANNEL_ID, fakeItem("Video C", 2));
 
     // Check queue via command
-    const result = await ctx.commands.execute("queue", invoker, {});
+    const result = await ctx.commands.execute("vid-queue", invoker, {});
     expect(result).toContain("Video A");
     expect(result).toContain("Video B");
     expect(result).toContain("Video C");
@@ -123,7 +123,7 @@ describe("Integration: Queue + SyncController + Commands", () => {
     syncController.setPlaying(CHANNEL_ID, true);
 
     // Skip
-    await ctx.commands.execute("skip", invoker, {});
+    await ctx.commands.execute("vid-skip", invoker, {});
 
     // SyncController should have called startStream with the second video
     expect(startedStreams.length).toBe(1);
@@ -137,7 +137,7 @@ describe("Integration: Queue + SyncController + Commands", () => {
     queueManager.add(CHANNEL_ID, fakeItem("Only Video", 0));
     syncController.setPlaying(CHANNEL_ID, true);
 
-    await ctx.commands.execute("skip", invoker, {});
+    await ctx.commands.execute("vid-skip", invoker, {});
 
     expect(syncController.isPlaying(CHANNEL_ID)).toBe(false);
     expect(startedStreams.length).toBe(0);
@@ -188,7 +188,7 @@ describe("Integration: Queue + SyncController + Commands", () => {
     queueManager.add(CHANNEL_ID, fakeItem("Video B", 1));
     syncController.setPlaying(CHANNEL_ID, true);
 
-    await ctx.commands.execute("watch_stop", invoker, {});
+    await ctx.commands.execute("vid-stop", invoker, {});
 
     expect(syncController.isPlaying(CHANNEL_ID)).toBe(false);
     expect(queueManager.getState(CHANNEL_ID).size).toBe(0);
@@ -205,7 +205,7 @@ describe("Integration: Queue + SyncController + Commands", () => {
     syncController.setPlaying(CHANNEL_ID, true);
 
     // Remove position 2 (0-indexed: Video B, the first upcoming)
-    await ctx.commands.execute("remove", invoker, { position: 2 });
+    await ctx.commands.execute("vid-remove", invoker, { position: 2 });
 
     const state = queueManager.getState(CHANNEL_ID);
     expect(state.size).toBe(2);
@@ -221,10 +221,10 @@ describe("Integration: Queue + SyncController + Commands", () => {
     syncController.setPlaying(CHANNEL_ID, true);
     expect(syncController.isPaused(CHANNEL_ID)).toBe(false);
 
-    await ctx.commands.execute("pause", invoker, {});
+    await ctx.commands.execute("vid-pause", invoker, {});
     expect(syncController.isPaused(CHANNEL_ID)).toBe(true);
 
-    await ctx.commands.execute("pause", invoker, {});
+    await ctx.commands.execute("vid-pause", invoker, {});
     expect(syncController.isPaused(CHANNEL_ID)).toBe(false);
   });
 
@@ -233,10 +233,10 @@ describe("Integration: Queue + SyncController + Commands", () => {
   it("[REQ-012] should set volume via /volume", async () => {
     const invoker = makeInvoker();
 
-    await ctx.commands.execute("volume", invoker, { level: 75 });
+    await ctx.commands.execute("vid-volume", invoker, { level: 75 });
     expect(syncController.getVolume(CHANNEL_ID)).toBe(75);
 
-    await ctx.commands.execute("volume", invoker, { level: 0 });
+    await ctx.commands.execute("vid-volume", invoker, { level: 0 });
     expect(syncController.getVolume(CHANNEL_ID)).toBe(0);
   });
 

@@ -107,9 +107,33 @@ type TempExtension = "mp4" | "m4a" | "webm" | "ts";
 export const getFfmpegBinaryName = (): string =>
   process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
 
+const getFfmpegFallbackBinaryName = (): string =>
+  process.platform === "win32" ? "ffmpeg" : "ffmpeg.exe";
+
 /** Get the full path to the ffmpeg binary in the plugin's bin/ directory. */
-export const getFfmpegPath = (): string =>
-  path.join(__dirname, "bin", getFfmpegBinaryName());
+export const getFfmpegPath = (): string => {
+  const envOverride = process.env["FFMPEG_PATH"];
+  if (typeof envOverride === "string" && envOverride.trim().length > 0) {
+    return envOverride.trim();
+  }
+
+  const preferred = path.join(__dirname, "bin", getFfmpegBinaryName());
+  if (existsSync(preferred)) {
+    return preferred;
+  }
+
+  const fallback = path.join(__dirname, "bin", getFfmpegFallbackBinaryName());
+  if (existsSync(fallback)) {
+    return fallback;
+  }
+
+  const fromPath = Bun.which(getFfmpegBinaryName()) ?? Bun.which(getFfmpegFallbackBinaryName());
+  if (fromPath) {
+    return fromPath;
+  }
+
+  return getFfmpegBinaryName();
+};
 
 /**
  * Normalize a user-provided volume (0-100) to a 0-1 float. (REQ-012)

@@ -9,6 +9,7 @@
 import path from "path";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
+import { existsSync } from "fs";
 import type { ResolvedVideo } from "../queue/types";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -43,9 +44,33 @@ export const isYouTubeUrl = (url: string): boolean =>
 export const getYtDlpBinaryName = (): string =>
   process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
 
+const getYtDlpFallbackBinaryName = (): string =>
+  process.platform === "win32" ? "yt-dlp" : "yt-dlp.exe";
+
 /** Get the full path to the yt-dlp binary in the plugin's bin/ directory. */
-export const getYtDlpPath = (): string =>
-  path.join(__dirname, "bin", getYtDlpBinaryName());
+export const getYtDlpPath = (): string => {
+  const envOverride = process.env["YT_DLP_PATH"];
+  if (typeof envOverride === "string" && envOverride.trim().length > 0) {
+    return envOverride.trim();
+  }
+
+  const preferred = path.join(__dirname, "bin", getYtDlpBinaryName());
+  if (existsSync(preferred)) {
+    return preferred;
+  }
+
+  const fallback = path.join(__dirname, "bin", getYtDlpFallbackBinaryName());
+  if (existsSync(fallback)) {
+    return fallback;
+  }
+
+  const fromPath = Bun.which(getYtDlpBinaryName()) ?? Bun.which(getYtDlpFallbackBinaryName());
+  if (fromPath) {
+    return fromPath;
+  }
+
+  return getYtDlpBinaryName();
+};
 
 /** Build yt-dlp command arguments for different modes. (REQ-001) */
 export const buildYtDlpArgs = (options: YtDlpBuildOptions): string[] => {

@@ -24,9 +24,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEST_URL = "https://youtu.be/HrNzO3V7Ob0";
 const CACHE_DIR = "/tmp/pipeline-e2e-test";
 
-// Paths provided by the Docker environment (injected via docker-compose)
-const FFMPEG_PATH = process.env.FFMPEG_PATH ?? "ffmpeg";
-const YT_DLP_PATH = process.env.YT_DLP_PATH ?? "yt-dlp";
+// Paths provided by Docker environment (tests/docker/docker-compose.yml).
+// Outside Docker we intentionally do not force execution of this suite.
+const FFMPEG_PATH = process.env.FFMPEG_PATH;
+const YT_DLP_PATH = process.env.YT_DLP_PATH;
 
 // Bin directory expected by spawnFfmpeg / resolveVideo (derived from src/stream/ffmpeg.ts)
 const SRC_BIN_DIR = path.resolve(__dirname, "../../src/stream/bin");
@@ -41,6 +42,10 @@ const SRC_BIN_DIR = path.resolve(__dirname, "../../src/stream/bin");
  * the src/stream/bin/ subdirectory.
  */
 const ensureBinSymlinks = (): void => {
+  if (!FFMPEG_PATH || !YT_DLP_PATH) {
+    return;
+  }
+
   mkdirSync(SRC_BIN_DIR, { recursive: true });
 
   const ffmpegLink = path.join(SRC_BIN_DIR, "ffmpeg");
@@ -53,6 +58,8 @@ const ensureBinSymlinks = (): void => {
     symlinkSync(YT_DLP_PATH, ytDlpLink);
   }
 };
+
+const shouldRunPipelineE2E = (): boolean => Boolean(FFMPEG_PATH && YT_DLP_PATH);
 
 /** Build a logger that collects all output and also prints to console. */
 const buildLoggers = (tag: string, collected: string[]): FfmpegLoggers => ({
@@ -106,6 +113,11 @@ beforeAll(() => {
 
 describe("Pipeline E2E", () => {
   it("[REQ-044] Streaming mode: full pipeline should run without premature EOF", async () => {
+    if (!shouldRunPipelineE2E()) {
+      console.warn("[Pipeline E2E] Skipped: requires FFMPEG_PATH and YT_DLP_PATH (Docker test environment).");
+      return;
+    }
+
     const logs: string[] = [];
     const loggers = buildLoggers("streaming", logs);
 
@@ -212,6 +224,11 @@ describe("Pipeline E2E", () => {
   }, /* timeout computed at runtime — set a generous static cap */ 1_200_000);
 
   it("[REQ-044] Full-download mode: full pipeline should run without premature EOF", async () => {
+    if (!shouldRunPipelineE2E()) {
+      console.warn("[Pipeline E2E] Skipped: requires FFMPEG_PATH and YT_DLP_PATH (Docker test environment).");
+      return;
+    }
+
     const logs: string[] = [];
     const loggers = buildLoggers("full-download", logs);
 

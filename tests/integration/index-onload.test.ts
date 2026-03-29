@@ -13,16 +13,16 @@ describe("Plugin entrypoint lifecycle", () => {
 
     await onLoad(ctx as never);
 
-    expect(ctx.commands.registered.has("watch")).toBe(true);
-    expect(ctx.commands.registered.has("queue")).toBe(true);
-    expect(ctx.commands.registered.has("skip")).toBe(true);
-    expect(ctx.commands.registered.has("remove")).toBe(true);
-    expect(ctx.commands.registered.has("watch_stop")).toBe(true);
-    expect(ctx.commands.registered.has("nowplaying")).toBe(true);
-    expect(ctx.commands.registered.has("pause")).toBe(true);
-    expect(ctx.commands.registered.has("resume")).toBe(true);
-    expect(ctx.commands.registered.has("volume")).toBe(true);
-    expect(ctx.commands.registered.has("debug_cache")).toBe(true);
+    expect(ctx.commands.registered.has("vid-watch")).toBe(true);
+    expect(ctx.commands.registered.has("vid-queue")).toBe(true);
+    expect(ctx.commands.registered.has("vid-skip")).toBe(true);
+    expect(ctx.commands.registered.has("vid-remove")).toBe(true);
+    expect(ctx.commands.registered.has("vid-stop")).toBe(true);
+    expect(ctx.commands.registered.has("vid-nowplaying")).toBe(true);
+    expect(ctx.commands.registered.has("vid-pause")).toBe(true);
+    expect(ctx.commands.registered.has("vid-resume")).toBe(true);
+    expect(ctx.commands.registered.has("vid-volume")).toBe(true);
+    expect(ctx.commands.registered.has("vid-debug-cache")).toBe(true);
 
     onUnload(ctx as never);
   });
