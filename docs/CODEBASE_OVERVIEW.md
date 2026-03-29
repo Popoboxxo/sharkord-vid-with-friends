@@ -388,12 +388,14 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
 
 - `registerPlayCommand(ctx, queueManager, syncController)` in `play.ts`
   - `/vid-watch <query>`
+  - **REQ-053-A:** Ruft synchron `ctx.actions.voice.join(channelId)` BEVOR resolve startet — garantiert Bot tritt dem Channel sofort bei
   - blockiert zweiten Startversuch bei aktiver Wiedergabe im selben Channel
   - Resolve via `resolveVideo`, Queue add, danach `syncController.play(channelId)` als **fire-and-forget** (kein `await`) — verhindert Command-Response-Timeout bei langen Stream-Starts
   - Fehler im Hintergrund: `.catch(...)` entfernt erstes Queue-Item bei Startfehler, loggt via `ctx.error`
   - persistiert `videoFormatId` / `audioFormatId` im Queue-Item für stabilen Downloadpfad
-  - Gibt `{ response: "Starting: <title>" }` zurück (Sharkord v0.0.16 API)
-  - **REQ:** REQ-001, REQ-004, REQ-035
+  - **REQ-046:** Gibt plain `string` zurück: `"🔄 Loading video..."` (keine JSON-Wrapper)
+  - **REQ-053-B:** LOADING-Emoji in Response für unmittelbare User-Feedback
+  - **REQ:** REQ-001, REQ-004, REQ-035, REQ-046, REQ-052, REQ-053
 
 - `registerQueueCommand(ctx, queueManager)` in `queue.ts`
   - `/vid-queue`
