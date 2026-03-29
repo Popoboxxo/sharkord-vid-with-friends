@@ -4,7 +4,9 @@
  * If a video is already playing, adds to queue instead.
  * Supports YouTube URLs, youtu.be short links, and search queries.
  *
- * Referenced by: REQ-001, REQ-004
+ * REQ-053: Bot sofort zum Channel joinen + LOADING-Anzeige
+ *
+ * Referenced by: REQ-001, REQ-004, REQ-053
  */
 import type { QueueManager } from "../queue/queue-manager";
 import type { SyncController } from "../sync/sync-controller";
@@ -22,6 +24,11 @@ type PluginContextLike = {
   log: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
   debug: (...args: unknown[]) => void;
+  actions?: {
+    voice?: {
+      join?: (channelId: number) => Promise<void> | void;
+    };
+  };
 };
 
 export const registerPlayCommand = (
@@ -60,6 +67,19 @@ export const registerPlayCommand = (
       // Convert plain search terms to yt-search format
       if (!isYouTubeUrl(sourceUrl) && !/^https?:\/\//.test(sourceUrl)) {
         sourceUrl = `ytsearch:${sourceUrl}`;
+      }
+
+      // REQ-053-A: Sofortiger Channel-Join mit LOADING-Anzeige
+      try {
+        const joinFn = ctx.actions?.voice?.join;
+        if (typeof joinFn === "function") {
+          await Promise.resolve(joinFn(channelId));
+          ctx.log(`[watch] Bot joined channel ${channelId}`);
+        }
+      } catch (joinErr) {
+        const joinErrorMsg = joinErr instanceof Error ? joinErr.message : String(joinErr);
+        ctx.error(`[watch] Failed to join voice channel:`, joinErrorMsg);
+        throw new Error(`Bot could not join the voice channel — check permissions. (${joinErrorMsg})`);
       }
 
       ctx.log(`[watch] Resolving: ${sourceUrl}`);
@@ -111,11 +131,12 @@ export const registerPlayCommand = (
         });
       })();
 
-      // REQ-046: Instant feedback — user sees this immediately, before resolve completes
+      // REQ-053-B: LOADING-Indikator bis echtes Stream-Starten
+      // Sofort nach Join: "🔄 Loading..." für sofortige visuelle Rückmeldung
       const isSearch = sourceUrl.startsWith("ytsearch:");
       return isSearch
-        ? `Searching for "${queryDisplay}"... Bot will appear in channel shortly.`
-        : `Loading video... Bot will appear in channel shortly.`;
+        ? `🔄 Searching for "${queryDisplay}"...`
+        : `🔄 Loading video...`;
     },
   });
 };

@@ -229,10 +229,13 @@ export type MockPluginContext = {
       getRouter: (channelId: number) => MockRouter;
       createStream: (options: TCreateStreamOptions) => TExternalStreamHandle;
       getListenInfo: () => { ip: string; announcedAddress: string | undefined };
+      join?: (channelId: number) => Promise<void>;
       /** All routers created (for assertions) */
       routers: Map<number, MockRouter>;
       /** All streams created (for assertions) */
       streams: TCreateStreamOptions[];
+      /** Track join attempts (for testing REQ-053) */
+      joinAttempts: number[];
     };
   };
 
@@ -323,8 +326,13 @@ export const createMockPluginContext = (): MockPluginContext => {
         getListenInfo() {
           return { ip: "127.0.0.1", announcedAddress: undefined };
         },
+        async join(channelId: number) {
+          /* REQ-053: Track join attempts */
+          (this as any).joinAttempts?.push(channelId);
+        },
         routers,
         streams,
+        joinAttempts: [],
       },
     },
 

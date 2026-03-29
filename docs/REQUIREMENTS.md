@@ -271,6 +271,41 @@ Beim Start eines Streams MUSS das Plugin die Voice-Actions robust gegen untersch
 
 ---
 
+## REQ-053 — Bot: Sofortiges Voice-Channel-Joining mit LOADING-Anzeige
+
+**Priorität:** Should
+**Status:** Offen
+
+Wenn der Nutzer `/vid-watch` ausführt, MUSS der Bot sofort (vor der Video-Auflösung) dem Voice-Channel beitreten und eine "LOADING"-Anzeige anzeigen, statt nur eine Chat-Nachricht zu senden.
+
+### REQ-053-A: Sofortiger Channel-Join
+
+Beim Aufruf von `/vid-watch <url|query>` MUSS das Plugin folgende Schritte synchron durchführen:
+
+1. **Input-Validierung:** URL/Query-String prüfen (schnell)
+2. **Channel beitreten:** `ctx.actions.voice.join(channelId)` aufrufen → Bot erscheint im Voice-Channel
+3. **LOADING-Status setzen:** Via `streamHandle` oder Bot-Status einen visuellen "LOADING"-Indikator zeigen
+4. **Im Hintergrund:** Dann asynchron Video auflösen, Stream vorbereiten, starten
+
+Effekt: Nutzer sieht sofort, dass der Bot im Channel ist und reagiert, statt 5–30s auf erste visuelle Rückmeldung zu warten.
+
+### REQ-053-B: LOADING-Anzeige im Stream-Handle
+
+Der aktuelle Videotitel im Sharkord Stream-UI MUSS während der Vorbereitungsphase als "🔄 LOADING…" oder ähnlich angezeigt werden, bis der Stream tatsächlich startet.
+
+- Dies kann über `streamHandle.update({ title: "🔄 LOADING…" })` erreicht werden
+- Der Titel wird aktualisiert, sobald die `STREAMING`-Phase erreicht ist und echter Videotitel bekannt ist
+
+### REQ-053-C: Fallback bei Join-Fehler
+
+Wenn `ctx.actions.voice.join(channelId)` fehlschlägt (z.B. Bot nicht in Server, Channel nicht existierend), MUSS:
+
+- Ein Fehler-Log geschrieben werden
+- Der `/vid-watch` Command mit klarer Fehlermeldung abgebrochen werden (z.B. "Bot konnte Channel nicht beitreten — prüfe Berechtigungen")
+- Die Warteschlange NICHT geändert werden (Item wird nicht hinzugefügt)
+
+---
+
 ## Traceability
 
 Jeder Test MUSS mit dem Format `[REQ-xxx]` auf eine oder mehrere Anforderungen
