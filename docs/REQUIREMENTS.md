@@ -243,6 +243,21 @@ Beim Wechsel zwischen Full-Download-Modus und Streaming-Modus MUSS der gespeiche
 
 ---
 
+## REQ-051 — Plattform-Migration auf Sharkord/SDK 0.0.16
+
+**Priorität:** Must
+**Status:** Offen
+
+Das Repository MUSS vollständig auf Sharkord `v0.0.16` und die überarbeitete SDK-Version `0.0.16` migriert werden, inklusive Laufzeit-, Docker-, Agenten- und Dokumentationsbezügen.
+
+- REQ-051-A: Der Dev-Stack MUSS `sharkord/sharkord:v0.0.16` verwenden
+- REQ-051-B: Die Plugin-Metadaten und Entwicklungsabhängigkeiten MÜSSEN `@sharkord/plugin-sdk` und `@sharkord/shared` auf Version `0.0.16` referenzieren
+- REQ-051-C: Nutzer- und Entwicklerdokumentation MUSS Sharkord `>= 0.0.16` als Mindestversion ausweisen
+- REQ-051-D: Agenten-Anleitungen (`.github/agents` und `.claude/agents`) MÜSSEN die Zielplattform konsistent als SDK `0.0.16` beschreiben
+- REQ-051-E: Die Migration MUSS in einer dedizierten Conclusions-Datei nachvollziehbar dokumentiert werden (Dateien, Änderungen, Validierung)
+
+---
+
 ## Traceability
 
 Jeder Test MUSS mit dem Format `[REQ-xxx]` auf eine oder mehrere Anforderungen

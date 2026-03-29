@@ -19,7 +19,7 @@ Warteschlange pro Voice-Channel.
 
 **Tech-Stack:** TypeScript, Bun, Mediasoup (WebRTC SFU), tRPC, React, Zod
 **Runtime:** Bun (NICHT Node.js) — verwende `Bun.spawn`, `bun:test`, etc.
-**Ziel-Plattform:** Sharkord Plugin SDK (`@sharkord/plugin-sdk`, `@sharkord/shared`)
+**Ziel-Plattform:** Sharkord Plugin SDK v0.0.16 (`@sharkord/plugin-sdk@0.0.16`, `@sharkord/shared@0.0.16`)
 
 ---
 

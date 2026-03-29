@@ -43,7 +43,7 @@ services:
       - plugin-binaries:/binaries
 
   sharkord:
-    image: sharkord/sharkord:v0.0.15
+    image: sharkord/sharkord:v0.0.16
     container_name: sharkord-dev
     depends_on:
       init-binaries:

@@ -119,7 +119,16 @@ YouTube URL
 
 ---
 
-## Sharkord v0.0.15 — Breaking Changes & Migrationsnotes
+## Sharkord v0.0.16 — Kompatibilitätsstatus
+
+Diese Sektion dokumentiert den aktuellen Zielstand für Sharkord `v0.0.16` und SDK `0.0.16`.
+
+- Dev-Docker-Stack nutzt `sharkord/sharkord:v0.0.16`
+- Plugin-Dev-Abhängigkeiten referenzieren `@sharkord/plugin-sdk@0.0.16` und `@sharkord/shared@0.0.16`
+- Command-Response-Vertrag bleibt `{ response: string }`
+- Dokumentation und Agent-Playbooks wurden auf den Zielstand `0.0.16` angehoben
+
+## Sharkord v0.0.15 — Breaking Changes & Migrationsnotes (Historisch)
 
 Diese Sektion dokumentiert alle inkompatiblen Änderungen, die beim Upgrade auf Sharkord v0.0.15 aufgetreten sind.
 

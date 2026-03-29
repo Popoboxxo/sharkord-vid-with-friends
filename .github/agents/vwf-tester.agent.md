@@ -17,7 +17,7 @@ Server-seitiges Streaming über yt-dlp → ffmpeg → Mediasoup RTP.
 
 **Tech-Stack:** TypeScript, Bun, Mediasoup (WebRTC SFU), tRPC, React, Zod
 **Runtime:** Bun — verwende `bun:test` für alle Tests
-**Ziel-Plattform:** Sharkord Plugin SDK (`@sharkord/plugin-sdk`, `@sharkord/shared`)
+**Ziel-Plattform:** Sharkord Plugin SDK v0.0.16 (`@sharkord/plugin-sdk@0.0.16`, `@sharkord/shared@0.0.16`)
 
 ---
 
@@ -99,7 +99,7 @@ bun test tests/integration/
 Wenn der Nutzer auffordert: **"Starte das Testsystem"**, **"Starte Docker"**, **"Starte den Stack"**, etc.
 
 **Bedeutung:** Starte den **kompletten Docker Compose Stack** mit:
-- **Sharkord v0.0.6** Server (Web UI auf `http://localhost:3000`)
+- **Sharkord v0.0.16** Server (Web UI auf `http://localhost:3000`)
 - **Plugin** (`sharkord-vid-with-friends`) gemountet und geladen
 - **ffmpeg + yt-dlp Binaries** heruntergeladen in den Plugin-Ordner
 - **Mediasoup Worker** für WebRTC/RTP Streaming

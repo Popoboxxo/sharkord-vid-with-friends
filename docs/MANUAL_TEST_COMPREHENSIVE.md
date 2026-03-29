@@ -9,7 +9,7 @@
 ## Vorbereitung (5 min)
 
 ### Setup
-- [ ] Sharkord v0.0.6 aktiv: `http://localhost:3000`
+- [ ] Sharkord v0.0.16 aktiv: `http://localhost:3000`
 - [ ] Plugin geladen und registriert
 - [ ] Mindestens 2 Clients im Voice-Channel (ideal: 3)
 - [ ] Debug-Modus in Settings: **ON** (für Log-Checking)

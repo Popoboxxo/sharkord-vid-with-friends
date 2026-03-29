@@ -2,7 +2,7 @@
 
 **Dauer:** ~5 Minuten  
 **Ziel:** Schnelle Validierung der Kern-Funktionalität  
-**Voraussetzung:** Sharkord v0.0.6 laufen, Plugin geladen
+**Voraussetzung:** Sharkord v0.0.16 laufen, Plugin geladen
 
 ---
 

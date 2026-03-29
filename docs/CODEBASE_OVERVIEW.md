@@ -1,6 +1,6 @@
 # Codebase Overview — sharkord-vid-with-friends
 
-Stand: **23.03.2026**
+Stand: **29.03.2026**
 
 Diese Übersicht ist eine **codegenaue Bestandsaufnahme** des aktuellen Implementierungsstands in `src/`.
 Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung (nicht nur Ziel-Architektur).
@@ -384,7 +384,7 @@ Sie dokumentiert reale Funktionen, Signaturen, Laufzeitflüsse und REQ-Zuordnung
 
 Alle Commands registrieren über `ctx.commands.register(...)`.
 
-**Sharkord v0.0.15 API:** Alle `executes()`-Handler geben `{ response: string }` zurück — kein plain string. Error-Fälle werfen `new Error("...")` (wird von Sharkord als sichtbare Fehlermeldung an den User weitergegeben).
+**Sharkord v0.0.16 API:** Alle `executes()`-Handler geben `{ response: string }` zurück — kein plain string. Error-Fälle werfen `new Error("...")` (wird von Sharkord als sichtbare Fehlermeldung an den User weitergegeben).
 
 - `registerPlayCommand(ctx, queueManager, syncController)` in `play.ts`
   - `/vid-watch <query>`
@@ -392,7 +392,7 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
   - Resolve via `resolveVideo`, Queue add, danach `syncController.play(channelId)` als **fire-and-forget** (kein `await`) — verhindert Command-Response-Timeout bei langen Stream-Starts
   - Fehler im Hintergrund: `.catch(...)` entfernt erstes Queue-Item bei Startfehler, loggt via `ctx.error`
   - persistiert `videoFormatId` / `audioFormatId` im Queue-Item für stabilen Downloadpfad
-  - Gibt `{ response: "Starting: <title>" }` zurück (Sharkord v0.0.15 API)
+  - Gibt `{ response: "Starting: <title>" }` zurück (Sharkord v0.0.16 API)
   - **REQ:** REQ-001, REQ-004, REQ-035
 
 - `registerQueueCommand(ctx, queueManager)` in `queue.ts`
@@ -449,7 +449,7 @@ Alle Commands registrieren über `ctx.commands.register(...)`.
   - Liest Logs aus `~/.config/sharkord/logs/combined.log` + `error.log`
   - Anonymisiert User-IDs, IP-Adressen, CDN-URLs vor der Ausgabe
   - GitHub Issue URL wird mit URLSearchParams kodiert, Body auf `PREFILLED_BODY_MAX = 1800` Zeichen begrenzt
-  - Gibt immer `{ response: string }` zurück (Sharkord v0.0.15 API)
+  - Gibt immer `{ response: string }` zurück (Sharkord v0.0.16 API)
   - **REQ:** REQ-041
 
 ---
