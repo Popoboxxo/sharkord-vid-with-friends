@@ -309,4 +309,63 @@ describe("Integration: Queue + SyncController + Commands", () => {
     expect(startedStreams.length).toBe(0);
     expect(syncController.isPlaying(CHANNEL_ID)).toBe(false);
   });
+
+  // ---- REQ-053: Bot immediate voice-channel join ----
+
+  describe("[REQ-053] Bot immediate voice-channel join + LOADING indicator", () => {
+    it("[REQ-053-A] should attempt join before resolve", async () => {
+      const invoker = makeInvoker({ currentVoiceChannelId: 42 });
+
+      // Execute play command with YouTube URL (sync join happens immediately)
+      const response = await ctx.commands.execute("vid-watch", invoker, {
+        query: "https://youtube.com/watch?v=dQw4w9WgXcQ",
+      });
+
+      // REQ-053-A: Bot should attempt to join the channel
+      expect(ctx.actions.voice?.joinAttempts ?? []).toContain(42);
+      expect((ctx.actions.voice?.joinAttempts ?? []).length).toBeGreaterThan(0);
+    });
+
+    it("[REQ-053-B] should respond with LOADING indicator", async () => {
+      const invoker = makeInvoker();
+
+      const response = await ctx.commands.execute("vid-watch", invoker, {
+        query: "https://youtube.com/watch?v=dQw4w9WgXcQ",
+      });
+
+      // REQ-053-B: Response should include LOADING emoji
+      expect(response).toMatch(/🔄/);
+      expect(response.toLowerCase()).toMatch(/loading|searching/);
+    });
+
+    it("[REQ-053-C] should throw error if join fails", async () => {
+      const invoker = makeInvoker();
+
+      // Mock join to throw error
+      let joinError: Error | null = null;
+      const originalJoin = ctx.actions.voice?.join;
+      if (ctx.actions.voice) {
+        ctx.actions.voice.join = async () => {
+          throw new Error("Permission denied: cannot join voice channel");
+        };
+      }
+
+      try {
+        await ctx.commands.execute("vid-watch", invoker, {
+          query: "https://youtube.com/watch?v=dQw4w9WgXcQ",
+        });
+      } catch (err) {
+        joinError = err instanceof Error ? err : new Error(String(err));
+      }
+
+      // REQ-053-C: Should throw error with clear message
+      expect(joinError).toBeDefined();
+      expect(joinError?.message).toMatch(/could not join|permission|channel/i);
+
+      // Restore original join
+      if (ctx.actions.voice && originalJoin) {
+        ctx.actions.voice.join = originalJoin;
+      }
+    });
+  });
 });

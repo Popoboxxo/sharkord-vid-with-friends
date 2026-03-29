@@ -275,6 +275,7 @@ export const createMockPluginContext = (): MockPluginContext => {
   const registeredComponents: unknown[] = [];
   const registeredSettingDefinitions: TPluginSettingDefinition[] = [];
   const settingsStore = new Map<string, string | number | boolean>();
+  const joinAttempts: number[] = [];  /* REQ-053: Track join attempts separate from voice */
 
   let streamIdCounter = 0;
 
@@ -326,13 +327,13 @@ export const createMockPluginContext = (): MockPluginContext => {
         getListenInfo() {
           return { ip: "127.0.0.1", announcedAddress: undefined };
         },
-        async join(channelId: number) {
-          /* REQ-053: Track join attempts */
-          (this as any).joinAttempts?.push(channelId);
+        join: async (channelId: number) => {
+          /* REQ-053: Track join attempts in closure */
+          joinAttempts.push(channelId);
         },
         routers,
         streams,
-        joinAttempts: [],
+        joinAttempts,  /* REQ-053: Expose joinAttempts for test assertions */
       },
     },
 
