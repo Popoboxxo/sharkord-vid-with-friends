@@ -213,20 +213,18 @@ export const registerBugReportCommand = (ctx: PluginContextLike): void => {
         }
       }
 
-      // Without token: pre-filled issue URL (short body) + full log in chat
+      // Without token: pre-filled issue URL (short body) + full log in chat (REQ-046: plaintext)
       const shortBody = buildShortBody(description, settingsBlock, version, errorLogs);
       const prefilledUrl = buildPrefilledUrl(issueTitle, shortBody);
 
       return {
         response: [
-          `Open this link — the issue form is pre-filled:`,
+          `Open this link to create the issue (form is pre-filled):`,
           prefilledUrl,
           ``,
           `Then paste the full log below into the issue:`,
           ``,
-          `\`\`\``,
           recentLogs,
-          `\`\`\``,
         ].join("\n"),
       };
     },

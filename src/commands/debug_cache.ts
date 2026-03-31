@@ -59,25 +59,25 @@ export const registerDebugCacheCommand = (ctx: PluginContextLike): void => {
           })
           .sort((a, b) => b.mtime - a.mtime);
 
-        // Format as readable message
+        // Format as readable plaintext message (REQ-046)
         const lines: string[] = [
-          "📁 **Debug Cache Files** (newest first):",
+          "Debug Cache Files (newest first):",
           "",
         ];
 
         for (const file of fileStats) {
           const sizeKb = (file.bytes / 1024).toFixed(1);
           const date = new Date(file.mtime).toISOString().slice(0, 19);
-          lines.push(`✅ \`${file.name}\` — ${sizeKb} KB (${date})`);
+          lines.push(`  ${file.name} — ${sizeKb} KB (${date})`);
         }
 
         lines.push("");
         lines.push(
-          "💾 **Note:** These files are cached in `./debug-cache/` (host) " +
-          "and `/root/.config/sharkord/vid-with-friends-cache/` (container)."
+          "These files are cached in ./debug-cache/ (host) " +
+          "and /root/.config/sharkord/vid-with-friends-cache/ (container)."
         );
         lines.push(
-          "📥 Download them from `./debug-cache/` to inspect the raw stream data."
+          "Download them from ./debug-cache/ to inspect the raw stream data."
         );
 
         return { response: lines.join("\n") };

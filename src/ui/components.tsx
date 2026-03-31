@@ -598,11 +598,11 @@ const SettingsPanel = (): JSX.Element | null => {
             transition: "all 0.2s ease",
           }}
           onMouseEnter={(e) => {
-            const target = e.currentTarget as any;
+            const target = e.currentTarget as unknown as { style: { backgroundColor: string } };
             target.style.backgroundColor = "rgba(66, 133, 244, 1)";
           }}
           onMouseLeave={(e) => {
-            const target = e.currentTarget as any;
+            const target = e.currentTarget as unknown as { style: { backgroundColor: string } };
             target.style.backgroundColor = "rgba(66, 133, 244, 0.8)";
           }}
         >

@@ -9,7 +9,7 @@
  */
 import { QueueManager } from "./queue/queue-manager";
 import { StreamManager } from "./stream/stream-manager";
-import type { ChannelStreamResources, StreamHandleLike } from "./stream/stream-manager";
+import type { ChannelStreamResources, StreamHandleLike, RouterLike, TransportLike, ProducerLike } from "./stream/stream-manager";
 import { SyncController } from "./sync/sync-controller";
 import type { QueueItem } from "./queue/types";
 
@@ -508,14 +508,18 @@ const startStream = async (
 
     ctx.debug(`[stream:${channelId}] Creating Mediasoup transports on ${ip} (RTP target: ${rtpTargetHost})...`);
 
-    const audioTransport = (await (router as any).createPlainTransport(transportOptions)) as any;
-    const videoTransport = (await (router as any).createPlainTransport(transportOptions)) as any;
+    const typedRouter = router as RouterLike;
+    const audioTransport = await typedRouter.createPlainTransport(transportOptions);
+    const videoTransport = await typedRouter.createPlainTransport(transportOptions);
 
-    ctx.log(`[stream:${channelId}] Audio transport created (port ${(audioTransport as any).tuple?.localPort})`);
-    ctx.log(`[stream:${channelId}] Video transport created (port ${(videoTransport as any).tuple?.localPort})`);
+    ctx.log(`[stream:${channelId}] Audio transport created (port ${audioTransport.tuple?.localPort})`);
+    ctx.log(`[stream:${channelId}] Video transport created (port ${videoTransport.tuple?.localPort})`);
 
     // 4. Create producers on the transports
-    const audioProducer = (await audioTransport.produce({
+    const audioSsrc = Math.floor(Math.random() * 1_000_000_000) + 1;
+    const videoSsrc = Math.floor(Math.random() * 1_000_000_000) + 1;
+
+    const audioProducer = await audioTransport.produce({
       kind: "audio",
       rtpParameters: {
         codecs: [
@@ -531,11 +535,11 @@ const startStream = async (
             rtcpFeedback: [],
           },
         ],
-        encodings: [{ ssrc: Math.floor(Math.random() * 1_000_000_000) + 1 }],
+        encodings: [{ ssrc: audioSsrc }],
       },
-    })) as any;
+    });
 
-    const videoProducer = (await videoTransport.produce({
+    const videoProducer = await videoTransport.produce({
       kind: "video",
       rtpParameters: {
         codecs: [
@@ -555,12 +559,12 @@ const startStream = async (
             ],
           },
         ],
-        encodings: [{ ssrc: Math.floor(Math.random() * 1_000_000_000) + 1 }],
+        encodings: [{ ssrc: videoSsrc }],
       },
-    })) as any;
+    });
 
-    ctx.log(`[stream:${channelId}] Audio producer created (SSRC: ${(audioProducer as any).rtpParameters?.encodings?.[0]?.ssrc})`);
-    ctx.log(`[stream:${channelId}] Video producer created (SSRC: ${(videoProducer as any).rtpParameters?.encodings?.[0]?.ssrc})`);
+    ctx.log(`[stream:${channelId}] Audio producer created (SSRC: ${audioSsrc})`);
+    ctx.log(`[stream:${channelId}] Video producer created (SSRC: ${videoSsrc})`);
 
     // 5. Get settings: volume, video bitrate, audio bitrate (REQ-018)
     // Use optional chaining to safely access settings API (may not be available in all Sharkord versions)
@@ -720,9 +724,9 @@ const startStream = async (
       youtubeUrl: item.youtubeUrl,
       formatId: item.videoFormatId,
       rtpHost: rtpTargetHost,
-      rtpPort: (videoTransport as any).tuple?.localPort,
+      rtpPort: videoTransport.tuple?.localPort,
       payloadType: 96,
-      ssrc: (videoProducer as any).rtpParameters?.encodings?.[0]?.ssrc || 1,
+      ssrc: videoSsrc,
       bitrate: videoBitrate,
       debugEnabled: debugMode,
       waitForDownloadComplete: fullDownloadMode,
@@ -748,9 +752,9 @@ const startStream = async (
       youtubeUrl: item.youtubeUrl,
       formatId: item.audioFormatId,
       rtpHost: rtpTargetHost,
-      rtpPort: (audioTransport as any).tuple?.localPort,
+      rtpPort: audioTransport.tuple?.localPort,
       payloadType: 111,
-      ssrc: (audioProducer as any).rtpParameters?.encodings?.[0]?.ssrc || 1,
+      ssrc: audioSsrc,
       bitrate: audioBitrate,
       volume: normalizedVolume,
       syncDelayMs: audioSyncDelayMs,
@@ -826,7 +830,7 @@ const startStream = async (
       videoProcess: ffmpegVideoProc,
       audioProcess: ffmpegAudioProc,
       streamHandle,
-      router: router as any,  // Runtime type is Mediasoup Router
+      router: typedRouter,
       videoTempFile: ffmpegVideoProc.tempFilePath,
       audioTempFile: ffmpegAudioProc.tempFilePath,
       debugEnabled: debugMode,

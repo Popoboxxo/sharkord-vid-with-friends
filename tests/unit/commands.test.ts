@@ -396,4 +396,90 @@ describe("Commands", () => {
       ).rejects.toThrow("Debug Output is disabled");
     });
   });
+
+  // --- REQ-046: Bot responses must be plaintext ---
+
+  describe("REQ-046 plaintext responses", () => {
+    const markdownPatterns = [
+      { name: "bold", pattern: /\*\*[^*]+\*\*/ },
+      { name: "inline code", pattern: /`[^`]+`/ },
+      { name: "code block", pattern: /```/ },
+      { name: "heading", pattern: /^#{1,6}\s/m },
+    ];
+
+    const assertPlaintext = (text: string, context: string): void => {
+      for (const { name, pattern } of markdownPatterns) {
+        expect(pattern.test(text)).toBe(false);
+      }
+    };
+
+    it("[REQ-046] /vid-stop response should be plaintext", async () => {
+      registerStopCommand(ctx as never, syncController);
+      syncController.setPlaying(channelId, true);
+      const invoker = makeInvoker();
+      const result = await ctx.commands.execute("vid-stop", invoker, {});
+      const text = typeof result === "string" ? result : (result as { response?: string })?.response ?? "";
+      assertPlaintext(text, "vid-stop");
+    });
+
+    it("[REQ-046] /vid-nowplaying response should be plaintext", async () => {
+      registerNowPlayingCommand(ctx as never, queueManager, syncController);
+      queueManager.add(channelId, makeItem({ title: "Test Video Title" }));
+      syncController.setPlaying(channelId, true);
+      const invoker = makeInvoker();
+      const result = await ctx.commands.execute("vid-nowplaying", invoker, {});
+      const text = typeof result === "string" ? result : (result as { response?: string })?.response ?? "";
+      assertPlaintext(text, "vid-nowplaying");
+    });
+
+    it("[REQ-046] /vid-queue response should be plaintext", async () => {
+      registerQueueCommand(ctx as never, queueManager, syncController);
+      queueManager.add(channelId, makeItem({ title: "First" }));
+      queueManager.add(channelId, makeItem({ title: "Second" }));
+      syncController.setPlaying(channelId, true);
+      const invoker = makeInvoker();
+      const result = await ctx.commands.execute("vid-queue", invoker, {});
+      const text = typeof result === "string" ? result : (result as { response?: string })?.response ?? "";
+      assertPlaintext(text, "vid-queue");
+    });
+
+    it("[REQ-046] /vid-volume response should be plaintext", async () => {
+      registerVolumeCommand(ctx as never, syncController);
+      const invoker = makeInvoker();
+      const result = await ctx.commands.execute("vid-volume", invoker, { level: 50 });
+      const text = typeof result === "string" ? result : (result as { response?: string })?.response ?? "";
+      assertPlaintext(text, "vid-volume");
+    });
+
+    it("[REQ-046] /vid-skip response should be plaintext", async () => {
+      registerSkipCommand(ctx as never, syncController);
+      syncController.setPlaying(channelId, true);
+      const invoker = makeInvoker();
+      const result = await ctx.commands.execute("vid-skip", invoker, {});
+      const text = typeof result === "string" ? result : (result as { response?: string })?.response ?? "";
+      assertPlaintext(text, "vid-skip");
+    });
+
+    it("[REQ-046] /vid-pause response should be plaintext", async () => {
+      registerPauseCommand(ctx as never, syncController, streamControl);
+      syncController.setPlaying(channelId, true);
+      const invoker = makeInvoker();
+      const result = await ctx.commands.execute("vid-pause", invoker, {});
+      const text = typeof result === "string" ? result : (result as { response?: string })?.response ?? "";
+      assertPlaintext(text, "vid-pause");
+    });
+
+    it("[REQ-046] /vid-resume error response should be plaintext", async () => {
+      registerResumeCommand(ctx as never, syncController, streamControl);
+      syncController.setPlaying(channelId, true);
+      syncController.setPaused(channelId, false);
+      const invoker = makeInvoker();
+      try {
+        await ctx.commands.execute("vid-resume", invoker, {});
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        assertPlaintext(msg, "vid-resume error");
+      }
+    });
+  });
 });
