@@ -5,107 +5,25 @@
  *
  * Referenced by: REQ-002, REQ-003, REQ-015, REQ-016, REQ-044
  */
-import type { SpawnedProcess } from "./ffmpeg";
-import type { HLSServerHandle } from "./hls-server";
+import type {
+  TransportResources,
+  ProducerResources,
+  RouterLike,
+} from "../types/stream";
+import type { WatchdogOptions } from "./stream-watchdog";
 import { AUDIO_CODEC, VIDEO_CODEC } from "../utils/constants";
-import { unlinkSync, existsSync, readdirSync } from "fs";
-import path from "path";
+import { unlinkSync, existsSync } from "fs";
+import { StreamWatchdog } from "./stream-watchdog";
+import { sweepOrphanedTempFiles } from "../utils/temp-cleanup";
 
-// ---- Types ----
-
-/** Minimal Transport interface (compatible with both real Mediasoup and mocks) */
-export type TransportLike = {
-  id: string;
-  closed: boolean;
-  tuple: { localPort: number };
-  close: () => void;
-  produce: (options: unknown) => Promise<ProducerLike>;
-};
-
-/** Minimal Producer interface */
-export type ProducerLike = {
-  id: string;
-  kind: "audio" | "video";
-  closed: boolean;
-  close: () => void;
-  pause?: () => void;
-  resume?: () => void;
-  observer: {
-    on: (event: string, handler: () => void) => void;
-    off: (event: string, handler: () => void) => void;
-  };
-};
-
-/** Minimal Router interface */
-export type RouterLike = {
-  id: string;
-  closed: boolean;
-  close: () => void;
-  createPlainTransport: (options: unknown) => Promise<TransportLike>;
-  on: (event: string, handler: () => void) => void;
-  off: (event: string, handler: () => void) => void;
-  rtpCapabilities?: {
-    codecs?: Array<{
-      mimeType?: string;
-      preferredPayloadType?: number;
-      clockRate?: number;
-      channels?: number;
-      parameters?: Record<string, unknown>;
-    }>;
-  };
-};
-
-/** External stream handle returned by createStream */
-export type StreamHandleLike = {
-  streamId: number;
-  remove: () => void;
-  update: (options: unknown) => void;
-};
-
-/** All resources associated with an active stream in a channel */
-export type ChannelStreamResources = {
-  audioTransport: TransportLike;
-  videoTransport: TransportLike;
-  audioProducer: ProducerLike;
-  videoProducer: ProducerLike;
-  videoProcess: SpawnedProcess | null;
-  audioProcess: SpawnedProcess | null;
-  streamHandle: StreamHandleLike | null;
-  router: RouterLike;
-  videoTempFile?: string;  // Path to temp video file (for cleanup)
-  audioTempFile?: string;  // Path to temp audio file (for cleanup)
-  debugEnabled?: boolean;  // Whether debug mode is active (affects cleanup)
-};
-
-/** HLS-specific stream resources (alternative to RTP/Mediasoup) */
-export type HLSChannelStreamResources = {
-  hlsServer: HLSServerHandle;
-  ffmpegProcess: ReturnType<typeof Bun.spawn>;
-  ffmpegKill: () => void;
-  streamHandle?: StreamHandleLike;  // Optional: registered with Sharkord
-};
-
-/** Transports only (before producers are created) */
-export type TransportResources = {
-  audioTransport: TransportLike;
-  videoTransport: TransportLike;
-  audioSsrc: number;
-  videoSsrc: number;
-};
-
-/** Producers only */
-export type ProducerResources = {
-  audioProducer: ProducerLike;
-  videoProducer: ProducerLike;
-  audioPayloadType: number;
-  videoPayloadType: number;
-};
+export * from "../types/stream";
+export { StreamWatchdog } from "./stream-watchdog";
 
 // ---- StreamManager ----
 
 export class StreamManager {
   private readonly activeStreams = new Map<number, ChannelStreamResources>();
-  private readonly activeHLSStreams = new Map<number, HLSChannelStreamResources>();
+  private readonly watchdog = new StreamWatchdog();
 
   /** Generate a random SSRC value for RTP. (REQ-003) */
   generateSsrc(): number {
@@ -114,7 +32,7 @@ export class StreamManager {
 
   /** Check if a channel has an active stream. */
   isActive(channelId: number): boolean {
-    return this.activeStreams.has(channelId) || this.activeHLSStreams.has(channelId);
+    return this.activeStreams.has(channelId);
   }
 
   /** Register active stream resources for a channel. (REQ-015) */
@@ -122,70 +40,35 @@ export class StreamManager {
     this.activeStreams.set(channelId, resources);
   }
 
-  /** Register active HLS stream resources for a channel. */
-  setActiveHLS(channelId: number, resources: HLSChannelStreamResources): void {
-    this.activeHLSStreams.set(channelId, resources);
-  }
-
   /** Get active stream resources for a channel. */
   getResources(channelId: number): ChannelStreamResources | undefined {
     return this.activeStreams.get(channelId);
   }
 
-  /** Get active HLS stream resources for a channel. */
-  getHLSResources(channelId: number): HLSChannelStreamResources | undefined {
-    return this.activeHLSStreams.get(channelId);
-  }
-
-  /** Pause active RTP stream for a channel (REQ-013).
-   * 
-   * Mediasoup approach: Pause producers, which signals WebRTC consumers to mute
-   * the stream. The ffmpeg processes continue running to avoid restart delays
-   * when resuming (they just accumulate packets that won't be sent).
-   * 
-   * NOTE: SIGSTOP/SIGCONT only work on Unix. On Windows, process suspension
-   * via signals is not reliable. Producer pause is the primary control mechanism.
-   */
+  /** Pause active RTP stream for a channel (REQ-013). */
   pauseChannelStream(channelId: number): boolean {
     const resources = this.activeStreams.get(channelId);
     if (!resources) return false;
-
     try {
-      // Pause producers - signals WebRTC consumers to mute
       resources.audioProducer.pause?.();
       resources.videoProducer.pause?.();
-    } catch {
-      // ignore producer pause failures (API may not support pause)
-    }
-
-    // Note: ffmpeg processes continue running but produce muted streams
-    // This avoids expensive restart overhead on resume
-
+    } catch { /* ignore */ }
     return true;
   }
 
-  /** Resume paused RTP stream for a channel (REQ-013).
-   * 
-   * Restores producers so WebRTC consumers receive packets again.
-   * ffmpeg processes were never actually paused, so no restart needed.
-   */
+  /** Resume paused RTP stream for a channel (REQ-013). */
   resumeChannelStream(channelId: number): boolean {
     const resources = this.activeStreams.get(channelId);
     if (!resources) return false;
-
     try {
       resources.audioProducer.resume?.();
       resources.videoProducer.resume?.();
-    } catch {
-      // ignore producer resume failures (API may not support resume)
-    }
-
+    } catch { /* ignore */ }
     return true;
   }
 
   /**
    * Create audio and video PlainTransports on a router. (REQ-002)
-   * Returns transports and generated SSRCs.
    */
   async createTransports(
     router: RouterLike,
@@ -220,17 +103,8 @@ export class StreamManager {
     transports: TransportResources
   ): Promise<ProducerResources> {
     const { audioTransport, videoTransport, audioSsrc, videoSsrc } = transports;
-    // H264 codec configuration for RTP streaming via Mediasoup (REQ-002).
-    const audioPayloadType = this.getPayloadTypeFromRouter(
-      router,
-      AUDIO_CODEC.mimeType,
-      AUDIO_CODEC.payloadType
-    );
-    const videoPayloadType = this.getPayloadTypeFromRouter(
-      router,
-      VIDEO_CODEC.mimeType,
-      VIDEO_CODEC.payloadType
-    );
+    const audioPayloadType = this.getPayloadTypeFromRouter(router, AUDIO_CODEC.mimeType, AUDIO_CODEC.payloadType);
+    const videoPayloadType = this.getPayloadTypeFromRouter(router, VIDEO_CODEC.mimeType, VIDEO_CODEC.payloadType);
 
     const [audioProducer, videoProducer] = await Promise.all([
       audioTransport.produce({
@@ -242,10 +116,7 @@ export class StreamManager {
               payloadType: audioPayloadType,
               clockRate: AUDIO_CODEC.clockRate,
               channels: AUDIO_CODEC.channels,
-              parameters: {
-                "minptime": 10,
-                "useinbandfec": 1,
-              },
+              parameters: { minptime: 10, useinbandfec: 1 },
               rtcpFeedback: [],
             },
           ],
@@ -280,308 +151,57 @@ export class StreamManager {
     return { audioProducer, videoProducer, audioPayloadType, videoPayloadType };
   }
 
-  private getPayloadTypeFromRouter(
-    router: RouterLike,
-    mimeType: string,
-    fallback: number
-  ): number {
+  private getPayloadTypeFromRouter(router: RouterLike, mimeType: string, fallback: number): number {
     const codecs = router.rtpCapabilities?.codecs ?? [];
-    const match = codecs.find(
-      (codec) => codec.mimeType?.toLowerCase() === mimeType.toLowerCase()
-    );
-
-    if (match?.preferredPayloadType === undefined) return fallback;
-    return match.preferredPayloadType;
+    const match = codecs.find((codec) => codec.mimeType?.toLowerCase() === mimeType.toLowerCase());
+    return match?.preferredPayloadType ?? fallback;
   }
 
   /**
    * Cleanup all resources for a channel. (REQ-016, REQ-037)
-   * Closes transports, producers, kills processes, removes stream handle.
-   * Also deletes temp download files if debug mode is disabled.
    */
   cleanup(channelId: number): void {
-    // REQ-044-A: Stop watchdog before cleaning up stream resources to avoid spurious alarms
-    this.stopWatchdog(channelId);
+    this.watchdog.stop(channelId);
 
     const resources = this.activeStreams.get(channelId);
     if (resources) {
-      // Kill ffmpeg processes
       resources.videoProcess?.kill();
       resources.audioProcess?.kill();
 
-      // Remove stream from Sharkord
-      try {
-        resources.streamHandle?.remove();
-      } catch {
-        // Ignore errors during cleanup
-      }
+      try { resources.streamHandle?.remove(); } catch { /* */ }
+      try { resources.audioProducer?.close(); } catch { /* */ }
+      try { resources.videoProducer?.close(); } catch { /* */ }
+      try { resources.audioTransport?.close(); } catch { /* */ }
+      try { resources.videoTransport?.close(); } catch { /* */ }
 
-      // Close producers
-      try {
-        resources.audioProducer?.close();
-      } catch {
-        // Ignore
-      }
-      try {
-        resources.videoProducer?.close();
-      } catch {
-        // Ignore
-      }
-
-      // Close transports
-      try {
-        resources.audioTransport?.close();
-      } catch {
-        // Ignore
-      }
-      try {
-        resources.videoTransport?.close();
-      } catch {
-        // Ignore
-      }
-
-      // Cleanup temp files (REQ-037: always delete working temp files after use)
       if (resources.videoTempFile && existsSync(resources.videoTempFile)) {
-        try {
-          unlinkSync(resources.videoTempFile);
-        } catch {
-          // Ignore cleanup errors
-        }
+        try { unlinkSync(resources.videoTempFile); } catch { /* */ }
       }
-
       if (resources.audioTempFile && existsSync(resources.audioTempFile)) {
-        try {
-          unlinkSync(resources.audioTempFile);
-        } catch {
-          // Ignore cleanup errors
-        }
+        try { unlinkSync(resources.audioTempFile); } catch { /* */ }
       }
 
       this.activeStreams.delete(channelId);
-    }
-
-    // Cleanup HLS resources
-    const hlsResources = this.activeHLSStreams.get(channelId);
-    if (hlsResources) {
-      // Remove stream from Sharkord
-      try {
-        hlsResources.streamHandle?.remove();
-      } catch {
-        // Ignore
-      }
-
-      // Kill ffmpeg process
-      try {
-        hlsResources.ffmpegKill();
-      } catch {
-        // Ignore
-      }
-
-      // Close HLS server
-      try {
-        hlsResources.hlsServer.close().catch(() => {
-          // Ignore errors during close
-        });
-      } catch {
-        // Ignore
-      }
-
-      this.activeHLSStreams.delete(channelId);
     }
   }
 
   /**
    * Cleanup all channels at once. (REQ-016)
-   * Used during plugin unload.
    */
   cleanupAll(): void {
     for (const channelId of this.activeStreams.keys()) {
       this.cleanup(channelId);
     }
-    for (const channelId of this.activeHLSStreams.keys()) {
-      this.cleanup(channelId);
-    }
-    this.sweepOrphanedTempFiles();
+    sweepOrphanedTempFiles();
   }
 
-  // ---- Stream Watchdog (REQ-044) ----
+  // ---- Watchdog delegation ----
 
-  /** Internal watchdog state per channel. */
-  private readonly watchdogIntervals = new Map<number, ReturnType<typeof setInterval>>();
-
-  /**
-   * Start a watchdog for an active stream channel. (REQ-044-A/B/C/D)
-   *
-   * The watchdog polls every 5 seconds whether the ffmpeg processes are still alive.
-   * If a premature exit is detected (process exited and elapsed time is significantly
-   * less than expected duration), it calls onPrematureExit for retry handling.
-   * After maxRetries, onFatalExit is called and the watchdog stops.
-   *
-   * Distinction normal vs. premature end (REQ-044-B):
-   *   - exit code 0 AND elapsed within ±10s of expected duration → normal end (no action)
-   *   - any other case with processes not alive → premature abort → retry
-   */
-  startWatchdog(
-    channelId: number,
-    options: {
-      expectedDurationSeconds: number;
-      loggers: { log: (...m: unknown[]) => void; error: (...m: unknown[]) => void };
-      onPrematureExit: (retryCount: number) => Promise<void>;
-      onFatalExit: () => void;
-      maxRetries?: number;
-      retryDelayMs?: number;
-      pollIntervalMs?: number;
-    }
-  ): void {
-    // REQ-044-A: Stop any existing watchdog for this channel before starting a new one
-    this.stopWatchdog(channelId);
-
-    const {
-      expectedDurationSeconds,
-      loggers,
-      onPrematureExit,
-      onFatalExit,
-      maxRetries = 2,
-      retryDelayMs = 3000,
-      pollIntervalMs = 5000,
-    } = options;
-
-    const startTimeMs = Date.now();
-    let retryCount = 0;
-    let watchdogActive = true;
-
-    loggers.log("[watchdog] Started — expectedDuration=", `${expectedDurationSeconds}s`, `maxRetries=${maxRetries}`);
-
-    const interval = setInterval(async () => {
-      if (!watchdogActive) return;
-
-      const resources = this.activeStreams.get(channelId);
-      if (!resources) {
-        // Stream was cleaned up externally — stop watchdog silently
-        clearInterval(interval);
-        this.watchdogIntervals.delete(channelId);
-        watchdogActive = false;
-        return;
-      }
-
-      const { videoProcess, audioProcess } = resources;
-      const videoExitCode = videoProcess?.process.exitCode ?? null;
-      const audioExitCode = audioProcess?.process.exitCode ?? null;
-
-      // REQ-044-A: A process is "still running" when its exitCode is null (Bun returns null for running procs)
-      const videoAlive = videoExitCode === null;
-      const audioAlive = audioExitCode === null;
-
-      if (videoAlive && audioAlive) {
-        // Both still running — all good
-        return;
-      }
-
-      // At least one process has exited — evaluate whether it's premature (REQ-044-B)
-      const elapsedMs = Date.now() - startTimeMs;
-      const elapsedSeconds = elapsedMs / 1000;
-      const normalEndWindowSeconds = 10; // ±10s tolerance
-      const isNormalEnd =
-        (videoExitCode === 0 || videoExitCode === null) &&
-        (audioExitCode === 0 || audioExitCode === null) &&
-        expectedDurationSeconds > 0 &&
-        Math.abs(elapsedSeconds - expectedDurationSeconds) <= normalEndWindowSeconds;
-
-      if (isNormalEnd) {
-        // REQ-044-B: Normal end — watchdog stops, onEnd callbacks handle queue advance
-        loggers.log(
-          "[watchdog] Normal end detected — elapsed=", `${Math.round(elapsedSeconds)}s`,
-          "expected=", `${expectedDurationSeconds}s`
-        );
-        clearInterval(interval);
-        this.watchdogIntervals.delete(channelId);
-        watchdogActive = false;
-        return;
-      }
-
-      // REQ-044-B: Premature exit detected
-      // REQ-044-D: Log the alarm regardless of debug mode
-      loggers.error(
-        "[watchdog] ALARM: premature process exit —",
-        `elapsed=${Math.round(elapsedSeconds)}s`,
-        `expected=${expectedDurationSeconds}s`,
-        `video.exitCode=${videoExitCode}`,
-        `audio.exitCode=${audioExitCode}`,
-        `retryCount=${retryCount}/${maxRetries}`
-      );
-
-      if (retryCount >= maxRetries) {
-        // REQ-044-C: All retries exhausted
-        // REQ-044-D: Fatal log
-        loggers.error("[watchdog] Max retries exhausted — triggering fatal exit handler");
-        clearInterval(interval);
-        this.watchdogIntervals.delete(channelId);
-        watchdogActive = false;
-        onFatalExit();
-        return;
-      }
-
-      // REQ-044-C: Retry — wait retryDelayMs then call onPrematureExit
-      retryCount += 1;
-      // REQ-044-D: Retry log
-      loggers.log(`[watchdog] Scheduling retry ${retryCount}/${maxRetries} in ${retryDelayMs}ms...`);
-
-      // Pause watchdog polling during retry delay to avoid double-firing
-      watchdogActive = false;
-      clearInterval(interval);
-      this.watchdogIntervals.delete(channelId);
-
-      await new Promise<void>((resolve) => setTimeout(resolve, retryDelayMs));
-
-      try {
-        await onPrematureExit(retryCount);
-      } catch (err) {
-        loggers.error("[watchdog] onPrematureExit callback threw:", err instanceof Error ? err.message : String(err));
-      }
-
-      // After retry, the startWatchdog will be called again by startStream — do not restart here.
-    }, pollIntervalMs);
-
-    this.watchdogIntervals.set(channelId, interval);
+  startWatchdog(channelId: number, options: ConstructorParameters<typeof StreamWatchdog>[0] extends undefined ? import("./stream-watchdog").WatchdogOptions : import("./stream-watchdog").WatchdogOptions): void {
+    this.watchdog.start(channelId, (id) => this.getResources(id), options);
   }
 
-  /** Stop and discard the watchdog for a channel. Called by cleanup(). (REQ-044-A) */
   stopWatchdog(channelId: number): void {
-    const existing = this.watchdogIntervals.get(channelId);
-    if (existing) {
-      clearInterval(existing);
-      this.watchdogIntervals.delete(channelId);
-    }
-  }
-
-  /**
-   * Delete any leftover temp-* files in the cache directory that were not
-   * cleaned up per-stream (e.g. after a crash or hard restart). (REQ-037, REQ-016)
-   *
-   * Only removes files matching the "temp-" prefix — debug logs and other
-   * files in the same directory are intentionally left untouched.
-   */
-  sweepOrphanedTempFiles(): void {
-    const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? process.cwd();
-    const cacheDir = path.join(homeDir, ".config", "sharkord", "vid-with-friends-cache");
-
-    if (!existsSync(cacheDir)) return;
-
-    let files: string[];
-    try {
-      files = readdirSync(cacheDir);
-    } catch {
-      return;
-    }
-
-    for (const file of files) {
-      if (!file.startsWith("temp-")) continue;
-      const filePath = path.join(cacheDir, file);
-      try {
-        unlinkSync(filePath);
-      } catch {
-        // Ignore — file may be locked by a still-running process
-      }
-    }
+    this.watchdog.stop(channelId);
   }
 }
