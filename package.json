@@ -3,10 +3,6 @@
   "version": "0.1.0-alpha.10",
   "module": "src/index.ts",
   "sharkord": {
-    "entry": {
-      "server": "index.js",
-      "client": "index.js"
-    },
     "author": "Vid with Friends Team",
     "homepage": "https://github.com/popoboxxo/sharkord-vid-with-friends",
     "description": "A plugin that allows users to watch YouTube videos together in sync within Sharkord voice channels",
@@ -14,7 +10,7 @@
   },
   "type": "module",
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist/sharkord-vid-with-friends --target bun --minify --format esm && bun run scripts/write-dist-package.ts && mkdir -p dist/sharkord-vid-with-friends/bin && node -e \"require('fs').copyFileSync('logo.png','dist/sharkord-vid-with-friends/logo.png')\"",
+    "build": "bun scripts/build.ts",
     "build:dev": "bun run build",
     "dev:stack": "bun run scripts/dev-stack.ts",
     "dev:reload": "bun run scripts/dev-stack.ts reload",

@@ -70,6 +70,8 @@ services:
       - plugin-binaries:/home/bun/.config/sharkord/plugins/sharkord-vid-with-friends/bin
       # Mount debug cache directory so user can access downloaded video/audio files from host
       - ./debug-cache:/home/bun/.config/sharkord/vid-with-friends-cache
+    cap_add:
+      - SYS_NICE    # Mediasoup worker benötigt thread priority scheduling
     restart: unless-stopped
 
 volumes:
