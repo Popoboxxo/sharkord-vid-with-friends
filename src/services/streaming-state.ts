@@ -21,7 +21,7 @@ export const MAX_DELAY_STEP_PER_STREAM_MS = 220;
 export const adaptiveAudioDelayMsByChannel = new Map<number, number>();
 export const lastStreamModeMsByChannel = new Map<number, boolean>();
 
-import { clampNumber } from "./settings";
+import { clampNumber } from "../utils/settings";
 
 export const getAdaptiveAudioDelayMs = (channelId: number, fullDownloadMode: boolean): number => {
   if (fullDownloadMode) return DEFAULT_FULL_DOWNLOAD_AUDIO_DELAY_MS;

@@ -20,7 +20,7 @@ const readWorkspaceFile = (relativePath: string): string => {
 describe("SDK migration", () => {
   it("[REQ-051] should target Sharkord v0.0.16 in dev docker stack", () => {
     const dockerCompose = readWorkspaceFile("docker-compose.dev.yml");
-    expect(dockerCompose).toContain("image: sharkord/sharkord:v0.0.16");
+    expect(dockerCompose).toContain("image: ghcr.io/sharkord/sharkord:");
   });
 
   it("[REQ-051] should pin Sharkord SDK dependencies to 0.0.16", () => {

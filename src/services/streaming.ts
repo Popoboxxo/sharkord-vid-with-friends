@@ -10,7 +10,8 @@ import { StreamManager } from "../stream/stream-manager";
 import { SyncController } from "../sync/sync-controller";
 import { STREAM_KEY } from "../utils/constants";
 import type { PluginContext } from "../utils/settings";
-import { resolveEffectiveSettings, debugLogFormattedSettings } from "../utils/settings";
+import { resolveEffectiveSettings } from "../utils/settings";
+import { debugLogFormattedSettings } from "../utils/debug";
 import { resolveVoiceActions } from "../utils/voice-compat";
 import {
   getAdaptiveAudioDelayMs,
