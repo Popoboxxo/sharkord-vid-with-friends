@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   sharkord:
-    image: ghcr.io/sharkord/sharkord:latest
+    image: ghcr.io/sharkord/sharkord:v0.0.20
     container_name: sharkord-dev
     restart: unless-stopped
     cap_add:
