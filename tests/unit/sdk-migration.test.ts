@@ -23,16 +23,16 @@ describe("SDK migration", () => {
     expect(dockerCompose).toContain("image: ghcr.io/sharkord/sharkord:");
   });
 
-  it("[REQ-051] should pin Sharkord SDK dependencies to 0.0.16", () => {
+  it("[REQ-051] should pin Sharkord SDK dependencies to 0.0.22", () => {
     const packageJsonRaw = readWorkspaceFile("package.json");
     const packageJson = JSON.parse(packageJsonRaw) as PackageJson;
 
-    expect(packageJson.devDependencies?.["@sharkord/plugin-sdk"]).toBe("0.0.16");
-    expect(packageJson.devDependencies?.["@sharkord/shared"]).toBe("0.0.16");
+    expect(packageJson.devDependencies?.["@sharkord/plugin-sdk"]).toBe("0.0.22");
+    expect(packageJson.devDependencies?.["@sharkord/shared"]).toBe("0.0.22");
   });
 
-  it("[REQ-051] should document Sharkord minimum version >= 0.0.16", () => {
+  it("[REQ-051] should document Sharkord minimum version >= 0.0.22", () => {
     const readme = readWorkspaceFile("README.md");
-    expect(readme).toContain("[Sharkord](https://github.com/nicanderhery/sharkord) >= 0.0.16");
+    expect(readme).toContain("[Sharkord](https://github.com/nicanderhery/sharkord) >= 0.0.22");
   });
 });

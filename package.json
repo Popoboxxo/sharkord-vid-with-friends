@@ -1,8 +1,9 @@
 {
   "name": "sharkord-vid-with-friends",
-  "version": "0.1.0-alpha.10",
-  "module": "src/index.ts",
+  "version": "0.2.0",
+  "module": "src/server/index.ts",
   "sharkord": {
+    "name": "Vid With Friends",
     "author": "Vid with Friends Team",
     "homepage": "https://github.com/popoboxxo/sharkord-vid-with-friends",
     "description": "A plugin that allows users to watch YouTube videos together in sync within Sharkord voice channels",
@@ -27,8 +28,8 @@
     "zod": "^4.3.5"
   },
   "devDependencies": {
-    "@sharkord/plugin-sdk": "0.0.16",
-    "@sharkord/shared": "0.0.16",
+    "@sharkord/plugin-sdk": "0.0.22",
+    "@sharkord/shared": "0.0.22",
     "@types/bun": "latest",
     "@types/react": "^19.2.14",
     "react": "^19.2.4"
