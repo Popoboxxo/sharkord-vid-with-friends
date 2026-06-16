@@ -19,6 +19,8 @@
     "test": "bun test",
     "test:unit": "bun test tests/unit/",
     "test:integration": "bun test tests/integration/",
+    "test:ui": "bun test tests/ui/",
+    "test:e2e": "node node_modules/@playwright/test/cli.js test",
     "test:docker": "docker compose -f tests/docker/docker-compose.yml up --build --abort-on-container-exit",
     "session:start": "bun run build && bun test",
     "session:dev": "bun run build && bun test && echo '--- Session ready for development ---'",
@@ -28,11 +30,16 @@
     "zod": "^4.3.5"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "^20.10.4",
     "@sharkord/plugin-sdk": "0.0.22",
     "@sharkord/shared": "0.0.22",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@types/bun": "latest",
     "@types/react": "^19.2.14",
-    "react": "^19.2.4"
+    "happy-dom": "^20.10.4",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.6"
   },
   "peerDependencies": {
     "typescript": "^5"

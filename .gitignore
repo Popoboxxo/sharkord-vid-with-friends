@@ -26,6 +26,11 @@ Thumbs.db
 # Bun
 bun.lock
 
+# Playwright E2E artifacts
+test-results/
+playwright-report/
+tests/e2e/.generated/
+
 # Debug cache
 debug-cache/
 .claude/settings.local.json
