@@ -33,5 +33,8 @@ export const VIDEO_CODEC = {
 /** Maximum queue size per channel to prevent abuse */
 export const MAX_QUEUE_SIZE = 50;
 
+/** Maximum number of played videos retained in per-channel watch history */
+export const MAX_HISTORY_SIZE = 10;
+
 /** Plugin display name */
 export const PLUGIN_NAME = "Vid With Friends";

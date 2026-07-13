@@ -13,6 +13,7 @@ import { registerSkipCommand } from "./commands/skip";
 import { registerRemoveCommand } from "./commands/remove";
 import { registerStopCommand } from "./commands/stop";
 import { registerNowPlayingCommand } from "./commands/nowplaying";
+import { registerHistoryCommand } from "./commands/history";
 import { registerPauseCommand } from "./commands/pause";
 import { registerResumeCommand } from "./commands/resume";
 import { registerVolumeCommand } from "./commands/volume";
@@ -189,6 +190,7 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
   registerRemoveCommand(commandCompatCtx as never, qm);
   registerStopCommand(commandCompatCtx as never, sc, sm);
   registerNowPlayingCommand(commandCompatCtx as never, qm);
+  registerHistoryCommand(commandCompatCtx as never, qm);
   registerPauseCommand(commandCompatCtx as never, sc, sm);
   registerResumeCommand(commandCompatCtx as never, sc, sm);
   registerVolumeCommand(commandCompatCtx as never, sc);
