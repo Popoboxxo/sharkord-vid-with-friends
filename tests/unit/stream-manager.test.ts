@@ -8,7 +8,7 @@
  * Referenced by: REQ-002, REQ-003, REQ-015, REQ-016
  */
 import { describe, it, expect, beforeEach } from "bun:test";
-import { StreamManager } from "../../src/stream/stream-manager";
+import { StreamManager, type TransportResources } from "../../src/stream/stream-manager";
 import {
   createMockRouter,
   createMockPluginContext,
@@ -80,7 +80,7 @@ describe("StreamManager", () => {
     expect(streamManager.isActive(channelId)).toBe(false);
 
     streamManager.setActive(channelId, {
-      audioTransport: createMockRouter() as unknown as ReturnType<typeof streamManager.createTransports> extends Promise<infer R> ? R["audioTransport"] : never,
+      audioTransport: createMockRouter() as unknown as TransportResources["audioTransport"],
     } as never);
 
     expect(streamManager.isActive(channelId)).toBe(true);

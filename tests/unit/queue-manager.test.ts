@@ -198,8 +198,8 @@ describe("QueueManager", () => {
     queue.add(channelId, makeItem({ title: "B" }));
     queue.skip(channelId);
 
-    expect(advancedTo?.title).toBe("B");
-    expect(advancedChannel).toBe(channelId);
+    expect((advancedTo as QueueItem | null)?.title).toBe("B");
+    expect(advancedChannel as number | null).toBe(channelId);
   });
 
   it("[REQ-009] should call onAdvance with null when queue exhausted", () => {

@@ -9,6 +9,7 @@ import type {
   TransportResources,
   ProducerResources,
   RouterLike,
+  ChannelStreamResources,
 } from "../types/stream";
 import type { WatchdogOptions } from "./stream-watchdog";
 import { AUDIO_CODEC, VIDEO_CODEC } from "../utils/constants";
@@ -192,12 +193,17 @@ export class StreamManager {
     for (const channelId of this.activeStreams.keys()) {
       this.cleanup(channelId);
     }
+    this.sweepOrphanedTempFiles();
+  }
+
+  /** Sweep orphaned temp files from crashes or previous sessions. (REQ-037) */
+  sweepOrphanedTempFiles(): void {
     sweepOrphanedTempFiles();
   }
 
   // ---- Watchdog delegation ----
 
-  startWatchdog(channelId: number, options: ConstructorParameters<typeof StreamWatchdog>[0] extends undefined ? import("./stream-watchdog").WatchdogOptions : import("./stream-watchdog").WatchdogOptions): void {
+  startWatchdog(channelId: number, options: WatchdogOptions): void {
     this.watchdog.start(channelId, (id) => this.getResources(id), options);
   }
 
