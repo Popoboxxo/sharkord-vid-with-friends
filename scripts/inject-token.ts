@@ -3,7 +3,7 @@
  * This uses a VERY hacky approach: extracting the HTML, injecting script, and serving it back
  */
 
-const TOKEN = "019c9be5-bb4f-7000-98df-0e57c8441fda";
+const TOKEN = process.env.CLAIM_TOKEN ?? "<YOUR_CLAIM_TOKEN_HERE>";
 const SHARKORD_URL = "http://localhost:3000";
 
 console.log("🔐 Auto-claim Proxy Server starting...");

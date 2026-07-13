@@ -3,7 +3,7 @@
  */
 import { readFile } from "fs/promises";
 
-const htmlContent = await readFile("./claim-owner.html", "utf-8");
+const htmlContent = await readFile(`${import.meta.dir}/claim-owner.html`, "utf-8");
 
 const server = Bun.serve({
   port: 3002,

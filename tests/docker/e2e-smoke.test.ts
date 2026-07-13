@@ -14,7 +14,7 @@ describe("E2E Smoke", () => {
 
   it("[REQ-015] should import plugin entry without errors", async () => {
     // Dynamic import to test that the module resolves correctly
-    const plugin = await import("../../src/index");
+    const plugin = await import("../../src/server/index");
     expect(plugin.onLoad).toBeFunction();
     expect(plugin.onUnload).toBeFunction();
   });

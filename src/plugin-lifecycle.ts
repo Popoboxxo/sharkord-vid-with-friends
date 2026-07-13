@@ -42,8 +42,6 @@ import {
 import { handleVoiceRuntimeClosed } from "./handlers/voice-runtime";
 import { startStream } from "./services/streaming";
 
-import { components as pluginComponents } from "./ui/components";
-
 let settingsWatcher: ReturnType<typeof setInterval> | null = null;
 
 export const onLoad = async (ctx: PluginContext): Promise<void> => {
@@ -197,14 +195,6 @@ export const onLoad = async (ctx: PluginContext): Promise<void> => {
   registerDebugCacheCommand(commandCompatCtx as never);
   registerBugReportCommand(commandCompatCtx as never);
 
-  // Register UI components
-  const uiApi = (ctx as { ui?: { registerComponents?: (components: unknown) => void } }).ui;
-  if (typeof uiApi?.registerComponents === "function") {
-    uiApi.registerComponents(pluginComponents);
-  } else {
-    ctx.debug(`[${PLUGIN_NAME}] Runtime has no ctx.ui.registerComponents(); using exported components fallback.`);
-  }
-
   let previousSettingsSnapshot = logSettingsSnapshot(ctx, "plugin:loaded");
 
   ctx.events.on("settings:changed", (...args: unknown[]) => {
@@ -241,6 +231,3 @@ export const onUnload = (ctx: PluginContext): void => {
 
   ctx.log(`[${PLUGIN_NAME}] Unloaded.`);
 };
-
-// Re-export components for SDK wiring
-export { components } from "./ui/components";

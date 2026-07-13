@@ -4,7 +4,7 @@
  * Referenced by: REQ-015, REQ-017
  */
 import { describe, it, expect } from "bun:test";
-import { onLoad, onUnload } from "../../src/index";
+import { onLoad, onUnload } from "../../src/plugin-lifecycle";
 import { createMockPluginContext } from "./mock-plugin-context";
 
 describe("Plugin entrypoint lifecycle", () => {
