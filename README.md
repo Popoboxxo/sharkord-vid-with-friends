@@ -129,7 +129,7 @@ src/
 
 ## Prerequisites
 
-- [Sharkord](https://github.com/nicanderhery/sharkord) >= 0.0.16
+- [Sharkord](https://github.com/nicanderhery/sharkord) >= 0.0.22
 - **ffmpeg** and **yt-dlp** binaries (see below)
 
 ## Required Binaries

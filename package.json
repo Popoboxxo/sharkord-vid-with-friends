@@ -1,8 +1,9 @@
 {
   "name": "sharkord-vid-with-friends",
-  "version": "0.1.0-alpha.10",
-  "module": "src/index.ts",
+  "version": "0.2.0",
+  "module": "src/server/index.ts",
   "sharkord": {
+    "name": "Vid With Friends",
     "author": "Vid with Friends Team",
     "homepage": "https://github.com/popoboxxo/sharkord-vid-with-friends",
     "description": "A plugin that allows users to watch YouTube videos together in sync within Sharkord voice channels",
@@ -18,20 +19,28 @@
     "test": "bun test",
     "test:unit": "bun test tests/unit/",
     "test:integration": "bun test tests/integration/",
+    "test:ui": "bun test tests/ui/",
+    "test:e2e": "node node_modules/@playwright/test/cli.js test",
     "test:docker": "docker compose -f tests/docker/docker-compose.yml up --build --abort-on-container-exit",
     "session:start": "bun run build && bun test",
     "session:dev": "bun run build && bun test && echo '--- Session ready for development ---'",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit -p tsconfig.check.json"
   },
   "dependencies": {
     "zod": "^4.3.5"
   },
   "devDependencies": {
-    "@sharkord/plugin-sdk": "0.0.16",
-    "@sharkord/shared": "0.0.16",
+    "@happy-dom/global-registrator": "^20.10.4",
+    "@sharkord/plugin-sdk": "0.0.22",
+    "@sharkord/shared": "0.0.22",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@types/bun": "latest",
     "@types/react": "^19.2.14",
-    "react": "^19.2.4"
+    "@types/react-dom": "^19.2.3",
+    "happy-dom": "^20.10.4",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.6"
   },
   "peerDependencies": {
     "typescript": "^5"

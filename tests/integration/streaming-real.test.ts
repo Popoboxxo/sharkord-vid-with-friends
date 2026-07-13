@@ -7,12 +7,7 @@
  * Referenced by: REQ-002
  */
 import { describe, it, expect } from "bun:test";
-import {
-  buildVideoStreamArgs,
-  buildAudioStreamArgs,
-  spawnFfmpeg,
-  getFfmpegPath,
-} from "../../src/stream/ffmpeg";
+import { spawnFfmpeg, getFfmpegPath } from "../../src/stream/ffmpeg";
 import { resolveVideo, getYtDlpPath } from "../../src/stream/yt-dlp";
 
 const STREAM_TEST_URL = "https://www.youtube.com/watch?v=H6P3kJ8nrR8";
@@ -41,27 +36,30 @@ describe("Integration: Streaming (real URL)", () => {
     expect(resolved.streamUrl.length).toBeGreaterThan(0);
     expect(resolved.audioUrl.length).toBeGreaterThan(0);
 
-    const videoArgs = buildVideoStreamArgs({
+    const videoProc = await spawnFfmpeg({
+      streamType: "video",
       sourceUrl: resolved.streamUrl,
+      youtubeUrl: resolved.youtubeUrl,
       rtpHost: "127.0.0.1",
       rtpPort: 45000,
       payloadType: 96,
       ssrc: 111111111,
       bitrate: "2000k",
+      loggers,
     });
 
-    const audioArgs = buildAudioStreamArgs({
+    const audioProc = await spawnFfmpeg({
+      streamType: "audio",
       sourceUrl: resolved.audioUrl,
+      youtubeUrl: resolved.youtubeUrl,
       rtpHost: "127.0.0.1",
       rtpPort: 45002,
       payloadType: 111,
       ssrc: 222222222,
       bitrate: "128k",
       volume: 0.5,
+      loggers,
     });
-
-    const videoProc = spawnFfmpeg(videoArgs, loggers, resolved.streamUrl, resolved.youtubeUrl, "video", false);
-    const audioProc = spawnFfmpeg(audioArgs, loggers, resolved.audioUrl, resolved.youtubeUrl, "audio", false);
 
     await new Promise<void>((resolve) => setTimeout(resolve, 5000));
 

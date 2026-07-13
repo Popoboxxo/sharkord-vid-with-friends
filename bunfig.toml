@@ -1,0 +1,4 @@
+[test]
+# Register the happy-dom global environment before any test module imports, so
+# @testing-library/dom captures the DOM globals at load time.
+preload = ["./tests/ui/setup.ts"]

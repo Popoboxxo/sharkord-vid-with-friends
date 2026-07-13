@@ -335,7 +335,7 @@ describe("Integration: Queue + SyncController + Commands", () => {
 
       // REQ-053-B: Response should include LOADING emoji
       expect(response).toMatch(/🔄/);
-      expect(response.toLowerCase()).toMatch(/loading|searching/);
+      expect(String(response).toLowerCase()).toMatch(/loading|searching/);
     });
 
     it("[REQ-053-C] should throw error if join fails", async () => {

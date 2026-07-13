@@ -246,7 +246,7 @@ describe("Commands", () => {
       const result = await ctx.commands.execute("vid-stop", invoker, {});
 
       expect(String(result)).toContain("Playback stopped");
-      expect(cleanedChannel).toBe(channelId);
+      expect(cleanedChannel as number | null).toBe(channelId);
     });
   });
 

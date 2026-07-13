@@ -4,7 +4,7 @@
  * Extracts owner token from Docker logs and claims it
  */
 
-const token = "019c9bd0-2d07-7000-a14c-1570ae374b0a";
+const token = process.env.CLAIM_TOKEN ?? "<YOUR_CLAIM_TOKEN_HERE>";
 const sharkordUrl = "http://localhost:3000";
 
 console.log("🔐 Claiming Owner Permissions...");

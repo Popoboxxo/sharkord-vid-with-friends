@@ -75,9 +75,7 @@ export const startStream = async (
     if (debugMode) debugLogFormattedSettings(ctx, settings);
 
     const sync = createStreamSyncContext(channelId, fullDownloadMode, audioSyncDelayMs);
-    let resolveSyncStart: (() => void) | null = null;
-    const syncStartSignal = new Promise<void>((resolve) => { resolveSyncStart = resolve; });
-    sync.resolveSyncStart = resolveSyncStart;
+    const syncStartSignal = new Promise<void>((resolve) => { sync.resolveSyncStart = resolve; });
 
     const phaseCallbackRef: { fn: ((phase: "DOWNLOADING" | "BUFFERING" | "STREAMING") => void) | null } = { fn: null };
 
@@ -141,7 +139,7 @@ export const startStream = async (
     const results = await Promise.allSettled([videoPromise, audioPromise]);
     const failed = results.find((r) => r.status === "rejected");
     if (failed) {
-      if (!sync.syncStartReleased) { sync.syncStartReleased = true; resolveSyncStart?.(); }
+      if (!sync.syncStartReleased) { sync.syncStartReleased = true; sync.resolveSyncStart?.(); }
       for (const r of results) {
         if (r.status === "fulfilled") { try { r.value.kill(); } catch { /* */ } }
       }

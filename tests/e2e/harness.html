@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Sharkord Plugin UI — E2E harness</title>
+    <style>
+      body { margin: 0; background: #0d1117; font-family: system-ui, sans-serif; }
+      #root { padding: 16px; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <!-- Host shim: exposes window.__SHARKORD_REACT__ + __SHARKORD_MOUNT__ -->
+    <script type="module" src="./.generated/host-shim.js"></script>
+
+    <!-- Boot: install a controllable mock store, load the built plugin bundle,
+         and mount the slot named by ?slot=. State is injected via ?state= (JSON). -->
+    <script type="module">
+      const params = new URLSearchParams(location.search);
+      const slot = params.get("slot") || "home_screen";
+      const pluginId = params.get("plugin"); // required: matches dist/<pluginId>/
+      const initialState = JSON.parse(params.get("state") || "{}");
+
+      // initialState.actions maps action name -> canned result, e.g.
+      //   { actions: { "vid:state": {...} }, selectedChannelId: 5, promptAnswer: "..." }
+      const actionResults = initialState.actions || {};
+
+      // Controllable mock host store (mirrors window.__SHARKORD_STORE__ contract).
+      const actionCalls = [];
+      const sentMessages = [];
+      const listeners = new Set();
+      window.__E2E__ = {
+        actionCalls,
+        sentMessages,
+        // Update a canned action result and notify subscribers (re-render).
+        setActionResult: (name, value) => { actionResults[name] = value; listeners.forEach((l) => l()); },
+      };
+
+      window.__SHARKORD_STORE__ = {
+        getState: () => ({
+          users: [], channels: [], ownUserId: 1,
+          selectedChannelId: initialState.selectedChannelId ?? 5,
+          currentVoiceChannelId: undefined,
+        }),
+        subscribe: (l) => { listeners.add(l); return () => listeners.delete(l); },
+        actions: {
+          sendMessage: async (channelId, content) => { sentMessages.push({ channelId, content }); },
+          selectChannel: () => {},
+          executePluginAction: async (name, payload) => {
+            actionCalls.push({ name, payload });
+            return name in actionResults ? actionResults[name] : undefined;
+          },
+        },
+      };
+      // Auto-answer window.prompt (for components that prompt for input).
+      if (initialState.promptAnswer !== undefined) {
+        window.prompt = () => initialState.promptAnswer;
+      }
+
+      const mod = await import(`/dist/${pluginId}/client/index.js`);
+      const Component = mod.components[slot]?.[0];
+      if (!Component) {
+        document.getElementById("root").textContent = "No component for slot " + slot;
+      } else {
+        const waitMount = () => {
+          if (window.__SHARKORD_MOUNT__) {
+            window.__SHARKORD_MOUNT__(document.getElementById("root"), Component);
+            window.__E2E_READY__ = true;
+          } else {
+            requestAnimationFrame(waitMount);
+          }
+        };
+        waitMount();
+      }
+    </script>
+  </body>
+</html>

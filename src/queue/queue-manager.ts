@@ -6,7 +6,7 @@
  * Referenced by: REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010
  */
 import type { QueueItem, QueueState, QueueAdvanceCallback } from "./types";
-import { MAX_QUEUE_SIZE } from "../utils/constants";
+import { MAX_QUEUE_SIZE, MAX_HISTORY_SIZE } from "../utils/constants";
 
 type ChannelQueue = {
   items: QueueItem[];
@@ -15,6 +15,8 @@ type ChannelQueue = {
 
 export class QueueManager {
   private readonly queues = new Map<number, ChannelQueue>();
+  /** Per-channel watch history (chronological, oldest first). Persists across clear(). */
+  private readonly history = new Map<number, QueueItem[]>();
   private advanceCallbacks: QueueAdvanceCallback[] = [];
 
   /** Register a callback that fires whenever a queue advances (skip/remove current). */
@@ -66,6 +68,12 @@ export class QueueManager {
     const queue = this.queues.get(channelId);
     if (!queue) return null;
 
+    // Record the outgoing item (the one that just finished or was skipped).
+    const outgoing = queue.items[queue.currentIndex] ?? null;
+    if (outgoing) {
+      this.recordHistory(channelId, outgoing);
+    }
+
     queue.currentIndex++;
 
     const next = this.getCurrent(channelId);
@@ -113,7 +121,30 @@ export class QueueManager {
     return this.getState(channelId).size > 0;
   }
 
+  /**
+   * Get the most recently played items for a channel, newest first.
+   * Returns at most MAX_HISTORY_SIZE entries. Survives clear()/stop().
+   */
+  getHistory(channelId: number): QueueItem[] {
+    const hist = this.history.get(channelId);
+    if (!hist) return [];
+    return [...hist].reverse();
+  }
+
   // ---- Private helpers ----
+
+  private recordHistory(channelId: number, item: QueueItem): void {
+    let hist = this.history.get(channelId);
+    if (!hist) {
+      hist = [];
+      this.history.set(channelId, hist);
+    }
+    hist.push(item);
+    // FIFO: drop the oldest entry once the cap is exceeded.
+    if (hist.length > MAX_HISTORY_SIZE) {
+      hist.shift();
+    }
+  }
 
   private getOrCreateQueue(channelId: number): ChannelQueue {
     let queue = this.queues.get(channelId);
