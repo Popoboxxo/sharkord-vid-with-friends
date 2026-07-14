@@ -46,19 +46,20 @@ Server-side streaming via **yt-dlp → ffmpeg → Mediasoup RTP** guarantees fra
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `/vid-watch <url\|query>` | Play a YouTube video (rejected if another video is already active in the same channel) |
-| `/vid-queue` | Display the current video queue |
-| `/vid-skip` | Skip the current video |
-| `/vid-remove <position>` | Remove a video from the queue by position |
-| `/vid-stop` | Stop playback and clear the queue |
-| `/vid-nowplaying` | Show the currently playing video |
-| `/vid-pause` | Toggle pause/resume |
-| `/vid-resume` | Resume only when a video is paused |
-| `/vid-volume <0-100>` | Set the playback volume |
-| `/vid-debug-cache` | List debug cache files (debug mode only) |
-| `/vid-bugreport [description]` | Create a pre-filled GitHub issue with anonymized debug info |
+| Command | Arguments | Description |
+|---------|-----------|-------------|
+| `/vid-watch` | `<query>` (string) | Play a YouTube video (URL or search query). Rejected if another video is already active in the same channel. |
+| `/vid-queue` | — | Display the current video queue with durations. |
+| `/vid-skip` | — | Skip the current video and play the next in queue. |
+| `/vid-remove` | `<position>` (number) | Remove a video from the queue by position (use `/vid-queue` to see positions). |
+| `/vid-stop` | — | Stop playback and clear the queue. |
+| `/vid-nowplaying` | — | Show the currently playing video. |
+| `/vid-pause` | — | Pause or resume the current video (toggles state). |
+| `/vid-resume` | — | Resume a paused video (only works when paused). |
+| `/vid-volume` | `<level>` (number) | Set the playback volume (0–100). Applies to the next video. |
+| `/vid-history` | — | Show the last 10 played videos in the channel. |
+| `/vid-debug-cache` | — | List debug cache files (video/audio) for inspection. Debug Mode must be enabled. |
+| `/vid-bugreport` | `<description>` (string) | Create an anonymized GitHub issue with debug info and logs. |
 
 ## Settings
 
