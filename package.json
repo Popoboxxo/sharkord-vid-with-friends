@@ -1,6 +1,6 @@
 {
   "name": "sharkord-vid-with-friends",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "module": "src/server/index.ts",
   "sharkord": {
     "name": "Vid With Friends",

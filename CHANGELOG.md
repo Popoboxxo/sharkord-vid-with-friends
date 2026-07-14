@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] - 2026-07-14
+
+### Documentation
+
+- Added command reference to README (all commands with arguments, descriptions, and examples)
+
 ## [0.3.0] - 2026-07-13
 
 ### Added
